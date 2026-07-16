@@ -1,0 +1,14 @@
+# Dependencies
+node_modules/
+
+# Dữ liệu runtime (kết quả check, daily-rank, jobs, exports, debug HTML, chrome profile)
+apps/worker/data/
+
+# Bí mật / phiên
+apps/worker/.env
+apps/worker/cookies.json
+**/cookies.json
+
+# Hệ thống
+.DS_Store
+*.log

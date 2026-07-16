@@ -1,0 +1,21 @@
+{
+  "name": "ppc-warrior-worker",
+  "version": "0.1.0",
+  "description": "PPC Warrior — Worker check ranking (chạy local)",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "start:vps": "xvfb-run -a --server-args='-screen 0 1366x900x24' node server.js",
+    "agent": "node agent.js"
+  },
+  "dependencies": {
+    "dotenv": "^17.2.1",
+    "express": "^5.1.0",
+    "multer": "^2.0.1",
+    "puppeteer": "^24.16.0",
+    "puppeteer-extra": "^3.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2",
+    "xlsx": "^0.18.5"
+  }
+}

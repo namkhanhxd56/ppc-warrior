@@ -1,0 +1,621 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<title>PPC Warrior — Check Ranking</title>
+<style>
+  :root { --b:#2455e6; --ok:#1a9e50; --bad:#e04545; --mut:#667; }
+  * { box-sizing:border-box; }
+  body { font-family:-apple-system,Segoe UI,Arial,sans-serif; margin:0; background:#f4f6fa; color:#1b2330; }
+  header { background:#101828; color:#fff; padding:14px 24px; display:flex; align-items:center; gap:12px; }
+  header h1 { font-size:17px; margin:0; }
+  header .tag { font-size:11px; background:var(--b); padding:2px 8px; border-radius:10px; }
+  main { max-width:1280px; margin:20px auto; padding:0 16px; }
+  .card { background:#fff; border:1px solid #e3e8f0; border-radius:10px; padding:16px 18px; margin-bottom:16px; }
+  .card h2 { font-size:14px; margin:0 0 10px; display:flex; align-items:center; gap:8px; }
+  .temp-note { font-size:11px; color:#b45309; background:#fef3c7; border-radius:6px; padding:2px 8px; }
+  label { font-size:12px; color:var(--mut); display:block; margin:8px 0 4px; }
+  input[type=text], input[type=number], textarea { width:100%; padding:8px 10px; border:1px solid #ccd3e0; border-radius:6px; font-size:13px; font-family:inherit; }
+  textarea { font-family:ui-monospace,Menlo,monospace; }
+  .row { display:flex; gap:14px; flex-wrap:wrap; align-items:flex-end; }
+  .row > div { flex:1; min-width:140px; }
+  .chk { display:flex; align-items:center; gap:6px; font-size:13px; margin-top:10px; }
+  button { padding:9px 18px; border:none; border-radius:6px; cursor:pointer; font-size:13px; font-weight:600; }
+  .btn-run { background:var(--b); color:#fff; }
+  .btn-stop { background:#e5e9f0; }
+  .btn-sm { padding:5px 10px; font-size:12px; background:#eef1f7; }
+  #logs { background:#0b1020; color:#7ef0a8; font:11.5px/1.5 ui-monospace,Menlo,monospace; padding:12px; border-radius:8px; height:210px; overflow-y:auto; white-space:pre-wrap; }
+  table { border-collapse:collapse; width:100%; font-size:12.5px; }
+  th, td { border:1px solid #e3e8f0; padding:6px 9px; text-align:left; white-space:nowrap; }
+  th { background:#f0f3f9; position:sticky; top:0; }
+  .scroll { overflow:auto; max-height:520px; }
+  .up { background:#c9f2d4; }      /* lên hạng */
+  .down { background:#ffc9c9; }    /* tụt hạng */
+  .nf { background:#e02020; color:#fff; }  /* not found */
+  .varOnly { background:#fff3df; } /* ASIN chính vắng nhưng nhóm có mặt — chi tiết xem float */
+  .tipwrap { position:relative; cursor:help; }
+  .tipwrap .dot { color:#e08a00; font-size:13px; }
+  .tipbox { display:none; position:absolute; z-index:20; left:0; top:100%; margin-top:2px;
+    background:#101828; color:#e8edf6; padding:8px 12px; border-radius:7px; font-size:12px;
+    line-height:1.7; white-space:nowrap; box-shadow:0 4px 14px rgba(0,0,0,.25); text-align:left; }
+  .tipbox b { color:#8fd1ff; }
+  .tipwrap:hover .tipbox { display:block; }
+  .tosOwn { background:#cfe3ff; font-weight:700; } /* đang chiếm ToS */
+  .tosLost { color:#778; }         /* 0/y — đối thủ chiếm hết slot */
+  .tosEmpty { color:#c3c9d6; }     /* 0/0 — không ai mua ToS (cơ hội rẻ) */
+  .tosUnknown { color:#c77b00; background:#fdf3e3; } /* ? — phiên không được serve SP tile, không kết luận được */
+  .bdgDot { color:#7a4fd1; font-size:12px; cursor:help; } /* 🏷 badge Amazon trên tile của mình — hover xem chi tiết */
+  .bdgChip { display:inline-block; background:#f3eeff; color:#5a3aa8; border-radius:4px; padding:0 4px; font-size:10.5px; margin-left:3px; }
+  .pv { color:#b45309; font-weight:700; }
+  .badge { display:inline-block; font-size:10.5px; padding:1px 6px; border-radius:8px; background:#eef1f7; margin-left:4px; }
+  .variant-row td { background:#f8fafc; color:#556; font-size:12px; }
+  .tabs { display:flex; gap:8px; margin-bottom:10px; }
+  .tabs button.active { background:var(--b); color:#fff; }
+  details summary { cursor:pointer; font-size:13px; color:var(--mut); }
+</style>
+</head>
+<body>
+<header>
+  <h1>⚔️ PPC Warrior</h1>
+  <nav style="display:flex;gap:4px;margin-left:10px">
+    <a href="/" style="color:#fff;background:var(--b);text-decoration:none;font-size:13px;padding:6px 14px;border-radius:8px;font-weight:600">📊 Check Ranking</a>
+    <a href="/launching.html" style="color:#9fb0c8;text-decoration:none;font-size:13px;padding:6px 14px;border-radius:8px">🚀 Tạo Campaign</a>
+  </nav>
+  <span id="status" style="margin-left:auto;font-size:12px;color:#9fb0c8">Idle</span>
+</header>
+<main>
+
+  <!-- ===== NHẬP TẠM (sẽ ẩn khi đồng bộ kho keyword) ===== -->
+  <div class="card" id="tempInput">
+    <h2>Nhập kiểm tra <span class="temp-note">⚠ Trường tạm — sẽ ẩn khi đồng bộ với kho keyword (tag PPC)</span></h2>
+    <div class="row">
+      <div style="max-width:220px">
+        <label>ASIN</label>
+        <input type="text" id="asin" placeholder="B0XXXXXXXX" maxlength="10">
+      </div>
+      <div style="max-width:150px">
+        <label>Số trang quét (tối đa)</label>
+        <input type="number" id="maxPages" value="3" min="1" max="5">
+      </div>
+      <div>
+        <div class="chk"><input type="checkbox" id="checkVariants" checked><label style="margin:0">Track cả nhóm parent/child <span style="color:#889">(lưu riêng theo ASIN — tắt cho nhóm biến thể phân hóa như sticker A–Z)</span></label></div>
+        <div class="chk"><input type="checkbox" id="saveSnapshot"><label style="margin:0">Lưu competitor snapshot (nặng hơn)</label></div>
+        <div class="chk"><input type="checkbox" id="debugMode"><label style="margin:0">🐞 Debug (lưu HTML từng trang vào data/debug — để kiểm chứng ToS)</label></div>
+      </div>
+    </div>
+    <label style="display:flex;align-items:center;gap:10px">Keywords (mỗi dòng 1 keyword)
+      <button class="btn-sm" id="btnLoadBank" style="margin:0">📚 Nạp từ kho keyword (tag PPC)</button>
+      <span id="bankMsg" style="font-weight:400;color:#889"></span></label>
+    <textarea id="keywords" rows="7" placeholder="bowling pin christmas ornament&#10;bowling ornaments&#10;..."></textarea>
+    <div style="margin-top:12px; display:flex; gap:8px;">
+      <button class="btn-run" id="btnRun">▶ Kiểm tra xếp hạng</button>
+      <button class="btn-stop" id="btnStop">⏹ Dừng</button>
+    </div>
+  </div>
+
+  <!-- ===== Lịch check daily ===== -->
+  <div class="card">
+    <details>
+      <summary>⏰ Lịch check daily (chạy tự động theo giờ — máy phải bật)</summary>
+      <div class="row" style="margin-top:8px">
+        <div style="max-width:120px"><label>Giờ chạy</label><input type="text" id="schTime" placeholder="07:00"></div>
+        <div class="chk" style="max-width:160px"><input type="checkbox" id="schEnabled"><label style="margin:0">Bật lịch</label></div>
+        <div><button class="btn-sm" id="btnAddJob">➕ Thêm job (ASIN & keywords đang nhập)</button>
+             <button class="btn-sm" id="btnSaveSch">💾 Lưu lịch</button></div>
+      </div>
+      <div id="schJobs" style="font-size:12px;color:var(--mut);margin-top:8px"></div>
+    </details>
+  </div>
+
+  <!-- ===== Import chỉ số ads (file bulk daily) ===== -->
+  <div class="card">
+    <details>
+      <summary>📥 Import chỉ số ads — file bulk daily (Spent, Sales ads, ACoS cho dòng Chỉ số chính)</summary>
+      <div class="row" style="margin-top:8px">
+        <div><label>File bulk (.xlsx)</label><input type="file" id="bulkFile" accept=".xlsx"></div>
+        <div style="max-width:170px"><label>Ngày (bỏ trống = lấy từ tên file)</label><input type="text" id="bulkDate" placeholder="YYYY-MM-DD"></div>
+        <div><button class="btn-sm" id="btnImportBulk">Import</button> <span id="importMsg" style="font-size:12px;color:var(--mut)"></span></div>
+      </div>
+      <div class="row" style="margin-top:10px;border-top:1px dashed #e3e8f0;padding-top:10px">
+        <div style="max-width:160px"><label>Sale total (nhập tay)</label><input type="text" id="mtAsin" placeholder="ASIN"></div>
+        <div style="max-width:140px"><input type="text" id="mtDate" placeholder="YYYY-MM-DD"></div>
+        <div style="max-width:120px"><input type="number" id="mtTotal" placeholder="$"></div>
+        <div><button class="btn-sm" id="btnSaveTotal">Lưu</button></div>
+      </div>
+    </details>
+  </div>
+
+  <!-- ===== Zip code / Location ===== -->
+  <div class="card">
+    <details open>
+      <summary>📍 Zip code giao hàng (máy VN mở phiên mới sẽ thành "Deliver to Vietnam" — SERP/ads sai hoàn toàn)</summary>
+      <div class="row" style="margin-top:8px">
+        <div style="max-width:140px"><label>Zip code (US)</label><input type="text" id="zipInput" placeholder="10011" maxlength="5"></div>
+        <div style="align-self:end"><button class="btn-sm" id="btnSetZip">📍 Đặt zip code ngay</button></div>
+        <div style="align-self:end;font-size:12px;color:var(--mut)" id="zipStatus"></div>
+      </div>
+      <div style="font-size:11.5px;color:var(--mut);margin-top:6px">
+        Bấm nút: worker mở Amazon, đặt địa chỉ giao hàng theo zip, lưu cookies mới. Zip cũng được
+        <b>tự kiểm tra & đặt lại trước mỗi lần chạy</b> — nếu chỉ lưu số mà chưa bấm, lần chạy tới sẽ tự đặt.
+      </div>
+    </details>
+  </div>
+
+  <!-- ===== Cookies ===== -->
+  <div class="card">
+    <details>
+      <summary>🍪 Cookies (giữ zip code — dán mới khi hết hạn)</summary>
+      <textarea id="cookies" rows="5" style="margin-top:8px"></textarea>
+      <div style="margin-top:8px"><button class="btn-sm" id="btnSaveCookies">Lưu cookies</button></div>
+    </details>
+  </div>
+
+  <!-- ===== Logs ===== -->
+  <div class="card"><h2>Logs</h2><div id="logs">--- sẵn sàng ---</div></div>
+
+  <!-- ===== Kết quả ===== -->
+  <div class="card">
+    <div class="tabs">
+      <button id="tabDetail" class="active">Kết quả lần chạy</button>
+      <button id="tabHistory">Bảng theo dõi (ngày × keyword)</button>
+      <button id="tabDaily">ASIN Daily (quyết định)</button>
+      <select id="runSelect" style="margin-left:auto;font-size:12px;padding:5px;border-radius:6px;border:1px solid #ccd3e0"></select>
+      <button class="btn-sm" id="btnCsv">⬇ CSV</button>
+    </div>
+    <div class="scroll" id="resultArea">Chưa có dữ liệu — chạy kiểm tra hoặc chọn lần chạy cũ.</div>
+  </div>
+
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+let currentRun = null, currentTab = 'detail';
+
+// Cảnh báo lệch phiên bản UI ↔ server (quên restart server sau khi cập nhật code)
+const UI_VERSION = '0.8.2'; // PHẢI khớp APP_VERSION trong server.js — nâng cùng lúc mỗi lần sửa API
+(async () => {
+  try {
+    const v = (await (await fetch('/api/version')).json()).version;
+    if (v !== UI_VERSION) throw new Error(v);
+  } catch (e) {
+    const bar = document.createElement('div');
+    bar.style.cssText = 'background:#b45309;color:#fff;padding:8px 16px;font-size:13px;text-align:center';
+    bar.textContent = '⚠️ Server đang chạy phiên bản cũ — hãy tắt (Ctrl+C) rồi chạy lại "npm start" để tránh hiển thị sai dữ liệu.';
+    document.body.prepend(bar);
+  }
+})();
+
+/* ============ Chạy check ============ */
+$('btnRun').onclick = async () => {
+  const payload = {
+    asin: $('asin').value.trim(),
+    keywords: $('keywords').value,
+    maxPages: Number($('maxPages').value) || 3,
+    checkVariants: $('checkVariants').checked,
+    saveSnapshot: $('saveSnapshot').checked,
+    debug: $('debugMode').checked
+  };
+  $('logs').textContent = '';
+  $('status').textContent = 'Đang chạy...';
+  const res = await fetch('/api/check', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+  const reader = res.body.getReader(); const dec = new TextDecoder();
+  let buf = '';
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    const text = dec.decode(value);
+    buf += text;
+    $('logs').textContent += text;
+    $('logs').scrollTop = $('logs').scrollHeight;
+  }
+  const m = buf.match(/RESULT_ID:([\w-]+)/);
+  const jm = buf.match(/JOB_ID:([\w-]+)/);
+  if (jm) { await pollJob(jm[1]); return; } // chế độ queue: theo dõi job đến khi agent chạy xong
+  $('status').textContent = 'Idle';
+  await loadRunList();
+  if (m) { $('runSelect').value = m[1]; await showRun(m[1]); }
+};
+$('btnStop').onclick = () => fetch('/api/stop', { method:'POST' });
+
+/* Chế độ queue (server team): poll trạng thái job — log của agent hiện dần vào khung log */
+async function pollJob(jobId) {
+  $('status').textContent = 'Chờ agent...';
+  while (true) {
+    await new Promise(r => setTimeout(r, 3000));
+    let j;
+    try { j = await (await fetch('/api/jobs/' + jobId)).json(); } catch { continue; }
+    $('logs').textContent = `[Job ${j.id} · ${j.status}${j.agent ? ' · agent: ' + j.agent : ''}]\n` + (j.logs || []).join('\n');
+    $('logs').scrollTop = $('logs').scrollHeight;
+    if (j.status === 'running') $('status').textContent = 'Agent "' + (j.agent || '?') + '" đang chạy...';
+    if (j.status === 'done') {
+      $('status').textContent = 'Idle';
+      await loadRunList();
+      if (j.resultRunId) { $('runSelect').value = j.resultRunId; await showRun(j.resultRunId); }
+      return;
+    }
+    if (j.status === 'error') {
+      $('status').textContent = 'Idle';
+      $('logs').textContent += '\n🚨 ' + (j.error || 'Lỗi không rõ');
+      return;
+    }
+  }
+}
+
+// Nạp keyword tag PPC từ kho (module Tạo Campaign đẩy vào sau mỗi lần export bulk)
+$('btnLoadBank').onclick = async () => {
+  const a = $('asin').value.trim().toUpperCase();
+  if (!/^[A-Z0-9]{10}$/.test(a)) { $('bankMsg').textContent = 'Nhập ASIN trước'; return; }
+  const r = await (await fetch('/api/keyword-bank/' + a + '?tag=PPC')).json();
+  if (!r.count) { $('bankMsg').textContent = 'Kho chưa có keyword PPC cho ASIN này'; return; }
+  const cur = new Set($('keywords').value.split('\n').map(s => s.trim()).filter(Boolean));
+  r.keywords.forEach(k => cur.add(k.keyword));
+  $('keywords').value = [...cur].join('\n');
+  $('bankMsg').textContent = `✅ ${r.count} keyword PPC`;
+};
+
+// Nhập ASIN → tự nạp cài đặt track parent đã lưu của ASIN đó
+$('asin').addEventListener('change', async () => {
+  const a = $('asin').value.trim().toUpperCase();
+  if (!/^[A-Z0-9]{10}$/.test(a)) return;
+  const s = await (await fetch('/api/asin-settings/' + a)).json();
+  $('checkVariants').checked = s.trackParent !== false;
+});
+
+/* ============ Zip code / Location ============ */
+(async () => {
+  const cfg = await (await fetch('/api/location')).json();
+  $('zipInput').value = cfg.zip || '';
+  if (cfg.zip) $('zipStatus').textContent = 'Zip đang cấu hình: ' + cfg.zip + ' (tự kiểm tra trước mỗi lần chạy)';
+})();
+$('btnSetZip').onclick = async () => {
+  const zip = $('zipInput').value.trim();
+  if (!/^\d{5}$/.test(zip)) { alert('Zip phải là 5 chữ số US (VD 10011)'); return; }
+  $('btnSetZip').disabled = true;
+  $('zipStatus').textContent = '⏳ Đang mở Amazon và đặt zip ' + zip + '...';
+  try {
+    const r = await (await fetch('/api/location', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ zip }) })).json();
+    if (r.ok) {
+      $('zipStatus').textContent = '✅ Location: ' + r.location + ' · đã lưu ' + r.cookieCount + ' cookies';
+      $('cookies').value = JSON.stringify(await (await fetch('/api/cookies')).json(), null, 1);
+    } else {
+      $('zipStatus').textContent = '❌ ' + (r.message || 'Lỗi');
+    }
+  } catch (e) {
+    $('zipStatus').textContent = '❌ ' + e.message;
+  }
+  $('btnSetZip').disabled = false;
+};
+
+/* ============ Cookies ============ */
+(async () => { $('cookies').value = JSON.stringify(await (await fetch('/api/cookies')).json(), null, 1); })();
+$('btnSaveCookies').onclick = async () => {
+  try {
+    const r = await fetch('/api/cookies', { method:'POST', headers:{'Content-Type':'application/json'}, body: $('cookies').value });
+    alert((await r.json()).ok ? '✅ Đã lưu' : '❌ Lỗi');
+  } catch { alert('❌ JSON không hợp lệ'); }
+};
+
+/* ============ Danh sách run ============ */
+async function loadRunList() {
+  const list = await (await fetch('/api/results')).json();
+  $('runSelect').innerHTML = list.map(r =>
+    `<option value="${r.id}">${(r.checkedAt||'').slice(0,16).replace('T',' ')} · ${r.asin} · ${r.keywordCount} kw</option>`).join('');
+}
+$('runSelect').onchange = () => showRun($('runSelect').value);
+loadRunList();
+
+/* ============ Tab ============ */
+$('tabDetail').onclick = () => { currentTab='detail'; setTab(); render(); };
+$('tabHistory').onclick = () => { currentTab='history'; setTab(); render(); };
+$('tabDaily').onclick = () => { currentTab='daily'; setTab(); render(); };
+function setTab(){
+  $('tabDetail').classList.toggle('active', currentTab==='detail');
+  $('tabHistory').classList.toggle('active', currentTab==='history');
+  $('tabDaily').classList.toggle('active', currentTab==='daily');
+}
+
+async function showRun(id) {
+  currentRun = await (await fetch('/api/results/' + id)).json();
+  render();
+}
+
+async function render() {
+  if (!currentRun) return;
+  if (currentTab === 'detail') renderDetail();
+  else if (currentTab === 'history') await renderHistory(currentRun.asin);
+  else await renderDaily(currentRun.asin);
+}
+
+/* ============ ASIN DAILY — bảng chỉ số quyết định (dòng = chỉ số, cột = ngày) ============ */
+async function renderDaily(asin) {
+  const d = await (await fetch('/api/asin-daily/' + asin)).json();
+  if (!d.days.length) { $('resultArea').innerHTML = 'Chưa có dữ liệu — import file bulk daily hoặc chạy check ranking.'; return; }
+
+  const fmt$ = v => v===null||v===undefined ? null : '$' + v;
+  const fmtP = v => v===null||v===undefined ? null : v + '%';
+  const fmtN = v => v===null||v===undefined ? null : Number(v).toLocaleString();
+
+  // Định nghĩa dòng: [nhãn, key, formatter, hướng tốt: 'up'|'down'|null]
+  const METRIC_ROWS = [
+    ['Impressions','impressions',fmtN,'up'], ['Clicks','clicks',fmtN,'up'], ['CTR','ctr',fmtP,'up'],
+    ['CPC','cpc',fmt$,'down'], ['Spent','spent',fmt$,null],
+    ['Orders (ads)','ordersAds',fmtN,'up'], ['Sales ads','salesAds',fmt$,'up'], ['CR','cr',fmtP,'up'],
+    ['ACoS','acos',fmtP,'down'], ['Sale total','salesTotal',fmt$,'up'], ['TACoS','tacos',fmtP,'down']
+  ];
+
+  const head = d.days.map(x => `<th>${x.date.slice(5)}</th>`).join('');
+  let body = '';
+
+  for (const [label, key, fm, good] of METRIC_ROWS) {
+    let prev = null;
+    const cells = d.days.map(x => {
+      if (!x.hasFile) return `<td class="na">#N/A</td>`;
+      const v = x[key];
+      const shown = fm(v);
+      if (shown === null) { return `<td style="color:#99a">-</td>`; }
+      // Mũi tên & màu so với ngày trước có dữ liệu
+      let delta = '';
+      if (prev !== null && v !== prev && good) {
+        const upIsGood = good === 'up';
+        const isUp = v > prev;
+        const goodMove = isUp === upIsGood;
+        delta = ` <span style="color:${goodMove?'var(--ok)':'var(--bad)'};font-size:10px">${isUp?'▲':'▼'}</span>`;
+      }
+      if (v !== null && v !== undefined) prev = v;
+      const strong = ['acos','tacos','spent','salesAds'].includes(key);
+      return `<td>${strong?'<b>'+shown+'</b>':shown}${delta}</td>`;
+    }).join('');
+    const hl = ['acos','tacos'].includes(key) ? ' style="background:#fbf7ee"' : '';
+    body += `<tr${hl}><td class="lbl" style="font-weight:600">${label}</td>${cells}</tr>`;
+  }
+
+  // Bối cảnh ranking (nếu ngày đó có chạy check)
+  const rankRows = [
+    ['KW Page 1', s => s ? `${s.p1}/${s.total}` : null],
+    ['KW có ToS', s => s ? s.tos : null],
+    ['KW not found', s => s ? s.nf : null]
+  ];
+  body += `<tr><td colspan="${d.days.length+1}" style="background:#f0f3f9;font-size:11px;color:#667">Bối cảnh ranking</td></tr>`;
+  for (const [label, fn] of rankRows) {
+    const cells = d.days.map(x => {
+      const v = fn(x.rank);
+      return v === null ? '<td style="color:#bbb">—</td>' : `<td>${v}</td>`;
+    }).join('');
+    body += `<tr><td class="lbl">${label}</td>${cells}</tr>`;
+  }
+
+  $('resultArea').innerHTML = `
+    <div style="font-size:12px;color:var(--mut);margin-bottom:6px">
+      ASIN <b>${esc(d.asin)}</b> · ▲▼ so với ngày trước (xanh = chuyển biến tốt) ·
+      <span class="na" style="padding:0 4px">#N/A</span> = chưa import file bulk ngày đó · "-" = thiếu Sale total</div>
+    <table><thead><tr><th style="min-width:110px">Chỉ số</th>${head}</tr></thead><tbody>${body}</tbody></table>
+    <style>.na{background:#e02020;color:#fff;font-weight:700}</style>`;
+}
+
+/* ============ Bảng chi tiết 1 lần chạy ============ */
+function renderDetail() {
+  const rows = (currentRun.results || []).map((x, idx) => {
+    if (x.error) return `<tr><td>${esc(x.keyword)}</td><td colspan="8" class="nf">ERR: ${esc(x.error)}</td></tr>`;
+    const p = x.primary || {};
+    const snapBtn = x.snapshot?.length ? ` <a href="#" onclick="toggleSnap(${idx});return false" style="font-size:11px">👁 SERP</a>` : '';
+    const bestVar = (x.variants||[]).find(v => v.organicRank !== null);
+    const ownBadges = (p.ownBadges || []);
+    const badgeChips = ownBadges.length
+      ? ownBadges.map(b => `<span class="bdgChip" title="Badge Amazon trên tile của bạn">${esc(b)}</span>`).join('')
+      : '';
+    const org = (p.organicRank !== null
+      ? `Page ${p.organicPage} No ${p.organicPosInPage} <span class="badge">#${p.organicRank}</span>${p.ownPreviouslyViewed?' <span class="pv">⚠PV</span>':''}`
+      : (bestVar ? `<span style="color:#8a6d1a">nhóm: Page ${bestVar.organicPage} No ${bestVar.organicPosInPage}</span> <span class="badge">xem dòng ↳</span>`
+         : (x.variants?.length ? '<span class="badge">nhóm có sponsored</span>' : `<span class="nf" style="padding:1px 6px;border-radius:6px" title="Đã quét ${x.pagesScanned||3} trang">Not in top 150</span>`))) + badgeChips;
+    const clean = p.organicRankClean !== null && p.organicRankClean !== p.organicRank ? `#${p.organicRankClean}` : (p.ownPreviouslyViewed ? 'n/a' : '=');
+    const tos = x.adsTilesServed === false
+      ? '<span class="tosUnknown" style="padding:1px 6px;border-radius:6px" title="0 SP tile toàn bộ trang quét (đã retry) — phiên không được serve ads, không kết luận được">?</span>'
+      : `${p.tosPosition||0}/${p.tosTotal||0}`;
+    const main = `<tr><td>${esc(x.keyword)}${snapBtn}</td><td>${org}</td><td>${clean}</td><td>${tos}</td>
+      <td>${p.rosPresent?'✅':'—'}</td><td>${p.videoPresent?'🎬':'—'}</td><td>${p.sbPresent?'✅':'—'}</td><td>${p.spCarouselPresent?'✅':'—'}</td>
+      <td>${x.resultCount ? esc(x.resultCount) : '—'}</td></tr>`;
+    const snapRow = x.snapshot?.length ? `<tr id="snap_${idx}" style="display:none"><td colspan="9">${renderSnap(x.snapshot, currentRun.asin)}</td></tr>` : '';
+    const vars = (x.variants||[]).map(v =>
+      `<tr class="variant-row"><td style="padding-left:22px">↳ ${v.asin}</td>
+       <td>${v.organicRank!==null?`Page ${v.organicPage} No ${v.organicPosInPage} <span class="badge">#${v.organicRank}</span>`:'—'}</td>
+       <td>—</td><td>${v.tosPosition||0}/${v.tosTotal||0}</td>
+       <td>${v.rosPresent?'✅':'—'}</td><td>${v.videoPresent?'🎬':'—'}</td><td>${v.sbPresent?'✅':'—'}</td><td>${v.spCarouselPresent?'✅':'—'}</td><td>—</td></tr>`).join('');
+    return main + snapRow + vars;
+  }).join('');
+  $('resultArea').innerHTML = `
+    <div style="font-size:12px;color:var(--mut);margin-bottom:6px">
+      ASIN <b>${currentRun.asin}</b>${currentRun.parentAsin?` · parent ${currentRun.parentAsin} (${currentRun.siblingCount} biến thể)`:''} · ${(currentRun.checkedAt||'').slice(0,16).replace('T',' ')}
+    </div>
+    <table><thead><tr><th>Keyword</th><th>Organic</th><th>Clean</th><th>ToS x/y</th><th>RoS</th><th>Video</th><th>SB</th><th>Carousel</th><th>Cạnh tranh</th></tr></thead>
+    <tbody>${rows}</tbody></table>`;
+}
+
+/* Competitor snapshot: toàn bộ ASIN trên SERP xếp đúng thứ tự (ToS trước, rồi các vị trí còn lại) */
+function renderSnap(snapshot, ownAsin) {
+  const rows = snapshot.map(s => {
+    const own = s.isOwn ? ' style="background:#dcebff;font-weight:700"' : '';
+    const asins = s.asin || (s.asins ? s.asins.join(', ') : '');
+    const tags = (s.badges || []).map(b => `<span class="bdgChip">${esc(b)}</span>`).join('');
+    return `<tr${own}><td>p${s.page}</td><td>${esc(s.positionType)}</td><td>${s.positionIndex ?? ''}</td>
+      <td>${esc(asins)}</td><td>${s.price != null ? '$'+s.price : ''}</td><td>${tags}</td></tr>`;
+  }).join('');
+  return `<div style="max-height:300px;overflow:auto;border:1px solid #e3e8f0;border-radius:6px">
+    <table style="font-size:11.5px"><thead><tr><th>Trang</th><th>Loại</th><th>#</th><th>ASIN</th><th>Giá</th><th>Tag</th></tr></thead>
+    <tbody>${rows}</tbody></table></div>`;
+}
+function toggleSnap(i) {
+  const el = document.getElementById('snap_' + i);
+  if (el) el.style.display = el.style.display === 'none' ? '' : 'none';
+}
+
+/* ============ Bảng theo dõi: ASIN | Hình | Keyword × 3 dòng (Organic/ToS/RoS) × Ngày ============ */
+async function renderHistory(asin) {
+  const h = await (await fetch('/api/history/' + asin)).json();
+  if (!h.columns.length) { $('resultArea').innerHTML = 'Chưa có lịch sử cho ASIN này.'; return; }
+  // CHỈ hiển thị keyword của LẦN CHẠY ĐANG CHỌN (không kéo keyword của các lần chạy cũ vào);
+  // cột ngày vẫn là toàn bộ lịch sử của ASIN
+  const selectedKws = new Set((currentRun.results || []).map(x => x.keyword));
+  h.keywords = h.keywords.filter(k => selectedKws.has(k));
+  if (!h.keywords.length) { $('resultArea').innerHTML = 'Lần chạy đang chọn không có keyword nào.'; return; }
+  const head = h.columns.map(c => `<th>${(c.date||'').slice(5,16).replace('T',' ')}</th>`).join('');
+
+  // Dòng tóm tắt rank theo ngày (chỉ số ads đầy đủ nằm ở tab "ASIN Daily")
+  const summaryCells = h.columns.map(c => {
+    const s = c.rankSummary || {};
+    return `<td><b>P1: ${s.p1}/${s.total}</b> kw · ToS: ${s.tos} · <span style="color:var(--bad)">NF: ${s.nf}</span></td>`;
+  }).join('');
+
+  const totalRows = 1 + h.keywords.length * 3; // 1 dòng summary + 3 dòng/keyword
+  const asinCell = `<td rowspan="${totalRows}" style="text-align:center;vertical-align:top;background:#fff">
+      ${h.image ? `<img src="${esc(h.image)}" style="width:84px;border-radius:6px;margin:4px 0">` : ''}
+      <div style="font-size:11px;font-weight:700">${esc(h.asin)}</div></td>`;
+
+  let body = `<tr>${asinCell}<td colspan="2" style="background:#f0f3f9"><b>Chỉ số chính</b></td>${summaryCells}</tr>`;
+
+  for (const kw of h.keywords) {
+    let prev = null;
+    const orgCells = [], tosCells = [], rosCells = [];
+    for (const c of h.columns) {
+      const cell = c.cells[kw];
+      if (!cell) { orgCells.push('<td>—</td>'); tosCells.push('<td>—</td>'); rosCells.push('<td>—</td>'); continue; }
+      if (cell.error) { orgCells.push('<td class="nf">ERR</td>'); tosCells.push('<td>—</td>'); rosCells.push('<td>—</td>'); continue; }
+
+      // Dòng 1: Organic — ô luôn nói về ASIN CHÍNH; biến thể chỉ là chấm cam + float khi hover
+      let cls = '';
+      if (cell.rank === null) cls = cell.hasVariantRank ? 'varOnly' : 'nf';
+      else if (prev !== null && cell.rank < prev) cls = 'up';
+      else if (prev !== null && cell.rank > prev) cls = 'down';
+      if (cell.rank !== null) prev = cell.rank;
+      const pvTag = cell.pv ? ' <span class="pv" title="Previously viewed — rank bị personalization">⚠</span>' : '';
+      // ASIN chính vắng nhưng biến thể rank → hiện VỊ TRÍ của nhóm ngay trong ô (ASIN đầy đủ xem ở float)
+      const bestVar = (cell.variants || []).find(v => v.organic);
+      const groupLine = (cell.rank === null && bestVar)
+        ? `<div style="font-size:10.5px;color:#8a6d1a">nhóm: ${esc(bestVar.organic)}</div>` : '';
+      const mainText = cell.rank === null ? 'Not in top 150' + groupLine : esc(cell.organic) + pvTag;
+
+      // Badge Amazon trên tile của mình (Overall Pick, Amazon's Choice, Best Seller...)
+      // — hover 🏷 xem đầy đủ, không chiếm chỗ đọc của ô chính
+      let badgeTip = '';
+      if (cell.badges && cell.badges.length) {
+        badgeTip = `<span class="tipwrap"><span class="bdgDot"> 🏷</span><span class="tipbox">Badge Amazon:<br>${cell.badges.map(esc).join('<br>')}</span></span>`;
+      }
+
+      // Float: danh sách biến thể với ASIN đầy đủ (không ảnh hưởng nội dung ô chính)
+      let floatBox = '';
+      if (cell.variants && cell.variants.length) {
+        const lines = cell.variants.map(v => {
+          const parts = [];
+          if (v.organic) parts.push(v.organic);
+          if (v.tos) parts.push('ToS ' + v.tos);
+          if (v.ros) parts.push('RoS');
+          if (v.badges && v.badges.length) parts.push('🏷 ' + v.badges.map(esc).join(', '));
+          return `<b>${esc(v.asin)}</b> — ${parts.join(' · ')}`;
+        }).join('<br>');
+        floatBox = `<span class="tipwrap"><span class="dot"> ●</span><span class="tipbox">Biến thể cùng parent:<br>${lines}</span></span>`;
+      }
+      orgCells.push(`<td class="${cls}">${mainText}${badgeTip}${floatBox}</td>`);
+
+      // Dòng 2: ToS — 4 trạng thái:
+      //   x/y xanh = mình chiếm slot · 0/y xám = đối thủ chiếm hết ·
+      //   0/0 mờ = XÁC NHẬN không ai mua (có thấy SP tile chỗ khác) ·
+      //   ? cam = phiên không được serve SP tile → không kết luận được
+      if (cell.tosUnknown) {
+        tosCells.push(`<td class="tosUnknown" title="0 SP tile trên toàn bộ trang quét (đã retry) — Amazon không serve ads cho phiên này, KHÔNG kết luận được ToS. Không phải 0/0.">?</td>`);
+      } else if (cell.tosPos > 0) {
+        tosCells.push(`<td class="tosOwn">${esc(cell.tos)}</td>`);
+      } else if (cell.tos && !/^0\/0/.test(cell.tos)) {
+        tosCells.push(`<td class="tosLost" title="Đối thủ chiếm hết slot ToS — camp RANK cần tăng placementTop">${esc(cell.tos)}</td>`);
+      } else {
+        tosCells.push(`<td class="tosEmpty" title="Không ai mua ToS keyword này — cơ hội chiếm rẻ">0/0</td>`);
+      }
+
+      // Dòng 3: Rest of Search (+ top p2/p3, variant RoS)
+      rosCells.push(cell.ros ? `<td style="font-size:11.5px">${esc(cell.ros)}</td>` : '<td style="color:#bbb">—</td>');
+    }
+    body += `<tr><td rowspan="3" style="vertical-align:top;font-weight:600">${esc(kw)}</td><td class="lbl">Organic</td>${orgCells.join('')}</tr>`;
+    body += `<tr><td class="lbl">ToS</td>${tosCells.join('')}</tr>`;
+    body += `<tr><td class="lbl">RoS</td>${rosCells.join('')}</tr>`;
+  }
+
+  $('resultArea').innerHTML = `
+    <div style="font-size:12px;color:var(--mut);margin-bottom:6px">
+      Ô luôn là kết quả của <b>ASIN chính</b> · 🟩 lên hạng · 🟥 tụt · nền cam nhạt = chính vắng nhưng nhóm có mặt ·
+      đỏ đậm = không ai rank · <span style="color:#e08a00">●</span> hover xem biến thể (ASIN đầy đủ) ·
+      🔵 chiếm ToS · xám 0/y = đối thủ chiếm · mờ 0/0 = chưa ai mua · <span class="tosUnknown" style="padding:0 4px">?</span> = ads không được serve (không kết luận) · <span class="bdgDot">🏷</span> hover xem badge Amazon (Overall Pick, Best Seller...) · ⚠ personalization</div>
+    <table><thead><tr><th style="width:100px">ASIN</th><th>Keyword</th><th style="width:64px">Loại</th>${head}</tr></thead>
+    <tbody>${body}</tbody></table>
+    <style>.lbl{font-size:11px;color:#889;background:#fafbfd}</style>`;
+}
+
+/* ============ CSV ============ */
+$('btnCsv').onclick = () => {
+  if (!currentRun) return;
+  const head = ['keyword','organic_rank','page','no','clean_rank','pv_warning','tos','ros','video','sb','carousel','result_count','ranked_variants','error'];
+  const lines = [head.join(',')];
+  for (const x of currentRun.results || []) {
+    const p = x.primary || {};
+    lines.push([csvq(x.keyword), p.organicRank??'', p.organicPage??'', p.organicPosInPage??'',
+      p.organicRankClean??'', p.ownPreviouslyViewed?'PV':'', x.adsTilesServed===false?'?':`${p.tosPosition||0}/${p.tosTotal||0}`,
+      p.rosPresent?1:'', p.videoPresent?1:'', p.sbPresent?1:'', p.spCarouselPresent?1:'',
+      csvq(x.resultCount||''), csvq((x.variants||[]).map(v=>v.asin).join(' ')), csvq(x.error||'')].join(','));
+  }
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob(["﻿"+lines.join("\n")], {type:'text/csv'}));
+  a.download = `rank_${currentRun.asin}_${(currentRun.checkedAt||'').slice(0,10)}.csv`;
+  a.click();
+};
+
+/* ============ Lịch daily ============ */
+let schJobs = [];
+async function loadSchedule() {
+  const s = await (await fetch('/api/schedule')).json();
+  $('schTime').value = s.time || '07:00';
+  $('schEnabled').checked = !!s.enabled;
+  schJobs = s.jobs || [];
+  renderSchJobs(s.lastRunDate);
+}
+function renderSchJobs(lastRun) {
+  $('schJobs').innerHTML = (schJobs.length
+    ? schJobs.map((j,i) => `• <b>${esc(j.asin)}</b> — ${String(j.keywords||'').split('\n').filter(Boolean).length} keyword
+        <a href="#" onclick="schJobs.splice(${i},1);renderSchJobs();return false" style="color:var(--bad)">xóa</a>`).join('<br>')
+    : 'Chưa có job nào — nhập ASIN + keywords ở trên rồi bấm "Thêm job".')
+    + (lastRun ? `<div style="margin-top:4px">Lần chạy lịch gần nhất: ${lastRun}</div>` : '');
+}
+$('btnAddJob').onclick = () => {
+  const asin = $('asin').value.trim().toUpperCase();
+  if (!/^[A-Z0-9]{10}$/.test(asin)) return alert('Nhập ASIN hợp lệ ở khung trên trước');
+  schJobs = schJobs.filter(j => j.asin !== asin);
+  schJobs.push({ asin, keywords: $('keywords').value, maxPages: Number($('maxPages').value)||3,
+    checkVariants: $('checkVariants').checked, saveSnapshot: $('saveSnapshot').checked });
+  renderSchJobs();
+};
+$('btnSaveSch').onclick = async () => {
+  const r = await (await fetch('/api/schedule', { method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ enabled: $('schEnabled').checked, time: $('schTime').value.trim(), jobs: schJobs }) })).json();
+  alert(r.ok ? `✅ Lịch: ${r.enabled?'BẬT':'tắt'} · ${r.time} · ${r.jobs.length} job` : '❌ Lỗi');
+};
+loadSchedule();
+
+/* ============ Import metrics ============ */
+$('btnImportBulk').onclick = async () => {
+  const f = $('bulkFile').files[0];
+  if (!f) return alert('Chọn file bulk .xlsx trước');
+  const fd = new FormData();
+  fd.append('file', f);
+  fd.append('date', $('bulkDate').value.trim());
+  $('importMsg').textContent = 'Đang xử lý...';
+  const r = await (await fetch('/api/import-bulk', { method:'POST', body: fd })).json();
+  $('importMsg').textContent = r.ok ? `✅ ${r.date}: ${r.asinCount} ASIN` : '❌ ' + r.message;
+  if (r.ok && currentTab === 'history') render();
+};
+$('btnSaveTotal').onclick = async () => {
+  const r = await (await fetch('/api/metrics', { method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ asin: $('mtAsin').value.trim(), date: $('mtDate').value.trim(), salesTotal: $('mtTotal').value }) })).json();
+  alert(r.ok ? '✅ Đã lưu' : '❌ Lỗi');
+  if (r.ok && currentTab === 'history') render();
+};
+
+function esc(s){ return String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;'); }
+function csvq(s){ s=String(s??''); return /[",\n]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s; }
+</script>
+</body>
+</html>
