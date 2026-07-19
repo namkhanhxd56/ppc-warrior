@@ -96,10 +96,10 @@ export function getAsinMetrics(asin) {
    Map thẳng sang bảng rank_checks khi lên Postgres. */
 const DAILY_FILE = path.join(DATA_DIR, "daily-rank.json");
 
-export function saveDailyRanks(asin, checkedAt, results) {
+export function saveDailyRanks(asin, checkedAt, results, dateKey) {
   ensureDirs();
   const all = readJson(DAILY_FILE, {});
-  const date = String(checkedAt).slice(0, 10);
+  const date = dateKey || String(checkedAt).slice(0, 10); // dateKey = nhãn PHIÊN QUÉT (Run tạo mới, Continue nối vào)
   all[asin] = all[asin] || {};
   for (const x of results || []) {
     if (x.error) continue;
@@ -121,10 +121,235 @@ export function saveDailyRanks(asin, checkedAt, results) {
     };
   }
   fs.writeFileSync(DAILY_FILE, JSON.stringify(all));
+  // Tự đăng ký ASIN + keyword vào bảng theo dõi + ghi nhãn phiên
+  trackingRegisterRun(asin, (results || []).filter((x) => !x.error).map((x) => x.keyword), date);
+  // Gộp competitor snapshot của phiên (nếu có)
+  saveCompetitorAgg(asin, date, results);
 }
 
 export function getDailySeries(asin) {
   return readJson(DAILY_FILE, {})[asin] || {}; // { keyword: { date: {...} } }
+}
+
+/* ===== BẢNG THEO DÕI RANKING (tracking) =====
+   tracking.json: cấu hình hiển thị/bật-tắt của bảng luôn-hiện:
+   { asins: { ASIN: { enabled, loai, image, trackParent, saveCompetitor,
+                      keywords: { kw: { enabled, volume, loai } } } },
+     sessions: ["2026-07-14", "2026-07-19 09:45", ...],
+     config: { metrics: ["Sale","Sale ads","Spent"], kwFields: ["tos","ros"] } } */
+const TRACKING_FILE = path.join(DATA_DIR, "tracking.json");
+
+export function getTracking() {
+  const t = readJson(TRACKING_FILE, {});
+  t.asins = t.asins || {};
+  t.sessions = t.sessions || [];
+  t.config = t.config || {};
+  t.config.metrics = t.config.metrics || ["Sale", "Sale ads", "Spent"];
+  t.config.kwFields = t.config.kwFields || ["tos", "ros"];
+  return t;
+}
+function writeTracking(t) {
+  ensureDirs();
+  fs.writeFileSync(TRACKING_FILE, JSON.stringify(t, null, 1));
+}
+
+/** Run xong tự đăng ký ASIN/keyword vào bảng + ghi nhãn phiên quét. */
+export function trackingRegisterRun(asin, keywords, dateKey) {
+  const t = getTracking();
+  const key = String(asin).toUpperCase();
+  t.asins[key] = t.asins[key] || { enabled: true, loai: "", image: null, trackParent: false, saveCompetitor: false, keywords: {}, addedAt: new Date().toISOString() };
+  for (const kw of keywords || []) {
+    const k = String(kw).trim().toLowerCase();
+    if (!k) continue;
+    t.asins[key].keywords[k] = t.asins[key].keywords[k] || { enabled: true, volume: null, loai: "", addedAt: new Date().toISOString() };
+  }
+  if (dateKey && !t.sessions.includes(dateKey)) t.sessions.push(dateKey);
+  t.sessions.sort();
+  writeTracking(t);
+}
+
+export function trackingSetImage(asin, image) {
+  if (!image) return;
+  const t = getTracking();
+  const key = String(asin).toUpperCase();
+  if (t.asins[key] && !t.asins[key].image) { t.asins[key].image = image; writeTracking(t); }
+}
+
+export function trackingPatchAsin(asin, patch) {
+  const t = getTracking();
+  const key = String(asin).toUpperCase();
+  if (patch.delete) { // xoá hẳn: cấu hình + toàn bộ lịch sử rank + metrics + competitor
+    delete t.asins[key];
+    const daily = readJson(DAILY_FILE, {}); delete daily[key];
+    fs.writeFileSync(DAILY_FILE, JSON.stringify(daily));
+    const met = readJson(METRICS_FILE, {}); delete met[key];
+    fs.writeFileSync(METRICS_FILE, JSON.stringify(met, null, 1));
+    const comp = readJson(COMPRANK_FILE, {}); delete comp[key];
+    fs.writeFileSync(COMPRANK_FILE, JSON.stringify(comp));
+    writeTracking(t);
+    return t;
+  }
+  t.asins[key] = t.asins[key] || { enabled: true, loai: "", image: null, trackParent: false, saveCompetitor: false, keywords: {}, addedAt: new Date().toISOString() };
+  for (const f of ["enabled", "loai", "trackParent", "saveCompetitor", "image"]) {
+    if (patch[f] !== undefined) t.asins[key][f] = patch[f];
+  }
+  writeTracking(t);
+  return t;
+}
+
+export function trackingPatchKeyword(asin, keyword, patch) {
+  const t = getTracking();
+  const key = String(asin).toUpperCase();
+  const k = String(keyword).trim().toLowerCase();
+  if (!t.asins[key]) return t;
+  if (patch.delete) { // xoá keyword khỏi bảng + lịch sử của keyword đó
+    delete t.asins[key].keywords[k];
+    const daily = readJson(DAILY_FILE, {});
+    if (daily[key]) { delete daily[key][k]; fs.writeFileSync(DAILY_FILE, JSON.stringify(daily)); }
+    writeTracking(t);
+    return t;
+  }
+  t.asins[key].keywords[k] = t.asins[key].keywords[k] || { enabled: true, volume: null, loai: "", addedAt: new Date().toISOString() };
+  for (const f of ["enabled", "volume", "loai"]) {
+    if (patch[f] !== undefined) t.asins[key].keywords[k][f] = patch[f];
+  }
+  writeTracking(t);
+  return t;
+}
+
+/** Nạp volume từ file keyword|volume — áp cho MỌI ASIN có keyword khớp. */
+export function trackingApplyVolumes(pairs) {
+  const t = getTracking();
+  let applied = 0;
+  for (const [kw, vol] of pairs) {
+    const k = String(kw).trim().toLowerCase();
+    const v = Number(String(vol).replace(/[^0-9.]/g, ""));
+    if (!k || !isFinite(v)) continue;
+    for (const a of Object.values(t.asins)) {
+      if (a.keywords[k]) { a.keywords[k].volume = v; applied++; }
+    }
+  }
+  writeTracking(t);
+  return applied;
+}
+
+export function trackingSetConfig(cfg) {
+  const t = getTracking();
+  if (Array.isArray(cfg.metrics)) t.config.metrics = cfg.metrics.slice(0, 3);
+  if (Array.isArray(cfg.kwFields)) t.config.kwFields = cfg.kwFields.slice(0, 2);
+  writeTracking(t);
+  return t.config;
+}
+
+/** Xoá 1 ngày/phiên khỏi toàn bộ data (daily-rank, metrics, competitor, sessions). */
+export function trackingDeleteDate(dateKey) {
+  const daily = readJson(DAILY_FILE, {});
+  for (const asin of Object.keys(daily)) {
+    for (const kw of Object.keys(daily[asin])) delete daily[asin][kw][dateKey];
+  }
+  fs.writeFileSync(DAILY_FILE, JSON.stringify(daily));
+  const met = readJson(METRICS_FILE, {});
+  for (const asin of Object.keys(met)) delete met[asin][dateKey];
+  fs.writeFileSync(METRICS_FILE, JSON.stringify(met, null, 1));
+  const comp = readJson(COMPRANK_FILE, {});
+  for (const asin of Object.keys(comp)) { if (comp[asin]) delete comp[asin][dateKey]; }
+  fs.writeFileSync(COMPRANK_FILE, JSON.stringify(comp));
+  const t = getTracking();
+  t.sessions = t.sessions.filter((s) => s !== dateKey);
+  writeTracking(t);
+}
+
+/** Bảng đầy đủ cho UI: cấu hình + series + metrics + phân loại PPC từ kho keyword. */
+export function getTrackingTable() {
+  const t = getTracking();
+  const daily = readJson(DAILY_FILE, {});
+  const met = readJson(METRICS_FILE, {});
+  const bank = readJson(BANK_FILE, {});
+  // ASIN có trong daily nhưng chưa có tracking (data cũ) → tự thêm
+  for (const asin of Object.keys(daily)) {
+    if (!t.asins[asin]) {
+      t.asins[asin] = { enabled: true, loai: "", image: null, trackParent: false, saveCompetitor: false, keywords: {}, addedAt: new Date().toISOString() };
+    }
+    for (const kw of Object.keys(daily[asin])) {
+      t.asins[asin].keywords[kw] = t.asins[asin].keywords[kw] || { enabled: true, volume: null, loai: "" };
+    }
+  }
+  // sessions = union nhãn phiên đã đăng ký + mọi date key có trong daily/metrics (data cũ trước tracking)
+  const sess = new Set(t.sessions);
+  for (const asin of Object.keys(daily)) for (const kw of Object.keys(daily[asin])) for (const d of Object.keys(daily[asin][kw])) sess.add(d);
+  for (const asin of Object.keys(met)) for (const d of Object.keys(met[asin])) sess.add(d);
+  t.sessions = [...sess].sort();
+  const rows = Object.entries(t.asins).map(([asin, a]) => ({
+    asin,
+    enabled: a.enabled !== false,
+    loai: a.loai || "",
+    image: a.image || null,
+    trackParent: !!a.trackParent,
+    saveCompetitor: !!a.saveCompetitor,
+    metrics: met[asin] || {},           // { dateKey: {custom: {...}, spent...} }
+    keywords: Object.entries(a.keywords).map(([kw, kcfg]) => ({
+      kw,
+      enabled: kcfg.enabled !== false,
+      volume: kcfg.volume ?? null,
+      loai: kcfg.loai || "",
+      tag: bank[asin]?.[kw]?.tag || "",  // Phân loại: PPC | manual | removal | ""
+      series: daily[asin]?.[kw] || {}    // { dateKey: {r,page,n,tos,ros,vid,sb,car,bdg,va,rc,t} }
+    }))
+  }));
+  return { asins: rows, sessions: t.sessions, config: t.config };
+}
+
+/* ===== Xếp hạng COMPETITOR theo phiên quét =====
+   competitor-rank.json: { asin: { dateKey: { compAsin: {n, bestRank, kws: [...]} } } }
+   n = số keyword (trong nhóm keyword của mình) mà competitor xuất hiện (ads hoặc organic top 10). */
+const COMPRANK_FILE = path.join(DATA_DIR, "competitor-rank.json");
+
+export function saveCompetitorAgg(asin, dateKey, results) {
+  const key = String(asin).toUpperCase();
+  const agg = {};
+  let has = false;
+  for (const x of results || []) {
+    if (x.error || !Array.isArray(x.snapshot)) continue;
+    const seen = new Set();
+    for (const s of x.snapshot) {
+      const a = String(s.asin || "").toUpperCase();
+      if (!/^[A-Z0-9]{10}$/.test(a) || a === key) continue;
+      const sponsored = s.type && s.type !== "ORGANIC";
+      const orgTop10 = s.organicRank != null && s.organicRank <= 10;
+      if (!sponsored && !orgTop10) continue; // competitor chỉ tính: ads + organic top 10
+      has = true;
+      if (seen.has(a)) { // đã đếm keyword này — chỉ cập nhật bestRank
+        if (s.organicRank != null) agg[a].bestRank = Math.min(agg[a].bestRank ?? 999, s.organicRank);
+        continue;
+      }
+      seen.add(a);
+      agg[a] = agg[a] || { n: 0, bestRank: null, kws: [] };
+      agg[a].n++;
+      agg[a].kws.push(x.keyword);
+      if (s.organicRank != null) agg[a].bestRank = Math.min(agg[a].bestRank ?? 999, s.organicRank);
+    }
+  }
+  if (!has) return;
+  const all = readJson(COMPRANK_FILE, {});
+  all[key] = all[key] || {};
+  const cur = all[key][dateKey] || {};
+  for (const [a, v] of Object.entries(agg)) {
+    const c = cur[a] || { n: 0, bestRank: null, kws: [] };
+    const kws = [...new Set([...c.kws, ...v.kws])];
+    cur[a] = { n: kws.length, bestRank: Math.min(c.bestRank ?? 999, v.bestRank ?? 999) === 999 ? null : Math.min(c.bestRank ?? 999, v.bestRank ?? 999), kws };
+  }
+  all[key][dateKey] = cur;
+  fs.writeFileSync(COMPRANK_FILE, JSON.stringify(all));
+}
+
+export function getCompetitorRank(asin, dateKey) {
+  const all = readJson(COMPRANK_FILE, {})[String(asin).toUpperCase()] || {};
+  const dates = Object.keys(all).sort();
+  const d = dateKey || dates[dates.length - 1];
+  const list = Object.entries(all[d] || {})
+    .map(([a, v]) => ({ asin: a, n: v.n, bestRank: v.bestRank, kws: v.kws }))
+    .sort((x, y) => y.n - x.n || (x.bestRank ?? 999) - (y.bestRank ?? 999));
+  return { date: d || null, dates, list };
 }
 
 /* ===== Module LAUNCHING: cài đặt + kho keyword + snapshot export ===== */

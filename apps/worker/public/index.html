@@ -9,49 +9,68 @@
   body { font-family:-apple-system,Segoe UI,Arial,sans-serif; margin:0; background:#f4f6fa; color:#1b2330; }
   header { background:#101828; color:#fff; padding:14px 24px; display:flex; align-items:center; gap:12px; }
   header h1 { font-size:17px; margin:0; }
-  header .tag { font-size:11px; background:var(--b); padding:2px 8px; border-radius:10px; }
-  main { max-width:1280px; margin:20px auto; padding:0 16px; }
+  main { max-width:1560px; margin:20px auto; padding:0 16px; }
   .card { background:#fff; border:1px solid #e3e8f0; border-radius:10px; padding:16px 18px; margin-bottom:16px; }
   .card h2 { font-size:14px; margin:0 0 10px; display:flex; align-items:center; gap:8px; }
-  .temp-note { font-size:11px; color:#b45309; background:#fef3c7; border-radius:6px; padding:2px 8px; }
   label { font-size:12px; color:var(--mut); display:block; margin:8px 0 4px; }
-  input[type=text], input[type=number], textarea { width:100%; padding:8px 10px; border:1px solid #ccd3e0; border-radius:6px; font-size:13px; font-family:inherit; }
-  textarea { font-family:ui-monospace,Menlo,monospace; }
+  input[type=text], input[type=number], textarea, select { padding:7px 9px; border:1px solid #ccd3e0; border-radius:6px; font-size:12.5px; font-family:inherit; }
+  textarea { font-family:ui-monospace,Menlo,monospace; width:100%; }
   .row { display:flex; gap:14px; flex-wrap:wrap; align-items:flex-end; }
-  .row > div { flex:1; min-width:140px; }
-  .chk { display:flex; align-items:center; gap:6px; font-size:13px; margin-top:10px; }
-  button { padding:9px 18px; border:none; border-radius:6px; cursor:pointer; font-size:13px; font-weight:600; }
+  .chk { display:flex; align-items:center; gap:6px; font-size:12.5px; }
+  button { padding:8px 16px; border:none; border-radius:6px; cursor:pointer; font-size:12.5px; font-weight:600; }
   .btn-run { background:var(--b); color:#fff; }
+  .btn-cont { background:#0e9f8a; color:#fff; }
   .btn-stop { background:#e5e9f0; }
-  .btn-sm { padding:5px 10px; font-size:12px; background:#eef1f7; }
-  #logs { background:#0b1020; color:#7ef0a8; font:11.5px/1.5 ui-monospace,Menlo,monospace; padding:12px; border-radius:8px; height:210px; overflow-y:auto; white-space:pre-wrap; }
-  table { border-collapse:collapse; width:100%; font-size:12.5px; }
-  th, td { border:1px solid #e3e8f0; padding:6px 9px; text-align:left; white-space:nowrap; }
-  th { background:#f0f3f9; position:sticky; top:0; }
-  .scroll { overflow:auto; max-height:520px; }
-  .up { background:#c9f2d4; }      /* lên hạng */
-  .down { background:#ffc9c9; }    /* tụt hạng */
-  .nf { background:#e02020; color:#fff; }  /* not found */
-  .varOnly { background:#fff3df; } /* ASIN chính vắng nhưng nhóm có mặt — chi tiết xem float */
-  .tipwrap { position:relative; cursor:help; }
-  .tipwrap .dot { color:#e08a00; font-size:13px; }
-  .tipbox { display:none; position:absolute; z-index:20; left:0; top:100%; margin-top:2px;
-    background:#101828; color:#e8edf6; padding:8px 12px; border-radius:7px; font-size:12px;
-    line-height:1.7; white-space:nowrap; box-shadow:0 4px 14px rgba(0,0,0,.25); text-align:left; }
-  .tipbox b { color:#8fd1ff; }
-  .tipwrap:hover .tipbox { display:block; }
-  .tosOwn { background:#cfe3ff; font-weight:700; } /* đang chiếm ToS */
-  .tosLost { color:#778; }         /* 0/y — đối thủ chiếm hết slot */
-  .tosEmpty { color:#c3c9d6; }     /* 0/0 — không ai mua ToS (cơ hội rẻ) */
-  .tosUnknown { color:#c77b00; background:#fdf3e3; } /* ? — phiên không được serve SP tile, không kết luận được */
-  .bdgDot { color:#7a4fd1; font-size:12px; cursor:help; } /* 🏷 badge Amazon trên tile của mình — hover xem chi tiết */
-  .bdgChip { display:inline-block; background:#f3eeff; color:#5a3aa8; border-radius:4px; padding:0 4px; font-size:10.5px; margin-left:3px; }
-  .pv { color:#b45309; font-weight:700; }
-  .badge { display:inline-block; font-size:10.5px; padding:1px 6px; border-radius:8px; background:#eef1f7; margin-left:4px; }
-  .variant-row td { background:#f8fafc; color:#556; font-size:12px; }
-  .tabs { display:flex; gap:8px; margin-bottom:10px; }
-  .tabs button.active { background:var(--b); color:#fff; }
+  .btn-sm { padding:5px 10px; font-size:11.5px; background:#eef1f7; }
+  #logs { background:#0b1020; color:#7ef0a8; font:11.5px/1.5 ui-monospace,Menlo,monospace; padding:12px; border-radius:8px; height:180px; overflow-y:auto; white-space:pre-wrap; }
   details summary { cursor:pointer; font-size:13px; color:var(--mut); }
+
+  /* ===== BẢNG THEO DÕI ===== */
+  .twrap { overflow:auto; max-height:78vh; border:1px solid #e3e8f0; border-radius:8px; }
+  table.track { border-collapse:separate; border-spacing:0; font-size:12px; table-layout:fixed; }
+  .track th, .track td { border-right:1px solid #e9edf4; border-bottom:1px solid #e9edf4; padding:4px 7px; text-align:left; vertical-align:top; overflow:hidden; }
+  .track thead th { background:#f0f3f9; position:sticky; top:0; z-index:5; font-size:11.5px; white-space:nowrap; }
+  .track .rz { position:absolute; right:0; top:0; width:6px; height:100%; cursor:col-resize; }
+  .track th { position:sticky; }
+  .asin-cell { text-align:center; background:#fff; }
+  .asin-cell img { width:64px; border-radius:6px; }
+  .asin-cell .a { font-size:11px; font-weight:700; margin-top:2px; word-break:break-all; }
+  .asin-tools { display:flex; gap:3px; justify-content:center; flex-wrap:wrap; margin-top:4px; }
+  .asin-tools button { padding:2px 6px; font-size:11px; background:#eef1f7; border-radius:5px; }
+  .mrow td { background:#f7f9fd; }
+  .mrow .mlbl { font-weight:700; font-size:11.5px; color:#37456a; }
+  .kw-cell { display:flex; gap:5px; align-items:flex-start; }
+  .kw-cell .kwt { flex:1; word-break:break-word; white-space:normal; font-weight:600; font-size:11.5px; }
+  .kw-cell .del { color:#c0392b; cursor:pointer; font-size:11px; visibility:hidden; }
+  tr:hover .kw-cell .del { visibility:visible; }
+  .off-row td { opacity:.45; }
+  .tagchip { font-size:10px; font-weight:700; background:#e8efff; color:#2455e6; border-radius:5px; padding:1px 6px; }
+  .in-cell { width:100%; border:none; background:transparent; font-size:11.5px; padding:1px 2px; }
+  .in-cell:hover { background:#f0f4ff; border-radius:3px; }
+  .in-cell:focus { background:#fff; outline:1px solid #c7d5ff; border-radius:3px; }
+  .dcell { font-size:11px; line-height:1.55; white-space:normal; }
+  .dcell .ln b { color:#556; font-weight:600; }
+  /* Chip Organic */
+  .org { display:inline-block; border-radius:6px; padding:0 6px; font-weight:700; font-size:11px; }
+  .org-top { background:#128a43; color:#fff; }          /* top 3 — xanh lá đậm */
+  .org-up { background:#c9f2d4; color:#116632; }        /* lên hạng — xanh nhạt */
+  .org-down { background:#ffd4d4; color:#9c2020; }      /* xuống hạng — đỏ nhạt */
+  .org-out { background:#c81e1e; color:#fff; }          /* ngoài top 150 — đỏ đậm */
+  .org-flat { background:#eef1f7; color:#445; }
+  .delta { font-size:10px; font-weight:700; margin-left:3px; }
+  .delta.u { color:#128a43; } .delta.d { color:#c0392b; }
+  .tosOwn { color:#1a56c8; font-weight:700; }
+  .tosUnknown { color:#c77b00; }
+  .metr-line { display:block; }
+  .sess-del { color:#c0392b; cursor:pointer; font-size:10px; margin-left:4px; }
+  .filters { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:8px; }
+  .filters input, .filters select { height:28px; font-size:11.5px; }
+  .preset { background:#eef4ff; color:#2455e6; border-radius:10px; padding:2px 9px; font-size:11px; cursor:pointer; }
+  .preset .x { margin-left:4px; color:#8a94a8; }
+  .modal-bg { position:fixed; inset:0; background:rgba(20,26,40,.45); z-index:99; display:flex; align-items:center; justify-content:center; }
+  .modal { background:#fff; border-radius:12px; max-width:760px; width:94%; max-height:76vh; display:flex; flex-direction:column; box-shadow:0 18px 60px rgba(0,0,0,.25); }
+  .modal .mh { display:flex; align-items:center; padding:12px 16px; border-bottom:1px solid #edf0f5; }
+  .modal .mb { overflow:auto; padding:10px 16px 16px; }
 </style>
 </head>
 <body>
@@ -66,113 +85,70 @@
 </header>
 <main>
 
-  <!-- ===== NHẬP TẠM (sẽ ẩn khi đồng bộ kho keyword) ===== -->
-  <div class="card" id="tempInput">
-    <h2>Nhập kiểm tra <span class="temp-note">⚠ Trường tạm — sẽ ẩn khi đồng bộ với kho keyword (tag PPC)</span></h2>
-    <div class="row">
-      <div style="max-width:220px">
-        <label>ASIN</label>
-        <input type="text" id="asin" placeholder="B0XXXXXXXX" maxlength="10">
-      </div>
-      <div style="max-width:150px">
-        <label>Số trang quét (tối đa)</label>
-        <input type="number" id="maxPages" value="3" min="1" max="5">
-      </div>
-      <div>
-        <div class="chk"><input type="checkbox" id="checkVariants" checked><label style="margin:0">Track cả nhóm parent/child <span style="color:#889">(lưu riêng theo ASIN — tắt cho nhóm biến thể phân hóa như sticker A–Z)</span></label></div>
-        <div class="chk"><input type="checkbox" id="saveSnapshot"><label style="margin:0">Lưu competitor snapshot (nặng hơn)</label></div>
-        <div class="chk"><input type="checkbox" id="debugMode"><label style="margin:0">🐞 Debug (lưu HTML từng trang vào data/debug — để kiểm chứng ToS)</label></div>
-      </div>
-    </div>
-    <label style="display:flex;align-items:center;gap:10px">Keywords (mỗi dòng 1 keyword)
-      <button class="btn-sm" id="btnLoadBank" style="margin:0">📚 Nạp từ kho keyword (tag PPC)</button>
-      <span id="bankMsg" style="font-weight:400;color:#889"></span></label>
-    <textarea id="keywords" rows="7" placeholder="bowling pin christmas ornament&#10;bowling ornaments&#10;..."></textarea>
-    <div style="margin-top:12px; display:flex; gap:8px;">
-      <button class="btn-run" id="btnRun">▶ Kiểm tra xếp hạng</button>
+  <!-- ===== ĐIỀU KHIỂN CHECK ===== -->
+  <div class="card">
+    <h2>🎯 Check ranking</h2>
+    <div class="row" style="align-items:center">
+      <div class="chk"><input type="checkbox" id="adsScan" checked><label style="margin:0" title="Tắt: bỏ reload kiểm chứng + quét bù — nhanh hơn nhưng ToS dễ ra '?'">Quét ads (ToS/RoS)</label></div>
+      <div style="max-width:120px"><label style="margin:0 0 2px">Số trang</label><input type="number" id="maxPages" value="3" min="1" max="5" style="width:100%"></div>
+      <div style="max-width:150px"><label style="margin:0 0 2px">Zip code</label>
+        <div style="display:flex;gap:4px"><input type="text" id="zipInput" maxlength="5" style="width:70px"><button class="btn-sm" id="btnSetZip" title="Mở Amazon đặt zip, lưu cookies">📍</button></div></div>
+      <button class="btn-run" id="btnRun" title="Check từ đầu — tạo phiên (cột ngày/giờ) MỚI">▶ Run</button>
+      <button class="btn-cont" id="btnContinue" title="Chạy nối tiếp phiên gần nhất (khi Run bị dừng đột ngột) — không tạo cột mới">⏩ Continue</button>
       <button class="btn-stop" id="btnStop">⏹ Dừng</button>
+      <span id="zipStatus" style="font-size:11.5px;color:var(--mut)"></span>
     </div>
-  </div>
-
-  <!-- ===== Lịch check daily ===== -->
-  <div class="card">
-    <details>
-      <summary>⏰ Lịch check daily (chạy tự động theo giờ — máy phải bật)</summary>
-      <div class="row" style="margin-top:8px">
-        <div style="max-width:120px"><label>Giờ chạy</label><input type="text" id="schTime" placeholder="07:00"></div>
-        <div class="chk" style="max-width:160px"><input type="checkbox" id="schEnabled"><label style="margin:0">Bật lịch</label></div>
-        <div><button class="btn-sm" id="btnAddJob">➕ Thêm job (ASIN & keywords đang nhập)</button>
-             <button class="btn-sm" id="btnSaveSch">💾 Lưu lịch</button></div>
-      </div>
-      <div id="schJobs" style="font-size:12px;color:var(--mut);margin-top:8px"></div>
+    <details style="margin-top:8px">
+      <summary>🍪 Cookies</summary>
+      <textarea id="cookies" rows="4" style="margin-top:6px"></textarea>
+      <button class="btn-sm" id="btnSaveCookies" style="margin-top:6px">Lưu cookies</button>
     </details>
-  </div>
-
-  <!-- ===== Import chỉ số ads (file bulk daily) ===== -->
-  <div class="card">
-    <details>
-      <summary>📥 Import chỉ số ads — file bulk daily (Spent, Sales ads, ACoS cho dòng Chỉ số chính)</summary>
-      <div class="row" style="margin-top:8px">
-        <div><label>File bulk (.xlsx)</label><input type="file" id="bulkFile" accept=".xlsx"></div>
-        <div style="max-width:170px"><label>Ngày (bỏ trống = lấy từ tên file)</label><input type="text" id="bulkDate" placeholder="YYYY-MM-DD"></div>
-        <div><button class="btn-sm" id="btnImportBulk">Import</button> <span id="importMsg" style="font-size:12px;color:var(--mut)"></span></div>
-      </div>
-      <div class="row" style="margin-top:10px;border-top:1px dashed #e3e8f0;padding-top:10px">
-        <div style="max-width:160px"><label>Sale total (nhập tay)</label><input type="text" id="mtAsin" placeholder="ASIN"></div>
-        <div style="max-width:140px"><input type="text" id="mtDate" placeholder="YYYY-MM-DD"></div>
-        <div style="max-width:120px"><input type="number" id="mtTotal" placeholder="$"></div>
-        <div><button class="btn-sm" id="btnSaveTotal">Lưu</button></div>
+    <details style="margin-top:6px">
+      <summary>➕ Thêm ASIN + keywords vào bảng theo dõi</summary>
+      <div class="row" style="margin-top:6px">
+        <div style="max-width:180px"><label>ASIN</label><input type="text" id="addAsin" maxlength="10" style="width:100%"></div>
+        <div style="flex:1"><label>Keywords (mỗi dòng 1) — hoặc <a href="#" id="lnkBank">nạp từ kho PPC</a></label><textarea id="addKws" rows="3"></textarea></div>
+        <button class="btn-sm" id="btnAdd">➕ Thêm</button><span id="addMsg" style="font-size:11.5px;color:var(--mut)"></span>
       </div>
     </details>
   </div>
 
-  <!-- ===== Zip code / Location ===== -->
+  <!-- ===== BẢNG THEO DÕI (luôn hiện) ===== -->
   <div class="card">
-    <details open>
-      <summary>📍 Zip code giao hàng (máy VN mở phiên mới sẽ thành "Deliver to Vietnam" — SERP/ads sai hoàn toàn)</summary>
-      <div class="row" style="margin-top:8px">
-        <div style="max-width:140px"><label>Zip code (US)</label><input type="text" id="zipInput" placeholder="10011" maxlength="5"></div>
-        <div style="align-self:end"><button class="btn-sm" id="btnSetZip">📍 Đặt zip code ngay</button></div>
-        <div style="align-self:end;font-size:12px;color:var(--mut)" id="zipStatus"></div>
-      </div>
-      <div style="font-size:11.5px;color:var(--mut);margin-top:6px">
-        Bấm nút: worker mở Amazon, đặt địa chỉ giao hàng theo zip, lưu cookies mới. Zip cũng được
-        <b>tự kiểm tra & đặt lại trước mỗi lần chạy</b> — nếu chỉ lưu số mà chưa bấm, lần chạy tới sẽ tự đặt.
-      </div>
-    </details>
-  </div>
-
-  <!-- ===== Cookies ===== -->
-  <div class="card">
-    <details>
-      <summary>🍪 Cookies (giữ zip code — dán mới khi hết hạn)</summary>
-      <textarea id="cookies" rows="5" style="margin-top:8px"></textarea>
-      <div style="margin-top:8px"><button class="btn-sm" id="btnSaveCookies">Lưu cookies</button></div>
-    </details>
+    <h2>📋 Bảng theo dõi
+      <button class="btn-sm" id="btnSettings" style="margin-left:auto">⚙️ Cài đặt bảng</button>
+      <button class="btn-sm" id="btnReload">↻</button>
+    </h2>
+    <div class="filters" id="filterBar"></div>
+    <div class="twrap" id="tableWrap"><div style="padding:20px;color:var(--mut)">Đang tải...</div></div>
   </div>
 
   <!-- ===== Logs ===== -->
-  <div class="card"><h2>Logs</h2><div id="logs">--- sẵn sàng ---</div></div>
+  <div class="card"><details open><summary>🖥 Logs</summary><div id="logs" style="margin-top:6px">--- sẵn sàng ---</div></details></div>
 
-  <!-- ===== Kết quả ===== -->
+  <!-- ===== Lịch daily + import metrics (giữ nguyên) ===== -->
   <div class="card">
-    <div class="tabs">
-      <button id="tabDetail" class="active">Kết quả lần chạy</button>
-      <button id="tabHistory">Bảng theo dõi (ngày × keyword)</button>
-      <button id="tabDaily">ASIN Daily (quyết định)</button>
-      <select id="runSelect" style="margin-left:auto;font-size:12px;padding:5px;border-radius:6px;border:1px solid #ccd3e0"></select>
-      <button class="btn-sm" id="btnCsv">⬇ CSV</button>
-    </div>
-    <div class="scroll" id="resultArea">Chưa có dữ liệu — chạy kiểm tra hoặc chọn lần chạy cũ.</div>
+    <details>
+      <summary>⏰ Lịch check daily · 📥 Import chỉ số ads (bulk daily)</summary>
+      <div class="row" style="margin-top:8px">
+        <div style="max-width:110px"><label>Giờ chạy</label><input type="text" id="schTime" placeholder="07:00" style="width:100%"></div>
+        <div class="chk"><input type="checkbox" id="schEnabled"><label style="margin:0">Bật lịch</label></div>
+        <button class="btn-sm" id="btnSaveSch">💾 Lưu lịch (chạy toàn bộ ASIN đang theo dõi)</button>
+      </div>
+      <div class="row" style="margin-top:10px;border-top:1px dashed #e3e8f0;padding-top:10px">
+        <div><label>File bulk (.xlsx) — Spent/Sales ads theo ASIN×ngày</label><input type="file" id="bulkFile" accept=".xlsx"></div>
+        <div style="max-width:150px"><label>Ngày</label><input type="text" id="bulkDate" placeholder="YYYY-MM-DD" style="width:100%"></div>
+        <button class="btn-sm" id="btnImportBulk">Import</button><span id="importMsg" style="font-size:11.5px;color:var(--mut)"></span>
+      </div>
+    </details>
   </div>
 
 </main>
 <script>
 const $ = (id) => document.getElementById(id);
-let currentRun = null, currentTab = 'detail';
+const esc = (s) => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;');
 
-// Cảnh báo lệch phiên bản UI ↔ server (quên restart server sau khi cập nhật code)
-const UI_VERSION = '0.19.1'; // PHẢI khớp APP_VERSION trong server.js — nâng cùng lúc mỗi lần sửa API
+const UI_VERSION = '0.20.0'; // PHẢI khớp APP_VERSION server.js
 (async () => {
   try {
     const v = (await (await fetch('/api/version')).json()).version;
@@ -180,24 +156,409 @@ const UI_VERSION = '0.19.1'; // PHẢI khớp APP_VERSION trong server.js — n�
   } catch (e) {
     const bar = document.createElement('div');
     bar.style.cssText = 'background:#b45309;color:#fff;padding:8px 16px;font-size:13px;text-align:center';
-    bar.textContent = '⚠️ Server đang chạy phiên bản cũ — hãy tắt (Ctrl+C) rồi chạy lại "npm start" để tránh hiển thị sai dữ liệu.';
+    bar.textContent = '⚠️ Server đang chạy phiên bản cũ — tắt (Ctrl+C) rồi chạy lại "npm start".';
     document.body.prepend(bar);
   }
 })();
 
-/* ============ Chạy check ============ */
-$('btnRun').onclick = async () => {
-  const payload = {
-    asin: $('asin').value.trim(),
-    keywords: $('keywords').value,
-    maxPages: Number($('maxPages').value) || 3,
-    checkVariants: $('checkVariants').checked,
-    saveSnapshot: $('saveSnapshot').checked,
-    debug: $('debugMode').checked
+/* ===== Trạng thái UI (localStorage) ===== */
+let ui = {};
+try { ui = JSON.parse(localStorage.getItem('ppcw_rank_ui') || '{}'); } catch {}
+ui.colW = ui.colW || { asin: 96, kw: 200, vol: 64, tag: 66, loai: 96 };
+ui.dateW = ui.dateW || 128;
+ui.filt = ui.filt || { q: '', tag: '', loai: '' };
+ui.presets = ui.presets || [];
+ui.hideOff = ui.hideOff !== false;
+ui.showDelta = ui.showDelta !== false;
+ui.orgFmt = ui.orgFmt || 'page'; // 'page' = "Page 1 No 5" | 'rank' = "5"
+const saveUi = () => localStorage.setItem('ppcw_rank_ui', JSON.stringify(ui));
+
+let T = null; // dữ liệu bảng /api/tracking
+const KW_FIELD_OPTS = [
+  ['tos', 'ToS (x/y)'], ['ros', 'RoS (Yes/No)'], ['competitor', 'Competitor (variant thay thế)'],
+  ['typeAds', 'Type Ads (RoS/Video/SB/Carousel/ToS)'], ['badge', 'Badge Tag (Overall Pick...)']
+];
+
+async function loadTracking() {
+  T = await (await fetch('/api/tracking')).json();
+  renderTable();
+}
+
+/* ===== Chip Organic: màu theo quy tắc ===== */
+function orgChip(c, prevR) {
+  if (!c) return '<span style="color:#c3c9d6">—</span>';
+  const r = c.r;
+  if (r == null) {
+    const va = c.va ? ` <span title="Biến thể ${esc(c.va.asin)} rank #${c.va.r}" style="color:#e08a00;cursor:help">●</span>` : '';
+    return `<span class="org org-out" title="Không thấy trong phạm vi quét">Ngoài 150</span>${va}`;
+  }
+  const label = ui.orgFmt === 'rank' ? `${r}` : `Page ${c.page} No ${c.n}`;
+  let cls = 'org-flat', delta = '';
+  if (prevR != null && r !== prevR) {
+    cls = r < prevR ? 'org-up' : 'org-down';
+    if (ui.showDelta) {
+      const d = prevR - r;
+      delta = `<span class="delta ${d > 0 ? 'u' : 'd'}">${d > 0 ? '+' + d : d}</span>`;
+    }
+  }
+  if (r <= 3) cls = 'org-top';
+  const pv = c.pv ? ' <span title="Previously viewed — rank bị personalization" style="color:#b45309">⚠</span>' : '';
+  return `<span class="org ${cls}" title="Rank toàn cục #${r}">${label}</span>${delta}${pv}`;
+}
+
+/* ===== Dòng phụ trong ô keyword×ngày theo config ===== */
+function kwFieldLine(field, c) {
+  if (!c) return '';
+  if (field === 'tos') {
+    const v = c.tos === '?' ? '<span class="tosUnknown" title="Phiên không được serve ads — không kết luận được">?</span>'
+      : (String(c.tos || '0/0').split('/')[0] > 0 ? `<span class="tosOwn">${esc(c.tos)}</span>` : esc(c.tos || '0/0'));
+    return `<span class="ln"><b>ToS:</b> ${v}</span>`;
+  }
+  if (field === 'ros') return `<span class="ln"><b>RoS:</b> ${c.ros ? 'Yes' : 'No'}</span>`;
+  if (field === 'competitor') {
+    return c.va ? `<span class="ln"><b>Var:</b> ${esc(c.va.asin)} #${c.va.r}</span>` : '';
+  }
+  if (field === 'typeAds') {
+    const t = [];
+    if (String(c.tos || '').split('/')[1] > 0) t.push('ToS');
+    if (c.ros) t.push('RoS');
+    if (c.vid) t.push('Video');
+    if (c.sb) t.push('SB');
+    if (c.car) t.push('Carousel');
+    return t.length ? `<span class="ln"><b>Ads:</b> ${t.join(', ')}</span>` : '';
+  }
+  if (field === 'badge') {
+    return (c.bdg || []).length ? `<span class="ln"><b>🏷</b> ${c.bdg.map(esc).join(', ')}</span>` : '';
+  }
+  return '';
+}
+
+/* ===== Render bảng chính ===== */
+function renderTable() {
+  if (!T) return;
+  const sessions = T.sessions.slice();
+  const f = ui.filt;
+  const wrap = $('tableWrap');
+  const keepL = wrap.querySelector('.tin') ? 0 : wrap.scrollLeft, keepT = wrap.scrollTop;
+
+  // Filter bar
+  $('filterBar').innerHTML = `
+    <b style="font-size:11.5px">🔎</b>
+    <input type="text" id="fQ" placeholder="ASIN / keyword" value="${esc(f.q)}" style="width:150px">
+    <select id="fTag"><option value="">Phân loại: tất cả</option>
+      <option value="PPC" ${f.tag === 'PPC' ? 'selected' : ''}>PPC</option>
+      <option value="__blank" ${f.tag === '__blank' ? 'selected' : ''}>(trống — chưa chạy ads)</option></select>
+    <input type="text" id="fLoai" placeholder="Loại (VD: ACC-1)" value="${esc(f.loai)}" style="width:110px">
+    <button class="btn-sm" id="fSave" title="Lưu bộ lọc hiện tại thành preset phân loại tài khoản">💾 Lưu filter</button>
+    <button class="btn-sm" id="fClear">✕</button>
+    ${ui.presets.map((p, i) => `<span class="preset" onclick="applyPreset(${i})">${esc(p.name)}<span class="x" onclick="event.stopPropagation();rmPreset(${i})">✕</span></span>`).join('')}
+    <label class="chk" style="margin-left:auto"><input type="checkbox" id="fHide" ${ui.hideOff ? 'checked' : ''}> Ẩn không theo dõi</label>`;
+  $('fQ').onchange = (e) => { ui.filt.q = e.target.value.trim().toLowerCase(); saveUi(); renderTable(); };
+  $('fTag').onchange = (e) => { ui.filt.tag = e.target.value; saveUi(); renderTable(); };
+  $('fLoai').onchange = (e) => { ui.filt.loai = e.target.value.trim().toLowerCase(); saveUi(); renderTable(); };
+  $('fClear').onclick = () => { ui.filt = { q: '', tag: '', loai: '' }; saveUi(); renderTable(); };
+  $('fSave').onclick = () => {
+    const name = prompt('Tên filter (VD: ACC US-1)');
+    if (!name) return;
+    ui.presets.push({ name, ...ui.filt });
+    saveUi(); renderTable();
   };
-  $('logs').textContent = '';
-  $('status').textContent = 'Đang chạy...';
-  const res = await fetch('/api/check', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+  $('fHide').onchange = (e) => { ui.hideOff = e.target.checked; saveUi(); renderTable(); };
+
+  // Header
+  const cols = `<colgroup>
+    <col style="width:${ui.colW.asin}px"><col style="width:${ui.colW.kw}px"><col style="width:${ui.colW.vol}px">
+    <col style="width:${ui.colW.tag}px"><col style="width:${ui.colW.loai}px">
+    ${sessions.map(() => `<col style="width:${ui.dateW}px">`).join('')}</colgroup>`;
+  const head = `<thead><tr>
+    <th style="position:sticky;left:0;z-index:6">ASIN<span class="rz" data-c="asin"></span></th>
+    <th>Keyword / Chỉ số chính<span class="rz" data-c="kw"></span></th>
+    <th>Volume<span class="rz" data-c="vol"></span></th>
+    <th title="PPC = keyword từ ads (kho keyword) — trống = chưa chạy ads">Phân loại<span class="rz" data-c="tag"></span></th>
+    <th>Loại<span class="rz" data-c="loai"></span></th>
+    ${sessions.map((d) => `<th title="${esc(d)}">${esc(d.length > 10 ? d.slice(5) : d.slice(5))}<span class="sess-del" title="Xoá ngày này khỏi data" onclick="delDate('${esc(d)}')">🗑</span><span class="rz" data-c="__date"></span></th>`).join('')}
+  </tr></thead>`;
+
+  // Body theo ASIN
+  const mFields = T.config.metrics;
+  const kwFields = T.config.kwFields;
+  let body = '';
+  for (const a of T.asins) {
+    if (ui.hideOff && a.enabled === false) continue;
+    let kws = a.keywords;
+    if (ui.hideOff) kws = kws.filter((k) => k.enabled !== false);
+    if (f.q && !a.asin.toLowerCase().includes(f.q)) kws = kws.filter((k) => k.kw.includes(f.q));
+    if (f.tag === 'PPC') kws = kws.filter((k) => k.tag === 'PPC');
+    if (f.tag === '__blank') kws = kws.filter((k) => !k.tag);
+    if (f.loai) {
+      const aMatch = (a.loai || '').toLowerCase().includes(f.loai);
+      if (!aMatch) kws = kws.filter((k) => (k.loai || '').toLowerCase().includes(f.loai));
+    }
+    if (!kws.length && f.q && !a.asin.toLowerCase().includes(f.q)) continue;
+    if (!kws.length && (f.tag || (f.loai && !(a.loai || '').toLowerCase().includes(f.loai)))) continue;
+
+    const rowspan = 1 + kws.length;
+    const offCls = a.enabled === false ? ' off-row' : '';
+    const asinCell = `<td class="asin-cell${offCls}" rowspan="${rowspan}" style="position:sticky;left:0;background:#fff;z-index:2">
+      ${a.image ? `<img src="${esc(a.image)}">` : '<div style="width:64px;height:64px;background:#eef1f7;border-radius:6px;margin:0 auto"></div>'}
+      <div class="a">${esc(a.asin)}</div>
+      <div class="asin-tools">
+        <button title="Chạy check riêng ASIN này (phiên mới)" onclick="runAsin('${a.asin}')">▶</button>
+        <button title="Quét competitor: chỉ ads + top 10 organic" onclick="runCompetitor('${a.asin}')">🕵</button>
+        <button title="Bảng xếp hạng competitor xuất hiện nhiều nhất" onclick="showCompRank('${a.asin}')">🏆</button>
+        <button title="Cài đặt ASIN (theo dõi, parent/child, competitor, xoá)" onclick="asinSettings('${a.asin}')">⚙</button>
+      </div>
+      <div style="font-size:9.5px;color:#8a94a8;margin-top:3px">${a.enabled === false ? 'TẮT theo dõi' : ''}${a.trackParent ? ' 🧬' : ''}${a.saveCompetitor ? ' 🕵' : ''}</div>
+    </td>`;
+
+    // Dòng CHỈ SỐ CHÍNH
+    const mCells = sessions.map((d) => {
+      const cus = (a.metrics[d] || {}).custom || {};
+      const auto = a.metrics[d] || {};
+      const lines = mFields.map((name) => {
+        // ưu tiên giá trị nhập tay; fallback map tên quen thuộc từ import bulk
+        let v = cus[name];
+        if (v == null) {
+          const key = name.toLowerCase();
+          if (key.includes('spent')) v = auto.spent != null ? '$' + auto.spent : null;
+          else if (key.includes('sale ads') || key.includes('sales ads')) v = auto.salesAds != null ? '$' + auto.salesAds : null;
+          else if (key === 'sale' || key.includes('sale total')) v = auto.salesTotal != null ? auto.salesTotal : null;
+          else if (key.includes('click')) v = auto.clicks;
+        }
+        return v != null && v !== '' ? `<span class="metr-line"><b>${esc(name)}:</b> ${esc(v)}</span>` : '';
+      }).filter(Boolean).join('');
+      return `<td class="dcell" style="cursor:pointer" title="Bấm để nhập/sửa chỉ số" onclick="editMetrics('${a.asin}','${esc(d)}')">${lines || '<span style="color:#c3c9d6">—</span>'}</td>`;
+    }).join('');
+    body += `<tr class="mrow${offCls}">${asinCell}
+      <td class="mlbl">Chỉ số chính</td><td></td><td></td>
+      <td><input class="in-cell" value="${esc(a.loai)}" placeholder="phân loại acc" onchange="patchAsin('${a.asin}',{loai:this.value})" title="Phân loại tài khoản — điền tay"></td>
+      ${mCells}</tr>`;
+
+    // Dòng KEYWORD
+    for (const k of kws) {
+      const kOff = k.enabled === false ? ' off-row' : '';
+      const cells = sessions.map((d, si) => {
+        const c = k.series[d];
+        // prev = phiên trước gần nhất có rank
+        let prevR = null;
+        for (let j = si - 1; j >= 0; j--) {
+          const pc = k.series[sessions[j]];
+          if (pc && pc.r != null) { prevR = pc.r; break; }
+        }
+        if (!c) return '<td class="dcell"><span style="color:#c3c9d6">—</span></td>';
+        const lines = kwFields.map((fd) => kwFieldLine(fd, c)).filter(Boolean).join('');
+        return `<td class="dcell">${orgChip(c, prevR)}${lines ? '<br>' + lines : ''}</td>`;
+      }).join('');
+      body += `<tr class="${kOff}">
+        <td class="kw-cell${kOff}">
+          <input type="checkbox" ${k.enabled !== false ? 'checked' : ''} title="Theo dõi keyword này" onchange="patchKw('${a.asin}','${esc(k.kw)}',{enabled:this.checked})">
+          <span class="kwt">${esc(k.kw)}</span>
+          <span class="del" title="Xoá keyword + lịch sử" onclick="delKw('${a.asin}','${esc(k.kw)}')">🗑</span></td>
+        <td><input class="in-cell" value="${k.volume ?? ''}" placeholder="—" onchange="patchKw('${a.asin}','${esc(k.kw)}',{volume:parseFloat(this.value)||null})" title="Volume — nạp file hoặc gõ tay"></td>
+        <td>${k.tag === 'PPC' ? '<span class="tagchip">PPC</span>' : (k.tag ? `<span class="tagchip" style="background:#f1eaff;color:#7c5cd6">${esc(k.tag)}</span>` : '')}</td>
+        <td><input class="in-cell" value="${esc(k.loai)}" placeholder="—" onchange="patchKw('${a.asin}','${esc(k.kw)}',{loai:this.value})"></td>
+        ${cells}</tr>`;
+    }
+  }
+
+  wrap.innerHTML = T.asins.length
+    ? `<table class="track tin">${cols}${head}<tbody>${body}</tbody></table>`
+    : '<div style="padding:20px;color:var(--mut)">Chưa có ASIN nào — thêm ở mục "➕ Thêm ASIN + keywords" hoặc chạy check lần đầu.</div>';
+  wrap.scrollLeft = keepL; wrap.scrollTop = keepT;
+  bindResizers();
+}
+
+/* ===== Co kéo cột (cột ngày kéo CHUNG 1 cỡ) ===== */
+function bindResizers() {
+  document.querySelectorAll('.track .rz').forEach((rz) => {
+    rz.onmousedown = (e) => {
+      e.preventDefault();
+      const c = rz.dataset.c;
+      const startX = e.clientX;
+      const startW = c === '__date' ? ui.dateW : ui.colW[c];
+      const move = (ev) => {
+        const w = Math.max(46, startW + ev.clientX - startX);
+        if (c === '__date') ui.dateW = w; else ui.colW[c] = w;
+        // áp trực tiếp vào colgroup, không re-render
+        const colEls = document.querySelectorAll('.track col');
+        const fixed = ['asin', 'kw', 'vol', 'tag', 'loai'];
+        colEls.forEach((col, i) => {
+          if (i < 5) col.style.width = ui.colW[fixed[i]] + 'px';
+          else col.style.width = ui.dateW + 'px';
+        });
+      };
+      const up = () => { document.removeEventListener('mousemove', move); document.removeEventListener('mouseup', up); saveUi(); };
+      document.addEventListener('mousemove', move);
+      document.addEventListener('mouseup', up);
+    };
+  });
+}
+
+/* ===== Thao tác cấu hình ===== */
+window.patchAsin = async (asin, patch) => {
+  await fetch('/api/tracking/asin', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ asin, ...patch }) });
+  const a = T.asins.find((x) => x.asin === asin);
+  if (a) Object.assign(a, patch);
+  if (patch.enabled !== undefined || patch.delete) loadTracking();
+};
+window.patchKw = async (asin, kw, patch) => {
+  await fetch('/api/tracking/keyword', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ asin, keyword: kw, ...patch }) });
+  const k = T.asins.find((x) => x.asin === asin)?.keywords.find((x) => x.kw === kw);
+  if (k) Object.assign(k, patch);
+  if (patch.enabled !== undefined) renderTable();
+};
+window.delKw = async (asin, kw) => {
+  if (!confirm(`Xoá keyword "${kw}" và toàn bộ lịch sử của nó?`)) return;
+  await fetch('/api/tracking/keyword', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ asin, keyword: kw, delete: true }) });
+  loadTracking();
+};
+window.delDate = async (d) => {
+  if (!confirm(`Xoá phiên "${d}" khỏi toàn bộ data (rank, chỉ số, competitor)?`)) return;
+  await fetch('/api/tracking/delete-date', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ date: d }) });
+  loadTracking();
+};
+window.applyPreset = (i) => { ui.filt = { q: ui.presets[i].q, tag: ui.presets[i].tag, loai: ui.presets[i].loai }; saveUi(); renderTable(); };
+window.rmPreset = (i) => { ui.presets.splice(i, 1); saveUi(); renderTable(); };
+
+/* ===== Modal helper ===== */
+function modal(title, bodyHtml) {
+  document.getElementById('mmodal')?.remove();
+  const bg = document.createElement('div');
+  bg.className = 'modal-bg'; bg.id = 'mmodal';
+  bg.innerHTML = `<div class="modal"><div class="mh"><b style="font-size:13px">${title}</b>
+    <button class="btn-sm" style="margin-left:auto" onclick="document.getElementById('mmodal').remove()">✕ Đóng</button></div>
+    <div class="mb">${bodyHtml}</div></div>`;
+  bg.onclick = (e) => { if (e.target === bg) bg.remove(); };
+  document.body.appendChild(bg);
+}
+
+/* ===== Cài đặt ASIN ===== */
+window.asinSettings = (asin) => {
+  const a = T.asins.find((x) => x.asin === asin);
+  if (!a) return;
+  modal(`⚙ ${asin}`, `
+    <label class="chk" style="margin:6px 0"><input type="checkbox" ${a.enabled !== false ? 'checked' : ''}
+      onchange="patchAsin('${asin}',{enabled:this.checked})"> Theo dõi ASIN này (tắt = mờ/ẩn, không chạy Run)</label>
+    <label class="chk" style="margin:6px 0"><input type="checkbox" ${a.trackParent ? 'checked' : ''}
+      onchange="patchAsin('${asin}',{trackParent:this.checked})"> 🧬 Track cả nhóm parent/child</label>
+    <label class="chk" style="margin:6px 0"><input type="checkbox" ${a.saveCompetitor ? 'checked' : ''}
+      onchange="patchAsin('${asin}',{saveCompetitor:this.checked})"> 🕵 Lưu competitor snapshot mỗi lần check</label>
+    <hr style="border:none;border-top:1px solid #edf0f5;margin:10px 0">
+    <button class="btn-sm" style="background:#c0392b;color:#fff" onclick="if(confirm('Xoá hẳn ${asin} + toàn bộ lịch sử?')){patchAsin('${asin}',{delete:true});document.getElementById('mmodal').remove()}">🗑 Xoá hẳn ASIN</button>`);
+};
+
+/* ===== Cài đặt bảng ===== */
+$('btnSettings').onclick = () => {
+  const m = T.config.metrics, kf = T.config.kwFields;
+  modal('⚙️ Cài đặt bảng theo dõi', `
+    <b style="font-size:12px">3 chỉ số dòng "Chỉ số chính" (ô ASIN × ngày)</b>
+    <div class="row" style="margin:6px 0">
+      ${[0, 1, 2].map((i) => `<input type="text" id="cfgM${i}" value="${esc(m[i] || '')}" placeholder="VD: Sale / Sale ads / Spent / Click" style="width:140px">`).join('')}
+    </div>
+    <b style="font-size:12px">2 chỉ số phụ ô keyword × ngày (Organic luôn cố định dòng 1)</b>
+    <div class="row" style="margin:6px 0">
+      ${[0, 1].map((i) => `<select id="cfgK${i}">${KW_FIELD_OPTS.map(([v, lb]) => `<option value="${v}" ${kf[i] === v ? 'selected' : ''}>${lb}</option>`).join('')}</select>`).join('')}
+    </div>
+    <div class="row" style="margin:6px 0">
+      <label class="chk"><input type="checkbox" id="cfgDelta" ${ui.showDelta ? 'checked' : ''}> Hiện ±bậc thay đổi</label>
+      <label class="chk"><input type="checkbox" id="cfgFmt" ${ui.orgFmt === 'rank' ? 'checked' : ''}> Organic hiện số gọn (5) thay vì "Page 1 No 5"</label>
+    </div>
+    <button class="btn-sm" style="background:var(--b);color:#fff" onclick="saveCfg()">💾 Lưu cấu hình</button>
+    <hr style="border:none;border-top:1px solid #edf0f5;margin:12px 0">
+    <b style="font-size:12px">📈 Nạp Volume (txt/csv/xlsx — 2 cột keyword|volume, header có/không đều được)</b>
+    <div class="row" style="margin:6px 0"><input type="file" id="volFile" accept=".txt,.csv,.xlsx,.xls">
+      <button class="btn-sm" onclick="uploadVol()">⬆ Nạp</button><span id="volMsg" style="font-size:11.5px;color:var(--mut)"></span></div>
+    <hr style="border:none;border-top:1px solid #edf0f5;margin:12px 0">
+    <b style="font-size:12px">🗑 Xoá ngày khỏi data</b>
+    <div class="row" style="margin:6px 0">
+      <select id="delDateSel">${T.sessions.map((d) => `<option>${esc(d)}</option>`).join('')}</select>
+      <button class="btn-sm" style="background:#c0392b;color:#fff" onclick="delDate(document.getElementById('delDateSel').value)">Xoá</button>
+    </div>`);
+};
+window.saveCfg = async () => {
+  const metrics = [0, 1, 2].map((i) => $('cfgM' + i).value.trim()).filter(Boolean);
+  const kwFields = [...new Set([0, 1].map((i) => $('cfgK' + i).value))];
+  ui.showDelta = $('cfgDelta').checked;
+  ui.orgFmt = $('cfgFmt').checked ? 'rank' : 'page';
+  saveUi();
+  await fetch('/api/tracking/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ metrics, kwFields }) });
+  document.getElementById('mmodal').remove();
+  loadTracking();
+};
+window.uploadVol = async () => {
+  const f = $('volFile').files[0];
+  if (!f) { $('volMsg').textContent = 'Chọn file trước'; return; }
+  const fd = new FormData(); fd.append('file', f);
+  const r = await (await fetch('/api/tracking/volumes', { method: 'POST', body: fd })).json();
+  $('volMsg').textContent = r.ok ? `✅ ${r.rows} dòng — áp ${r.applied} keyword` : '❌ ' + r.error;
+  if (r.ok) loadTracking();
+};
+
+/* ===== Nhập/sửa 3 chỉ số chính ===== */
+window.editMetrics = (asin, date) => {
+  const a = T.asins.find((x) => x.asin === asin);
+  const cus = (a.metrics[date] || {}).custom || {};
+  modal(`✏️ Chỉ số chính — ${asin} · ${date}`, `
+    ${T.config.metrics.map((name, i) => `
+      <div class="row" style="margin:5px 0;align-items:center">
+        <b style="font-size:12px;width:110px">${esc(name)}</b>
+        <input type="text" id="mval${i}" value="${esc(cus[name] ?? '')}" style="width:140px" placeholder="VD: 30 / $40">
+      </div>`).join('')}
+    <button class="btn-sm" style="background:var(--b);color:#fff;margin-top:6px" onclick="saveMetrics('${asin}','${esc(date)}')">💾 Lưu</button>`);
+};
+window.saveMetrics = async (asin, date) => {
+  const values = {};
+  T.config.metrics.forEach((name, i) => { const v = $('mval' + i).value.trim(); if (v) values[name] = v; });
+  await fetch('/api/tracking/metrics', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ asin, date, values }) });
+  document.getElementById('mmodal').remove();
+  loadTracking();
+};
+
+/* ===== Bảng xếp hạng competitor ===== */
+window.showCompRank = async (asin) => {
+  const r = await (await fetch('/api/competitor-rank/' + asin)).json();
+  if (!r.date) { modal(`🏆 Competitor — ${asin}`, '<div style="color:var(--mut)">Chưa có dữ liệu — bấm 🕵 để quét competitor (ads + top 10 organic).</div>'); return; }
+  const rows = r.list.map((x, i) => `
+    <tr><td>${i + 1}</td><td><b>${esc(x.asin)}</b></td><td>${x.n}</td><td>${x.bestRank ?? '—'}</td>
+    <td style="font-size:10.5px;color:#667">${x.kws.slice(0, 6).map(esc).join(', ')}${x.kws.length > 6 ? '…' : ''}</td></tr>`).join('');
+  modal(`🏆 Competitor xuất hiện nhiều nhất — ${asin}`, `
+    <div class="row" style="margin-bottom:8px;align-items:center">
+      <span style="font-size:12px">Phiên:</span>
+      <select onchange="showCompRankDate('${asin}',this.value)">${r.dates.map((d) => `<option ${d === r.date ? 'selected' : ''}>${esc(d)}</option>`).join('')}</select>
+      <span class="hint" style="font-size:11px;color:var(--mut)">đếm số keyword (của mình) mà đối thủ xuất hiện — ads hoặc organic top 10</span>
+    </div>
+    <table style="width:100%;border-collapse:collapse;font-size:12px">
+      <thead><tr style="background:#f0f3f9"><th style="padding:4px">#</th><th>ASIN</th><th>Số keyword</th><th>Best organic</th><th>Keywords</th></tr></thead>
+      <tbody>${rows}</tbody></table>`);
+};
+window.showCompRankDate = async (asin, d) => {
+  document.getElementById('mmodal').remove();
+  const r = await (await fetch('/api/competitor-rank/' + asin + '?date=' + encodeURIComponent(d))).json();
+  // render lại với date đã chọn
+  const rows = r.list.map((x, i) => `
+    <tr><td>${i + 1}</td><td><b>${esc(x.asin)}</b></td><td>${x.n}</td><td>${x.bestRank ?? '—'}</td>
+    <td style="font-size:10.5px;color:#667">${x.kws.slice(0, 6).map(esc).join(', ')}${x.kws.length > 6 ? '…' : ''}</td></tr>`).join('');
+  modal(`🏆 Competitor — ${asin} · ${esc(d)}`, `
+    <table style="width:100%;border-collapse:collapse;font-size:12px">
+      <thead><tr style="background:#f0f3f9"><th style="padding:4px">#</th><th>ASIN</th><th>Số keyword</th><th>Best organic</th><th>Keywords</th></tr></thead>
+      <tbody>${rows}</tbody></table>`);
+};
+
+/* ===== RUN / CONTINUE / PER-ASIN ===== */
+let stopped = false;
+function sessionLabel() {
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+function enabledTargets() {
+  return T.asins.filter((a) => a.enabled !== false)
+    .map((a) => ({ asin: a.asin, trackParent: a.trackParent, saveCompetitor: a.saveCompetitor,
+      kws: a.keywords.filter((k) => k.enabled !== false).map((k) => k.kw) }))
+    .filter((t) => t.kws.length);
+}
+async function streamCheck(payload) {
+  const res = await fetch('/api/check', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
   const reader = res.body.getReader(); const dec = new TextDecoder();
   let buf = '';
   while (true) {
@@ -208,395 +569,124 @@ $('btnRun').onclick = async () => {
     $('logs').textContent += text;
     $('logs').scrollTop = $('logs').scrollHeight;
   }
-  const m = buf.match(/RESULT_ID:([\w-]+)/);
   const jm = buf.match(/JOB_ID:([\w-]+)/);
-  if (jm) { await pollJob(jm[1]); return; } // chế độ queue: theo dõi job đến khi agent chạy xong
+  if (jm) await pollJob(jm[1]);
+}
+async function runTargets(targets, dateKey, competitorMode = false) {
+  stopped = false;
+  $('logs').textContent = '';
+  for (let i = 0; i < targets.length; i++) {
+    if (stopped) break;
+    const t = targets[i];
+    $('status').textContent = `Đang chạy ${i + 1}/${targets.length}: ${t.asin}...`;
+    $('logs').textContent += `\n━━━ [${i + 1}/${targets.length}] ${t.asin} · phiên "${dateKey}"${competitorMode ? ' · COMPETITOR' : ''} ━━━\n`;
+    await streamCheck({
+      asin: t.asin, keywords: t.kws.join('\n'),
+      maxPages: Number($('maxPages').value) || 3,
+      checkVariants: t.trackParent, saveSnapshot: t.saveCompetitor || competitorMode,
+      adsScan: $('adsScan').checked, dateKey, competitorMode
+    });
+    await loadTracking();
+  }
   $('status').textContent = 'Idle';
-  await loadRunList();
-  if (m) { $('runSelect').value = m[1]; await showRun(m[1]); }
+}
+$('btnRun').onclick = () => {
+  const targets = enabledTargets();
+  if (!targets.length) return alert('Không có ASIN/keyword nào đang bật theo dõi');
+  runTargets(targets, sessionLabel());
 };
-$('btnStop').onclick = () => fetch('/api/stop', { method:'POST' });
+$('btnContinue').onclick = () => {
+  const last = T.sessions[T.sessions.length - 1];
+  if (!last) return alert('Chưa có phiên nào — dùng Run');
+  // chỉ chạy phần THIẾU của phiên gần nhất
+  const targets = enabledTargets().map((t) => {
+    const a = T.asins.find((x) => x.asin === t.asin);
+    return { ...t, kws: t.kws.filter((kw) => !(a.keywords.find((k) => k.kw === kw)?.series[last])) };
+  }).filter((t) => t.kws.length);
+  if (!targets.length) return alert(`Phiên "${last}" đã đủ dữ liệu — không có gì để chạy tiếp`);
+  runTargets(targets, last);
+};
+window.runAsin = (asin) => {
+  const t = enabledTargets().find((x) => x.asin === asin);
+  if (!t) return alert('ASIN này đang tắt theo dõi hoặc không có keyword bật');
+  runTargets([t], sessionLabel());
+};
+window.runCompetitor = (asin) => {
+  const t = enabledTargets().find((x) => x.asin === asin);
+  if (!t) return alert('ASIN này đang tắt theo dõi hoặc không có keyword bật');
+  runTargets([t], sessionLabel(), true);
+};
+$('btnStop').onclick = () => { stopped = true; fetch('/api/stop', { method: 'POST' }); };
 
-/* Chế độ queue (server team): poll trạng thái job — log của agent hiện dần vào khung log */
 async function pollJob(jobId) {
   $('status').textContent = 'Chờ agent...';
   while (true) {
-    await new Promise(r => setTimeout(r, 3000));
+    await new Promise((r) => setTimeout(r, 3000));
     let j;
     try { j = await (await fetch('/api/jobs/' + jobId)).json(); } catch { continue; }
     $('logs').textContent = `[Job ${j.id} · ${j.status}${j.agent ? ' · agent: ' + j.agent : ''}]\n` + (j.logs || []).join('\n');
     $('logs').scrollTop = $('logs').scrollHeight;
-    if (j.status === 'running') $('status').textContent = 'Agent "' + (j.agent || '?') + '" đang chạy...';
-    if (j.status === 'done') {
-      $('status').textContent = 'Idle';
-      await loadRunList();
-      if (j.resultRunId) { $('runSelect').value = j.resultRunId; await showRun(j.resultRunId); }
-      return;
-    }
-    if (j.status === 'error') {
-      $('status').textContent = 'Idle';
-      $('logs').textContent += '\n🚨 ' + (j.error || 'Lỗi không rõ');
-      return;
-    }
+    if (j.status === 'done' || j.status === 'error') return;
   }
 }
 
-// Nạp keyword tag PPC từ kho (module Tạo Campaign đẩy vào sau mỗi lần export bulk)
-$('btnLoadBank').onclick = async () => {
-  const a = $('asin').value.trim().toUpperCase();
-  if (!/^[A-Z0-9]{10}$/.test(a)) { $('bankMsg').textContent = 'Nhập ASIN trước'; return; }
+/* ===== Thêm ASIN + keywords ===== */
+$('btnAdd').onclick = async () => {
+  const r = await (await fetch('/api/tracking/add', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ asin: $('addAsin').value.trim(), keywords: $('addKws').value }) })).json();
+  $('addMsg').textContent = r.ok ? `✅ đã thêm ${r.added} keyword` : '❌ ' + (r.error || 'Lỗi');
+  if (r.ok) { $('addKws').value = ''; loadTracking(); }
+};
+$('lnkBank').onclick = async (e) => {
+  e.preventDefault();
+  const a = $('addAsin').value.trim().toUpperCase();
+  if (!/^[A-Z0-9]{10}$/.test(a)) { $('addMsg').textContent = 'Nhập ASIN trước'; return; }
   const r = await (await fetch('/api/keyword-bank/' + a + '?tag=PPC')).json();
-  if (!r.count) { $('bankMsg').textContent = 'Kho chưa có keyword PPC cho ASIN này'; return; }
-  const cur = new Set($('keywords').value.split('\n').map(s => s.trim()).filter(Boolean));
-  r.keywords.forEach(k => cur.add(k.keyword));
-  $('keywords').value = [...cur].join('\n');
-  $('bankMsg').textContent = `✅ ${r.count} keyword PPC`;
+  if (!r.count) { $('addMsg').textContent = 'Kho chưa có keyword PPC cho ASIN này'; return; }
+  const cur = new Set($('addKws').value.split('\n').map((s) => s.trim()).filter(Boolean));
+  r.keywords.forEach((k) => cur.add(k.keyword));
+  $('addKws').value = [...cur].join('\n');
+  $('addMsg').textContent = `✅ ${r.count} keyword PPC từ kho`;
 };
 
-// Nhập ASIN → tự nạp cài đặt track parent đã lưu của ASIN đó
-$('asin').addEventListener('change', async () => {
-  const a = $('asin').value.trim().toUpperCase();
-  if (!/^[A-Z0-9]{10}$/.test(a)) return;
-  const s = await (await fetch('/api/asin-settings/' + a)).json();
-  $('checkVariants').checked = s.trackParent !== false;
-});
-
-/* ============ Zip code / Location ============ */
+/* ===== Zip / cookies / lịch / import (giữ từ bản cũ) ===== */
 (async () => {
   const cfg = await (await fetch('/api/location')).json();
   $('zipInput').value = cfg.zip || '';
-  if (cfg.zip) $('zipStatus').textContent = 'Zip đang cấu hình: ' + cfg.zip + ' (tự kiểm tra trước mỗi lần chạy)';
+  if (cfg.zip) $('zipStatus').textContent = 'Zip: ' + cfg.zip + ' (tự kiểm tra trước mỗi lần chạy)';
 })();
 $('btnSetZip').onclick = async () => {
   const zip = $('zipInput').value.trim();
-  if (!/^\d{5}$/.test(zip)) { alert('Zip phải là 5 chữ số US (VD 10011)'); return; }
+  if (!/^\d{5}$/.test(zip)) return alert('Zip phải là 5 chữ số US');
   $('btnSetZip').disabled = true;
-  $('zipStatus').textContent = '⏳ Đang mở Amazon và đặt zip ' + zip + '...';
+  $('zipStatus').textContent = '⏳ Đang đặt zip ' + zip + '...';
   try {
-    const r = await (await fetch('/api/location', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ zip }) })).json();
-    if (r.ok) {
-      $('zipStatus').textContent = '✅ Location: ' + r.location + ' · đã lưu ' + r.cookieCount + ' cookies';
-      $('cookies').value = JSON.stringify(await (await fetch('/api/cookies')).json(), null, 1);
-    } else {
-      $('zipStatus').textContent = '❌ ' + (r.message || 'Lỗi');
-    }
-  } catch (e) {
-    $('zipStatus').textContent = '❌ ' + e.message;
-  }
+    const r = await (await fetch('/api/location', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ zip }) })).json();
+    $('zipStatus').textContent = r.ok ? '✅ ' + r.location + ' · ' + r.cookieCount + ' cookies' : '❌ ' + (r.message || 'Lỗi');
+    if (r.ok) $('cookies').value = JSON.stringify(await (await fetch('/api/cookies')).json(), null, 1);
+  } catch (e) { $('zipStatus').textContent = '❌ ' + e.message; }
   $('btnSetZip').disabled = false;
 };
-
-/* ============ Cookies ============ */
 (async () => { $('cookies').value = JSON.stringify(await (await fetch('/api/cookies')).json(), null, 1); })();
 $('btnSaveCookies').onclick = async () => {
   try {
-    const r = await fetch('/api/cookies', { method:'POST', headers:{'Content-Type':'application/json'}, body: $('cookies').value });
+    const r = await fetch('/api/cookies', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: $('cookies').value });
     alert((await r.json()).ok ? '✅ Đã lưu' : '❌ Lỗi');
   } catch { alert('❌ JSON không hợp lệ'); }
 };
-
-/* ============ Danh sách run ============ */
-async function loadRunList() {
-  const list = await (await fetch('/api/results')).json();
-  $('runSelect').innerHTML = list.map(r =>
-    `<option value="${r.id}">${(r.checkedAt||'').slice(0,16).replace('T',' ')} · ${r.asin} · ${r.keywordCount} kw</option>`).join('');
-}
-$('runSelect').onchange = () => showRun($('runSelect').value);
-loadRunList();
-
-/* ============ Tab ============ */
-$('tabDetail').onclick = () => { currentTab='detail'; setTab(); render(); };
-$('tabHistory').onclick = () => { currentTab='history'; setTab(); render(); };
-$('tabDaily').onclick = () => { currentTab='daily'; setTab(); render(); };
-function setTab(){
-  $('tabDetail').classList.toggle('active', currentTab==='detail');
-  $('tabHistory').classList.toggle('active', currentTab==='history');
-  $('tabDaily').classList.toggle('active', currentTab==='daily');
-}
-
-async function showRun(id) {
-  currentRun = await (await fetch('/api/results/' + id)).json();
-  render();
-}
-
-async function render() {
-  if (!currentRun) return;
-  if (currentTab === 'detail') renderDetail();
-  else if (currentTab === 'history') await renderHistory(currentRun.asin);
-  else await renderDaily(currentRun.asin);
-}
-
-/* ============ ASIN DAILY — bảng chỉ số quyết định (dòng = chỉ số, cột = ngày) ============ */
-async function renderDaily(asin) {
-  const d = await (await fetch('/api/asin-daily/' + asin)).json();
-  if (!d.days.length) { $('resultArea').innerHTML = 'Chưa có dữ liệu — import file bulk daily hoặc chạy check ranking.'; return; }
-
-  const fmt$ = v => v===null||v===undefined ? null : '$' + v;
-  const fmtP = v => v===null||v===undefined ? null : v + '%';
-  const fmtN = v => v===null||v===undefined ? null : Number(v).toLocaleString();
-
-  // Định nghĩa dòng: [nhãn, key, formatter, hướng tốt: 'up'|'down'|null]
-  const METRIC_ROWS = [
-    ['Impressions','impressions',fmtN,'up'], ['Clicks','clicks',fmtN,'up'], ['CTR','ctr',fmtP,'up'],
-    ['CPC','cpc',fmt$,'down'], ['Spent','spent',fmt$,null],
-    ['Orders (ads)','ordersAds',fmtN,'up'], ['Sales ads','salesAds',fmt$,'up'], ['CR','cr',fmtP,'up'],
-    ['ACoS','acos',fmtP,'down'], ['Sale total','salesTotal',fmt$,'up'], ['TACoS','tacos',fmtP,'down']
-  ];
-
-  const head = d.days.map(x => `<th>${x.date.slice(5)}</th>`).join('');
-  let body = '';
-
-  for (const [label, key, fm, good] of METRIC_ROWS) {
-    let prev = null;
-    const cells = d.days.map(x => {
-      if (!x.hasFile) return `<td class="na">#N/A</td>`;
-      const v = x[key];
-      const shown = fm(v);
-      if (shown === null) { return `<td style="color:#99a">-</td>`; }
-      // Mũi tên & màu so với ngày trước có dữ liệu
-      let delta = '';
-      if (prev !== null && v !== prev && good) {
-        const upIsGood = good === 'up';
-        const isUp = v > prev;
-        const goodMove = isUp === upIsGood;
-        delta = ` <span style="color:${goodMove?'var(--ok)':'var(--bad)'};font-size:10px">${isUp?'▲':'▼'}</span>`;
-      }
-      if (v !== null && v !== undefined) prev = v;
-      const strong = ['acos','tacos','spent','salesAds'].includes(key);
-      return `<td>${strong?'<b>'+shown+'</b>':shown}${delta}</td>`;
-    }).join('');
-    const hl = ['acos','tacos'].includes(key) ? ' style="background:#fbf7ee"' : '';
-    body += `<tr${hl}><td class="lbl" style="font-weight:600">${label}</td>${cells}</tr>`;
-  }
-
-  // Bối cảnh ranking (nếu ngày đó có chạy check)
-  const rankRows = [
-    ['KW Page 1', s => s ? `${s.p1}/${s.total}` : null],
-    ['KW có ToS', s => s ? s.tos : null],
-    ['KW not found', s => s ? s.nf : null]
-  ];
-  body += `<tr><td colspan="${d.days.length+1}" style="background:#f0f3f9;font-size:11px;color:#667">Bối cảnh ranking</td></tr>`;
-  for (const [label, fn] of rankRows) {
-    const cells = d.days.map(x => {
-      const v = fn(x.rank);
-      return v === null ? '<td style="color:#bbb">—</td>' : `<td>${v}</td>`;
-    }).join('');
-    body += `<tr><td class="lbl">${label}</td>${cells}</tr>`;
-  }
-
-  $('resultArea').innerHTML = `
-    <div style="font-size:12px;color:var(--mut);margin-bottom:6px">
-      ASIN <b>${esc(d.asin)}</b> · ▲▼ so với ngày trước (xanh = chuyển biến tốt) ·
-      <span class="na" style="padding:0 4px">#N/A</span> = chưa import file bulk ngày đó · "-" = thiếu Sale total</div>
-    <table><thead><tr><th style="min-width:110px">Chỉ số</th>${head}</tr></thead><tbody>${body}</tbody></table>
-    <style>.na{background:#e02020;color:#fff;font-weight:700}</style>`;
-}
-
-/* ============ Bảng chi tiết 1 lần chạy ============ */
-function renderDetail() {
-  const rows = (currentRun.results || []).map((x, idx) => {
-    if (x.error) return `<tr><td>${esc(x.keyword)}</td><td colspan="8" class="nf">ERR: ${esc(x.error)}</td></tr>`;
-    const p = x.primary || {};
-    const snapBtn = x.snapshot?.length ? ` <a href="#" onclick="toggleSnap(${idx});return false" style="font-size:11px">👁 SERP</a>` : '';
-    const bestVar = (x.variants||[]).find(v => v.organicRank !== null);
-    const ownBadges = (p.ownBadges || []);
-    const badgeChips = ownBadges.length
-      ? ownBadges.map(b => `<span class="bdgChip" title="Badge Amazon trên tile của bạn">${esc(b)}</span>`).join('')
-      : '';
-    const org = (p.organicRank !== null
-      ? `Page ${p.organicPage} No ${p.organicPosInPage} <span class="badge">#${p.organicRank}</span>${p.ownPreviouslyViewed?' <span class="pv">⚠PV</span>':''}`
-      : (bestVar ? `<span style="color:#8a6d1a">nhóm: Page ${bestVar.organicPage} No ${bestVar.organicPosInPage}</span> <span class="badge">xem dòng ↳</span>`
-         : (x.variants?.length ? '<span class="badge">nhóm có sponsored</span>' : `<span class="nf" style="padding:1px 6px;border-radius:6px" title="Đã quét ${x.pagesScanned||3} trang">Not in top 150</span>`))) + badgeChips;
-    const clean = p.organicRankClean !== null && p.organicRankClean !== p.organicRank ? `#${p.organicRankClean}` : (p.ownPreviouslyViewed ? 'n/a' : '=');
-    const tos = x.adsTilesServed === false
-      ? '<span class="tosUnknown" style="padding:1px 6px;border-radius:6px" title="0 SP tile toàn bộ trang quét (đã retry) — phiên không được serve ads, không kết luận được">?</span>'
-      : `${p.tosPosition||0}/${p.tosTotal||0}`;
-    const main = `<tr><td>${esc(x.keyword)}${snapBtn}</td><td>${org}</td><td>${clean}</td><td>${tos}</td>
-      <td>${p.rosPresent?'✅':'—'}</td><td>${p.videoPresent?'🎬':'—'}</td><td>${p.sbPresent?'✅':'—'}</td><td>${p.spCarouselPresent?'✅':'—'}</td>
-      <td>${x.resultCount ? esc(x.resultCount) : '—'}</td></tr>`;
-    const snapRow = x.snapshot?.length ? `<tr id="snap_${idx}" style="display:none"><td colspan="9">${renderSnap(x.snapshot, currentRun.asin)}</td></tr>` : '';
-    const vars = (x.variants||[]).map(v =>
-      `<tr class="variant-row"><td style="padding-left:22px">↳ ${v.asin}</td>
-       <td>${v.organicRank!==null?`Page ${v.organicPage} No ${v.organicPosInPage} <span class="badge">#${v.organicRank}</span>`:'—'}</td>
-       <td>—</td><td>${v.tosPosition||0}/${v.tosTotal||0}</td>
-       <td>${v.rosPresent?'✅':'—'}</td><td>${v.videoPresent?'🎬':'—'}</td><td>${v.sbPresent?'✅':'—'}</td><td>${v.spCarouselPresent?'✅':'—'}</td><td>—</td></tr>`).join('');
-    return main + snapRow + vars;
-  }).join('');
-  $('resultArea').innerHTML = `
-    <div style="font-size:12px;color:var(--mut);margin-bottom:6px">
-      ASIN <b>${currentRun.asin}</b>${currentRun.parentAsin?` · parent ${currentRun.parentAsin} (${currentRun.siblingCount} biến thể)`:''} · ${(currentRun.checkedAt||'').slice(0,16).replace('T',' ')}
-    </div>
-    <table><thead><tr><th>Keyword</th><th>Organic</th><th>Clean</th><th>ToS x/y</th><th>RoS</th><th>Video</th><th>SB</th><th>Carousel</th><th>Cạnh tranh</th></tr></thead>
-    <tbody>${rows}</tbody></table>`;
-}
-
-/* Competitor snapshot: toàn bộ ASIN trên SERP xếp đúng thứ tự (ToS trước, rồi các vị trí còn lại) */
-function renderSnap(snapshot, ownAsin) {
-  const rows = snapshot.map(s => {
-    const own = s.isOwn ? ' style="background:#dcebff;font-weight:700"' : '';
-    const asins = s.asin || (s.asins ? s.asins.join(', ') : '');
-    const tags = (s.badges || []).map(b => `<span class="bdgChip">${esc(b)}</span>`).join('');
-    return `<tr${own}><td>p${s.page}</td><td>${esc(s.positionType)}</td><td>${s.positionIndex ?? ''}</td>
-      <td>${esc(asins)}</td><td>${s.price != null ? '$'+s.price : ''}</td><td>${tags}</td></tr>`;
-  }).join('');
-  return `<div style="max-height:300px;overflow:auto;border:1px solid #e3e8f0;border-radius:6px">
-    <table style="font-size:11.5px"><thead><tr><th>Trang</th><th>Loại</th><th>#</th><th>ASIN</th><th>Giá</th><th>Tag</th></tr></thead>
-    <tbody>${rows}</tbody></table></div>`;
-}
-function toggleSnap(i) {
-  const el = document.getElementById('snap_' + i);
-  if (el) el.style.display = el.style.display === 'none' ? '' : 'none';
-}
-
-/* ============ Bảng theo dõi: ASIN | Hình | Keyword × 3 dòng (Organic/ToS/RoS) × Ngày ============ */
-async function renderHistory(asin) {
-  const h = await (await fetch('/api/history/' + asin)).json();
-  if (!h.columns.length) { $('resultArea').innerHTML = 'Chưa có lịch sử cho ASIN này.'; return; }
-  // CHỈ hiển thị keyword của LẦN CHẠY ĐANG CHỌN (không kéo keyword của các lần chạy cũ vào);
-  // cột ngày vẫn là toàn bộ lịch sử của ASIN
-  const selectedKws = new Set((currentRun.results || []).map(x => x.keyword));
-  h.keywords = h.keywords.filter(k => selectedKws.has(k));
-  if (!h.keywords.length) { $('resultArea').innerHTML = 'Lần chạy đang chọn không có keyword nào.'; return; }
-  const head = h.columns.map(c => `<th>${(c.date||'').slice(5,16).replace('T',' ')}</th>`).join('');
-
-  // Dòng tóm tắt rank theo ngày (chỉ số ads đầy đủ nằm ở tab "ASIN Daily")
-  const summaryCells = h.columns.map(c => {
-    const s = c.rankSummary || {};
-    return `<td><b>P1: ${s.p1}/${s.total}</b> kw · ToS: ${s.tos} · <span style="color:var(--bad)">NF: ${s.nf}</span></td>`;
-  }).join('');
-
-  const totalRows = 1 + h.keywords.length * 3; // 1 dòng summary + 3 dòng/keyword
-  const asinCell = `<td rowspan="${totalRows}" style="text-align:center;vertical-align:top;background:#fff">
-      ${h.image ? `<img src="${esc(h.image)}" style="width:84px;border-radius:6px;margin:4px 0">` : ''}
-      <div style="font-size:11px;font-weight:700">${esc(h.asin)}</div></td>`;
-
-  let body = `<tr>${asinCell}<td colspan="2" style="background:#f0f3f9"><b>Chỉ số chính</b></td>${summaryCells}</tr>`;
-
-  for (const kw of h.keywords) {
-    let prev = null;
-    const orgCells = [], tosCells = [], rosCells = [];
-    for (const c of h.columns) {
-      const cell = c.cells[kw];
-      if (!cell) { orgCells.push('<td>—</td>'); tosCells.push('<td>—</td>'); rosCells.push('<td>—</td>'); continue; }
-      if (cell.error) { orgCells.push('<td class="nf">ERR</td>'); tosCells.push('<td>—</td>'); rosCells.push('<td>—</td>'); continue; }
-
-      // Dòng 1: Organic — ô luôn nói về ASIN CHÍNH; biến thể chỉ là chấm cam + float khi hover
-      let cls = '';
-      if (cell.rank === null) cls = cell.hasVariantRank ? 'varOnly' : 'nf';
-      else if (prev !== null && cell.rank < prev) cls = 'up';
-      else if (prev !== null && cell.rank > prev) cls = 'down';
-      if (cell.rank !== null) prev = cell.rank;
-      const pvTag = cell.pv ? ' <span class="pv" title="Previously viewed — rank bị personalization">⚠</span>' : '';
-      // ASIN chính vắng nhưng biến thể rank → hiện VỊ TRÍ của nhóm ngay trong ô (ASIN đầy đủ xem ở float)
-      const bestVar = (cell.variants || []).find(v => v.organic);
-      const groupLine = (cell.rank === null && bestVar)
-        ? `<div style="font-size:10.5px;color:#8a6d1a">nhóm: ${esc(bestVar.organic)}</div>` : '';
-      const mainText = cell.rank === null ? 'Not in top 150' + groupLine : esc(cell.organic) + pvTag;
-
-      // Badge Amazon trên tile của mình (Overall Pick, Amazon's Choice, Best Seller...)
-      // — hover 🏷 xem đầy đủ, không chiếm chỗ đọc của ô chính
-      let badgeTip = '';
-      if (cell.badges && cell.badges.length) {
-        badgeTip = `<span class="tipwrap"><span class="bdgDot"> 🏷</span><span class="tipbox">Badge Amazon:<br>${cell.badges.map(esc).join('<br>')}</span></span>`;
-      }
-
-      // Float: danh sách biến thể với ASIN đầy đủ (không ảnh hưởng nội dung ô chính)
-      let floatBox = '';
-      if (cell.variants && cell.variants.length) {
-        const lines = cell.variants.map(v => {
-          const parts = [];
-          if (v.organic) parts.push(v.organic);
-          if (v.tos) parts.push('ToS ' + v.tos);
-          if (v.ros) parts.push('RoS');
-          if (v.badges && v.badges.length) parts.push('🏷 ' + v.badges.map(esc).join(', '));
-          return `<b>${esc(v.asin)}</b> — ${parts.join(' · ')}`;
-        }).join('<br>');
-        floatBox = `<span class="tipwrap"><span class="dot"> ●</span><span class="tipbox">Biến thể cùng parent:<br>${lines}</span></span>`;
-      }
-      orgCells.push(`<td class="${cls}">${mainText}${badgeTip}${floatBox}</td>`);
-
-      // Dòng 2: ToS — 4 trạng thái:
-      //   x/y xanh = mình chiếm slot · 0/y xám = đối thủ chiếm hết ·
-      //   0/0 mờ = XÁC NHẬN không ai mua (có thấy SP tile chỗ khác) ·
-      //   ? cam = phiên không được serve SP tile → không kết luận được
-      if (cell.tosUnknown) {
-        tosCells.push(`<td class="tosUnknown" title="0 SP tile trên toàn bộ trang quét (đã retry) — Amazon không serve ads cho phiên này, KHÔNG kết luận được ToS. Không phải 0/0.">?</td>`);
-      } else if (cell.tosPos > 0) {
-        tosCells.push(`<td class="tosOwn">${esc(cell.tos)}</td>`);
-      } else if (cell.tos && !/^0\/0/.test(cell.tos)) {
-        tosCells.push(`<td class="tosLost" title="Đối thủ chiếm hết slot ToS — camp RANK cần tăng placementTop">${esc(cell.tos)}</td>`);
-      } else {
-        tosCells.push(`<td class="tosEmpty" title="Không ai mua ToS keyword này — cơ hội chiếm rẻ">0/0</td>`);
-      }
-
-      // Dòng 3: Rest of Search (+ top p2/p3, variant RoS)
-      rosCells.push(cell.ros ? `<td style="font-size:11.5px">${esc(cell.ros)}</td>` : '<td style="color:#bbb">—</td>');
-    }
-    body += `<tr><td rowspan="3" style="vertical-align:top;font-weight:600">${esc(kw)}</td><td class="lbl">Organic</td>${orgCells.join('')}</tr>`;
-    body += `<tr><td class="lbl">ToS</td>${tosCells.join('')}</tr>`;
-    body += `<tr><td class="lbl">RoS</td>${rosCells.join('')}</tr>`;
-  }
-
-  $('resultArea').innerHTML = `
-    <div style="font-size:12px;color:var(--mut);margin-bottom:6px">
-      Ô luôn là kết quả của <b>ASIN chính</b> · 🟩 lên hạng · 🟥 tụt · nền cam nhạt = chính vắng nhưng nhóm có mặt ·
-      đỏ đậm = không ai rank · <span style="color:#e08a00">●</span> hover xem biến thể (ASIN đầy đủ) ·
-      🔵 chiếm ToS · xám 0/y = đối thủ chiếm · mờ 0/0 = chưa ai mua · <span class="tosUnknown" style="padding:0 4px">?</span> = ads không được serve (không kết luận) · <span class="bdgDot">🏷</span> hover xem badge Amazon (Overall Pick, Best Seller...) · ⚠ personalization</div>
-    <table><thead><tr><th style="width:100px">ASIN</th><th>Keyword</th><th style="width:64px">Loại</th>${head}</tr></thead>
-    <tbody>${body}</tbody></table>
-    <style>.lbl{font-size:11px;color:#889;background:#fafbfd}</style>`;
-}
-
-/* ============ CSV ============ */
-$('btnCsv').onclick = () => {
-  if (!currentRun) return;
-  const head = ['keyword','organic_rank','page','no','clean_rank','pv_warning','tos','ros','video','sb','carousel','result_count','ranked_variants','error'];
-  const lines = [head.join(',')];
-  for (const x of currentRun.results || []) {
-    const p = x.primary || {};
-    lines.push([csvq(x.keyword), p.organicRank??'', p.organicPage??'', p.organicPosInPage??'',
-      p.organicRankClean??'', p.ownPreviouslyViewed?'PV':'', x.adsTilesServed===false?'?':`${p.tosPosition||0}/${p.tosTotal||0}`,
-      p.rosPresent?1:'', p.videoPresent?1:'', p.sbPresent?1:'', p.spCarouselPresent?1:'',
-      csvq(x.resultCount||''), csvq((x.variants||[]).map(v=>v.asin).join(' ')), csvq(x.error||'')].join(','));
-  }
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob(["﻿"+lines.join("\n")], {type:'text/csv'}));
-  a.download = `rank_${currentRun.asin}_${(currentRun.checkedAt||'').slice(0,10)}.csv`;
-  a.click();
-};
-
-/* ============ Lịch daily ============ */
-let schJobs = [];
-async function loadSchedule() {
+(async () => {
   const s = await (await fetch('/api/schedule')).json();
   $('schTime').value = s.time || '07:00';
   $('schEnabled').checked = !!s.enabled;
-  schJobs = s.jobs || [];
-  renderSchJobs(s.lastRunDate);
-}
-function renderSchJobs(lastRun) {
-  $('schJobs').innerHTML = (schJobs.length
-    ? schJobs.map((j,i) => `• <b>${esc(j.asin)}</b> — ${String(j.keywords||'').split('\n').filter(Boolean).length} keyword
-        <a href="#" onclick="schJobs.splice(${i},1);renderSchJobs();return false" style="color:var(--bad)">xóa</a>`).join('<br>')
-    : 'Chưa có job nào — nhập ASIN + keywords ở trên rồi bấm "Thêm job".')
-    + (lastRun ? `<div style="margin-top:4px">Lần chạy lịch gần nhất: ${lastRun}</div>` : '');
-}
-$('btnAddJob').onclick = () => {
-  const asin = $('asin').value.trim().toUpperCase();
-  if (!/^[A-Z0-9]{10}$/.test(asin)) return alert('Nhập ASIN hợp lệ ở khung trên trước');
-  schJobs = schJobs.filter(j => j.asin !== asin);
-  schJobs.push({ asin, keywords: $('keywords').value, maxPages: Number($('maxPages').value)||3,
-    checkVariants: $('checkVariants').checked, saveSnapshot: $('saveSnapshot').checked });
-  renderSchJobs();
-};
+})();
 $('btnSaveSch').onclick = async () => {
-  const r = await (await fetch('/api/schedule', { method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ enabled: $('schEnabled').checked, time: $('schTime').value.trim(), jobs: schJobs }) })).json();
-  alert(r.ok ? `✅ Lịch: ${r.enabled?'BẬT':'tắt'} · ${r.time} · ${r.jobs.length} job` : '❌ Lỗi');
+  // Lịch tự chạy TOÀN BỘ ASIN đang bật theo dõi (job build từ tracking)
+  const jobs = enabledTargets().map((t) => ({ asin: t.asin, keywords: t.kws.join('\n'),
+    maxPages: Number($('maxPages').value) || 3, checkVariants: t.trackParent, saveSnapshot: t.saveCompetitor }));
+  const r = await (await fetch('/api/schedule', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ enabled: $('schEnabled').checked, time: $('schTime').value.trim(), jobs }) })).json();
+  alert(r.ok ? `✅ Lịch: ${r.enabled ? 'BẬT' : 'tắt'} · ${r.time} · ${r.jobs.length} ASIN` : '❌ Lỗi');
 };
-loadSchedule();
-
-/* ============ Import metrics ============ */
 $('btnImportBulk').onclick = async () => {
   const f = $('bulkFile').files[0];
   if (!f) return alert('Chọn file bulk .xlsx trước');
@@ -604,19 +694,13 @@ $('btnImportBulk').onclick = async () => {
   fd.append('file', f);
   fd.append('date', $('bulkDate').value.trim());
   $('importMsg').textContent = 'Đang xử lý...';
-  const r = await (await fetch('/api/import-bulk', { method:'POST', body: fd })).json();
+  const r = await (await fetch('/api/import-bulk', { method: 'POST', body: fd })).json();
   $('importMsg').textContent = r.ok ? `✅ ${r.date}: ${r.asinCount} ASIN` : '❌ ' + r.message;
-  if (r.ok && currentTab === 'history') render();
+  if (r.ok) loadTracking();
 };
-$('btnSaveTotal').onclick = async () => {
-  const r = await (await fetch('/api/metrics', { method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ asin: $('mtAsin').value.trim(), date: $('mtDate').value.trim(), salesTotal: $('mtTotal').value }) })).json();
-  alert(r.ok ? '✅ Đã lưu' : '❌ Lỗi');
-  if (r.ok && currentTab === 'history') render();
-};
+$('btnReload').onclick = loadTracking;
 
-function esc(s){ return String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;'); }
-function csvq(s){ s=String(s??''); return /[",\n]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s; }
+loadTracking();
 </script>
 </body>
 </html>

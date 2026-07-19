@@ -18,6 +18,8 @@ const VARIANT_TTL_DAYS = 7;
  * @param {()=>boolean} p.shouldStop
  */
 export async function runBatch({ page, asin, keywords, opts, log, shouldStop }) {
+  // Chế độ COMPETITOR: chỉ cần ads + top 10 organic → quét 1 trang, luôn lưu snapshot
+  if (opts.competitorMode) { opts = { ...opts, maxPages: 1, saveSnapshot: true }; }
   const maxPages = Math.min(Number(opts.maxPages) || 3, 5);
 
   /* ===== 1. Resolve nhóm biến thể (cache file, TTL 7 ngày) ===== */
@@ -57,7 +59,7 @@ export async function runBatch({ page, asin, keywords, opts, log, shouldStop }) 
     const kw = keywords[i];
 
     try {
-      let { pagesSlots, resultCount, adsTilesServed } = await scrapeKeyword(page, kw, maxPages, log, opts.debug);
+      let { pagesSlots, resultCount, adsTilesServed } = await scrapeKeyword(page, kw, maxPages, log, opts.debug, opts.adsScan !== false);
       let record = checkAcrossPages(pagesSlots, asin, siblings);
 
       // 🐞 Debug: lưu slots đã phân loại để đối chiếu với HTML (kiểm chứng ToS/sponsored)
@@ -109,7 +111,7 @@ export async function runBatch({ page, asin, keywords, opts, log, shouldStop }) 
   const missed = results
     .map((r, idx) => ({ r, idx }))
     .filter(({ r }) => !r.error && r.adsTilesServed === false);
-  if (missed.length && !shouldStop()) {
+  if (missed.length && !shouldStop() && opts.adsScan !== false) {
     log(`⟳ Quét bù ${missed.length} keyword bị "?" (ads không được serve ở lượt đầu)...`);
     for (const { r, idx } of missed) {
       if (shouldStop()) break;
@@ -154,13 +156,19 @@ export async function runBatch({ page, asin, keywords, opts, log, shouldStop }) 
     opts: { maxPages, checkVariants: !!opts.checkVariants },
     results
   });
-  // Ghi chuỗi thời gian daily (nguồn báo cáo tổng hợp / biểu đồ / dự phóng)
-  store.saveDailyRanks(asin, checkedAt, results);
+  // Ghi chuỗi thời gian daily theo NHÃN PHIÊN (Run = nhãn mới, Continue = nhãn cũ)
+  // Chế độ competitor: chỉ gộp bảng competitor, KHÔNG ghi đè chuỗi rank daily
+  if (opts.competitorMode) {
+    store.saveCompetitorAgg(asin, opts.dateKey || String(checkedAt).slice(0, 10), results);
+  } else {
+    store.saveDailyRanks(asin, checkedAt, results, opts.dateKey);
+  }
+  if (asinImage) store.trackingSetImage(asin, asinImage);
   log(`💾 Đã lưu kết quả: ${runId} (${results.length} keyword) + chuỗi daily`);
   return runId;
 }
 
-async function scrapeKeyword(page, keyword, maxPages, log, debug = false) {
+async function scrapeKeyword(page, keyword, maxPages, log, debug = false, adsScan = true) {
   const pagesSlots = [];
   let resultCount = null;
   for (let p = 1; p <= maxPages; p++) {
@@ -169,7 +177,8 @@ async function scrapeKeyword(page, keyword, maxPages, log, debug = false) {
     // Mỗi trang: tối đa 2 lượt load. Lượt 2 CHỈ khi lượt 1 ra 0 SP tile
     // (nghi Amazon không serve ads cho phiên — nguồn gốc lỗi ToS 0/0 giả, audit 16/07/2026).
     let best = null; // parse có nhiều SP tile nhất giữa các lượt
-    for (let load = 1; load <= 2; load++) {
+    const maxLoads = adsScan ? 2 : 1; // tắt quét ads → 1 lượt load, không reload kiểm chứng
+    for (let load = 1; load <= maxLoads; load++) {
       let html = null;
       for (let attempt = 1; attempt <= 2; attempt++) {
         await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
@@ -218,7 +227,7 @@ async function scrapeKeyword(page, keyword, maxPages, log, debug = false) {
       if (!best || spTiles > best.spTiles) best = { slots, spTiles };
       if (spTiles > 0) break; // có tile → nhận luôn, không cần lượt 2
 
-      if (load === 1) {
+      if (load === 1 && adsScan) {
         log(`   ⟳ Page ${p} không có SP tile nào — reload kiểm chứng (chống ToS 0/0 giả)...`);
         await sleep(1500 + Math.random() * 1500);
       }

@@ -13,7 +13,7 @@ import { etlBulk, queryRows, buildUpdateRows, rowKey } from "./src/adjust/bulk-e
 import * as store from "./src/db/file-store.js";
 
 dotenv.config();
-export const APP_VERSION = "0.19.1"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
+export const APP_VERSION = "0.20.0"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
 
 // RUN_MODE:
 // - "local" (mặc định): bấm Kiểm tra là scrape NGAY trên máy này (dùng 1 người, chạy local)
@@ -62,7 +62,7 @@ app.post("/api/cookies", (req, res) => {
 });
 
 /* ===== Lõi thực thi check — dùng chung cho manual & scheduler ===== */
-async function executeCheck({ asin, keywords, maxPages, checkVariants, saveSnapshot, debug }, log) {
+async function executeCheck({ asin, keywords, maxPages, checkVariants, saveSnapshot, debug, dateKey, competitorMode, adsScan }, log) {
   const kwList = String(keywords || "").split("\n").map((s) => s.trim()).filter(Boolean);
   const asinClean = String(asin || "").trim().toUpperCase();
   if (!/^[A-Z0-9]{10}$/.test(asinClean)) throw new Error("ASIN không hợp lệ");
@@ -91,7 +91,7 @@ async function executeCheck({ asin, keywords, maxPages, checkVariants, saveSnaps
 
     return await runBatch({
       page, asin: asinClean, keywords: kwList,
-      opts: { maxPages, checkVariants, saveSnapshot, debug },
+      opts: { maxPages, checkVariants, saveSnapshot, debug, dateKey, competitorMode, adsScan },
       log, shouldStop: () => stopFlag
     });
   } finally {
@@ -111,6 +111,9 @@ function buildJobPayload(body) {
     maxPages: Number(body.maxPages) || 3,
     checkVariants: !!body.checkVariants,
     saveSnapshot: !!body.saveSnapshot,
+    dateKey: body.dateKey || null,          // nhãn phiên quét (Run tạo mới / Continue dùng lại)
+    competitorMode: !!body.competitorMode,  // chỉ ads + top 10 organic
+    adsScan: body.adsScan !== false,        // false = bỏ reload kiểm chứng + quét bù (nhanh hơn, ToS có thể "?")
     debug: false, // debug chỉ có ý nghĩa trên máy chạy scrape
     zip: store.getWorkerConfig().zip
   };
@@ -594,6 +597,83 @@ app.get("/api/series/:asin", (req, res) => {
     rank: store.getDailySeries(String(req.params.asin).toUpperCase()),   // {keyword: {date: {...}}}
     metrics: store.getAsinMetrics(String(req.params.asin).toUpperCase()) // {date: {spent, salesAds...}}
   });
+});
+
+/* ===== BẢNG THEO DÕI RANKING (luôn hiện) ===== */
+app.get("/api/tracking", (req, res) => res.json(store.getTrackingTable()));
+
+// Thêm ASIN + keywords vào bảng theo dõi (chưa cần chạy)
+app.post("/api/tracking/add", (req, res) => {
+  const asin = String(req.body?.asin || "").trim().toUpperCase();
+  if (!/^[A-Z0-9]{10}$/.test(asin)) return res.status(400).json({ error: "ASIN không hợp lệ" });
+  const kws = String(req.body?.keywords || "").split("\n").map((x) => x.trim().toLowerCase()).filter(Boolean);
+  store.trackingRegisterRun(asin, kws, null);
+  res.json({ ok: true, added: kws.length });
+});
+
+app.post("/api/tracking/asin", (req, res) => {
+  const { asin, ...patch } = req.body || {};
+  if (!/^[A-Z0-9]{10}$/i.test(String(asin || ""))) return res.status(400).json({ error: "ASIN không hợp lệ" });
+  store.trackingPatchAsin(asin, patch);
+  res.json({ ok: true });
+});
+
+app.post("/api/tracking/keyword", (req, res) => {
+  const { asin, keyword, ...patch } = req.body || {};
+  if (!asin || !keyword) return res.status(400).json({ error: "Thiếu asin/keyword" });
+  store.trackingPatchKeyword(asin, keyword, patch);
+  res.json({ ok: true });
+});
+
+app.post("/api/tracking/config", (req, res) => {
+  res.json(store.trackingSetConfig(req.body || {}));
+});
+
+app.post("/api/tracking/delete-date", (req, res) => {
+  const d = String(req.body?.date || "").trim();
+  if (!d) return res.status(400).json({ error: "Thiếu date" });
+  store.trackingDeleteDate(d);
+  res.json({ ok: true });
+});
+
+// Chỉnh tay 3 chỉ số chính của ô ASIN × ngày
+app.post("/api/tracking/metrics", (req, res) => {
+  const { asin, date, values } = req.body || {};
+  if (!asin || !date) return res.status(400).json({ error: "Thiếu asin/date" });
+  store.saveAsinMetrics(String(asin).toUpperCase(), date, { custom: values || {} });
+  res.json({ ok: true });
+});
+
+// Upload volume: txt/csv/xlsx 2 cột keyword|volume (header có/không đều được)
+app.post("/api/tracking/volumes", (req, res, next) => uploadMw.single("file")(req, res, next), (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: "Chưa chọn file" });
+    const name = (req.file.originalname || "").toLowerCase();
+    const buf = fs.readFileSync(req.file.path);
+    fs.unlinkSync(req.file.path);
+    let pairs = [];
+    if (name.endsWith(".xlsx") || name.endsWith(".xls")) {
+      const wb = XLSX.read(buf, { type: "buffer" });
+      const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1 });
+      pairs = rows.map((r) => [r[0], r[1]]);
+    } else {
+      const text = buf.toString("utf8");
+      pairs = text.split(/\r?\n/).map((line) => {
+        const cells = line.split(/[\t,;]/);
+        return [cells[0], cells[1]];
+      });
+    }
+    // bỏ header nếu cột 2 không phải số
+    pairs = pairs.filter((r) => r && r[0] != null && String(r[0]).trim());
+    if (pairs.length && !isFinite(Number(String(pairs[0][1]).replace(/[^0-9.]/g, "")))) pairs.shift();
+    const applied = store.trackingApplyVolumes(pairs);
+    res.json({ ok: true, rows: pairs.length, applied });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Xếp hạng competitor xuất hiện nhiều nhất trong nhóm keyword
+app.get("/api/competitor-rank/:asin", (req, res) => {
+  res.json(store.getCompetitorRank(String(req.params.asin).toUpperCase(), req.query.date || null));
 });
 
 /* ===== Kết quả ===== */
