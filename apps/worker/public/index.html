@@ -32,13 +32,15 @@
   .track thead th { background:#f0f3f9; position:sticky; top:0; z-index:5; font-size:11.5px; white-space:nowrap; }
   .track .rz { position:absolute; right:0; top:0; width:6px; height:100%; cursor:col-resize; }
   .track th { position:sticky; }
-  .asin-cell { text-align:center; background:#fff; }
+  .asin-cell { text-align:center; background:#fff; overflow:visible !important; }
+  /* Nội dung ASIN DÍNH theo khi cuộn trong nhóm — sang nhóm sau thì ASIN sau tự đẩy lên */
+  .asin-stick { position:sticky; top:36px; }
   .asin-cell img { width:64px; border-radius:6px; }
   .asin-cell .a { font-size:11px; font-weight:700; margin-top:2px; word-break:break-all; }
   .asin-tools { display:flex; gap:3px; justify-content:center; flex-wrap:wrap; margin-top:4px; }
   .asin-tools button { padding:5px 11px; font-size:15px; background:#eef1f7; border-radius:7px; }
-  .asin-tools .tg { opacity:.32; }             /* toggle đang TẮT — mờ */
-  .asin-tools .tg.on { opacity:1; background:#e8efff; }  /* toggle đang BẬT */
+  .asin-tools .tg { opacity:.28; cursor:default; }        /* chỉ HIỂN THỊ trạng thái — bật/tắt trong ⚙ */
+  .asin-tools .tg.on { opacity:1; background:#e8efff; cursor:default; }
   .bulkbar2 { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:8px;
     background:#f6f8fc; border:1px solid #e3e8f0; border-radius:8px; padding:7px 10px; font-size:12px; }
   .mrow td { background:#f7f9fd; border-top:2px solid #39435c; }  /* viền đậm phân tách giữa các ASIN */
@@ -68,8 +70,8 @@
   .tosUnknown { color:#c77b00; }
   .metr-line { display:block; line-height:17px; }
   .legend span { display:block; font-size:10px; font-weight:600; color:#8a94a8; line-height:17px; white-space:nowrap; }
-  .acc-tag { display:inline-block; margin-top:4px; font-size:10px; font-weight:700; background:#fff1de; color:#b45309;
-    border-radius:8px; padding:1px 8px; cursor:pointer; }
+  .acc-tag { display:inline-block; margin-top:5px; font-size:11.5px; font-weight:700; background:#fff1de; color:#b45309;
+    border-radius:9px; padding:3px 11px; cursor:pointer; }
   .acc-tag.empty { background:#f0f2f6; color:#a3adc0; font-weight:500; }
   .tag-sel { width:100%; border:none; background:transparent; font-size:10.5px; font-weight:700; color:#2455e6; padding:0; }
   .sess-del { color:#c0392b; cursor:pointer; font-size:10px; margin-left:4px; }
@@ -169,7 +171,7 @@
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;');
 
-const UI_VERSION = '0.21.0'; // PHẢI khớp APP_VERSION server.js
+const UI_VERSION = '0.21.1'; // PHẢI khớp APP_VERSION server.js
 (async () => {
   try {
     const v = (await (await fetch('/api/version')).json()).version;
@@ -298,16 +300,21 @@ function renderTable() {
   const keepL = wrap.querySelector('.tin') ? 0 : wrap.scrollLeft, keepT = wrap.scrollTop;
 
   // Filter bar
+  const tagOpts = allTags();
   $('filterBar').innerHTML = `
     <b style="font-size:11.5px">🔎</b>
     <input type="text" id="fQ" placeholder="ASIN / keyword" value="${esc(f.q)}" style="width:150px">
-    <select id="fTag"><option value="">Phân loại: tất cả</option>
-      <option value="PPC" ${f.tag === 'PPC' ? 'selected' : ''}>PPC</option>
+    <select id="fTag" title="Lọc theo tag Phân loại keyword">
+      <option value="">Phân loại: tất cả</option>
+      ${tagOpts.map((t) => `<option value="${esc(t)}" ${f.tag === t ? 'selected' : ''}>${esc(t)}</option>`).join('')}
       <option value="__blank" ${f.tag === '__blank' ? 'selected' : ''}>(trống — chưa chạy ads)</option></select>
-    <input type="text" id="fLoai" placeholder="Loại (VD: ACC-1)" value="${esc(f.loai)}" style="width:110px">
-    <button class="btn-sm" id="fSave" title="Lưu bộ lọc hiện tại thành preset phân loại tài khoản">💾 Lưu filter</button>
-    <button class="btn-sm" id="fClear">✕</button>
-    ${ui.presets.map((p, i) => `<span class="preset" onclick="applyPreset(${i})">${esc(p.name)}<span class="x" onclick="event.stopPropagation();rmPreset(${i})">✕</span></span>`).join('')}
+    <input type="text" id="fLoai" placeholder="Tag tài khoản (VD: ACC-1)" value="${esc(f.loai)}" style="width:130px" title="Lọc theo tag phân loại tài khoản (chip cam ở cột ASIN)">
+    <button class="btn-sm" id="fSave" title="Lưu bộ lọc hiện tại thành filter đặt tên">💾 Lưu filter</button>
+    <button class="btn-sm" id="fClear" title="Xoá bộ lọc đang áp">✕</button>
+    <select id="fPreset" title="Filter đã lưu — chọn để áp">
+      <option value="">— Filter đã lưu —</option>
+      ${ui.presets.map((p, i) => `<option value="${i}">${esc(p.name)}</option>`).join('')}</select>
+    <button class="btn-sm" id="fPresetDel" title="Xoá filter đang chọn trong danh sách">🗑</button>
     <label class="chk" style="margin-left:auto" title="Bật: giấu các ASIN/keyword đã tắt theo dõi khỏi bảng (không xoá gì)"><input type="checkbox" id="fHide" ${ui.hideOff ? 'checked' : ''}> Ẩn hàng đã tắt theo dõi</label>`;
   $('fQ').onchange = (e) => { ui.filt.q = e.target.value.trim().toLowerCase(); saveUi(); renderTable(); };
   $('fTag').onchange = (e) => { ui.filt.tag = e.target.value; saveUi(); renderTable(); };
@@ -320,6 +327,12 @@ function renderTable() {
     saveUi(); renderTable();
   };
   $('fHide').onchange = (e) => { ui.hideOff = e.target.checked; saveUi(); renderTable(); };
+  $('fPreset').onchange = (e) => { const i = e.target.value; if (i !== '') applyPreset(+i); };
+  $('fPresetDel').onclick = () => {
+    const i = $('fPreset').value;
+    if (i === '') return alert('Chọn filter trong danh sách trước');
+    if (confirm(`Xoá filter "${ui.presets[+i].name}"?`)) rmPreset(+i);
+  };
 
   // Cố định 4 cột trái: ASIN | Keyword | Volume | Phân loại (sticky left cộng dồn bề rộng)
   const L = { asin: 0, kw: ui.colW.asin, vol: ui.colW.asin + ui.colW.kw, tag: ui.colW.asin + ui.colW.kw + ui.colW.vol };
@@ -347,8 +360,8 @@ function renderTable() {
     let kws = a.keywords;
     if (ui.hideOff) kws = kws.filter((k) => k.enabled !== false);
     if (f.q && !a.asin.toLowerCase().includes(f.q)) kws = kws.filter((k) => k.kw.includes(f.q));
-    if (f.tag === 'PPC') kws = kws.filter((k) => k.tag === 'PPC');
     if (f.tag === '__blank') kws = kws.filter((k) => !k.tag);
+    else if (f.tag) kws = kws.filter((k) => k.tag === f.tag);
     if (f.loai) {
       const aMatch = (a.loai || '').toLowerCase().includes(f.loai);
       if (!aMatch) kws = kws.filter((k) => (k.loai || '').toLowerCase().includes(f.loai));
@@ -358,23 +371,23 @@ function renderTable() {
 
     const rowspan = 1 + kws.length;
     const offCls = a.enabled === false ? ' off-row' : '';
-    const asinCell = `<td class="asin-cell${offCls}" rowspan="${rowspan}" style="${stick('asin', 3)}">
+    const asinCell = `<td class="asin-cell${offCls}" rowspan="${rowspan}" style="${stick('asin', 3)}"><div class="asin-stick">
       ${a.image ? `<img src="${esc(a.image)}">` : '<div style="width:64px;height:64px;background:#eef1f7;border-radius:6px;margin:0 auto"></div>'}
       <div class="a">${esc(a.asin)}</div>
       <div class="asin-tools">
         <button title="Chạy check riêng ASIN này (phiên mới)" onclick="runAsin('${a.asin}')">▶</button>
         <button title="Bảng xếp hạng competitor xuất hiện nhiều nhất" onclick="showCompRank('${a.asin}')">🏆</button>
-        <button title="Cài đặt ASIN (theo dõi, xoá)" onclick="asinSettings('${a.asin}')">⚙</button>
+        <button title="Cài đặt ASIN — bật/tắt quét ads, competitor, parent/child, daily, theo dõi, xoá" onclick="asinSettings('${a.asin}')">⚙️</button>
       </div>
       <div class="asin-tools">
-        <button class="tg ${a.adsScan !== false ? 'on' : ''}" title="📢 Quét ads (ToS/RoS) — bấm để bật/tắt" onclick="tgAsin('${a.asin}','adsScan',${a.adsScan !== false})">📢</button>
-        <button class="tg ${a.saveCompetitor ? 'on' : ''}" title="🕵 Quét competitor khi Run/Continue — bấm để bật/tắt" onclick="tgAsin('${a.asin}','saveCompetitor',${!!a.saveCompetitor})">🕵</button>
-        <button class="tg ${a.trackParent ? 'on' : ''}" title="🧬 Track cả nhóm parent/child — bấm để bật/tắt" onclick="tgAsin('${a.asin}','trackParent',${!!a.trackParent})">🧬</button>
-        <button class="tg ${a.daily ? 'on' : ''}" title="⏰ Set daily — bật: chạy theo lịch daily (mục ⏰ dưới cùng), tắt: bỏ qua" onclick="tgAsin('${a.asin}','daily',${!!a.daily})">⏰</button>
+        <span class="tg ${a.adsScan !== false ? 'on' : ''}" style="padding:5px 11px;font-size:15px;border-radius:7px" title="📢 Quét ads (ToS/RoS): ${a.adsScan !== false ? 'ĐANG BẬT' : 'đang tắt'} — bật/tắt trong ⚙️">📢</span>
+        <span class="tg ${a.saveCompetitor ? 'on' : ''}" style="padding:5px 11px;font-size:15px;border-radius:7px" title="🕵 Quét competitor: ${a.saveCompetitor ? 'ĐANG BẬT' : 'đang tắt'} — bật/tắt trong ⚙️">🕵</span>
+        <span class="tg ${a.trackParent ? 'on' : ''}" style="padding:5px 11px;font-size:15px;border-radius:7px" title="🧬 Track parent/child: ${a.trackParent ? 'ĐANG BẬT' : 'đang tắt'} — bật/tắt trong ⚙️">🧬</span>
+        <span class="tg ${a.daily ? 'on' : ''}" style="padding:5px 11px;font-size:15px;border-radius:7px" title="⏰ Set daily: ${a.daily ? 'ĐANG BẬT' : 'đang tắt'} — bật/tắt trong ⚙️">⏰</span>
       </div>
       <span class="acc-tag ${a.loai ? '' : 'empty'}" title="Tag phân loại tài khoản — bấm để sửa/tạo" onclick="editAccTag('${a.asin}')">${a.loai ? esc(a.loai) : '+ tag'}</span>
       ${a.enabled === false ? '<div style="font-size:9.5px;color:#c0392b;margin-top:2px">TẮT theo dõi</div>' : ''}
-    </td>`;
+    </div></td>`;
 
     // Dòng CHỈ SỐ CHÍNH
     const mCells = sessions.map((d) => {
@@ -510,9 +523,9 @@ window.bulkEnableKw = async (on) => {
   }
   loadTracking();
 };
-/* Toggle icon ASIN (📢 🕵 🧬 ⏰) */
-window.tgAsin = async (asin, field, cur) => {
-  await patchAsin(asin, { [field]: !cur });
+/* Bật/tắt cờ ASIN từ ⚙ (icon 📢🕵🧬⏰ ngoài bảng chỉ HIỂN THỊ trạng thái) */
+window.setAsinFlag = async (asin, field, val) => {
+  await patchAsin(asin, { [field]: val });
   renderTable();
 };
 window.delDate = async (d) => {
@@ -542,7 +555,14 @@ window.asinSettings = (asin) => {
   modal(`⚙ ${asin}`, `
     <label class="chk" style="margin:6px 0"><input type="checkbox" ${a.enabled !== false ? 'checked' : ''}
       onchange="patchAsin('${asin}',{enabled:this.checked})"> Theo dõi ASIN này (tắt = mờ/ẩn, không chạy Run)</label>
-    <div class="hint" style="font-size:11.5px;color:var(--mut);margin:4px 0">📢 quét ads · 🕵 competitor · 🧬 parent/child · ⏰ daily — bật/tắt trực tiếp bằng icon dưới ảnh ASIN</div>
+    <label class="chk" style="margin:6px 0"><input type="checkbox" ${a.adsScan !== false ? 'checked' : ''}
+      onchange="setAsinFlag('${asin}','adsScan',this.checked)"> 📢 Quét ads (ToS/RoS) — tắt = quét nhanh hơn, chỉ organic</label>
+    <label class="chk" style="margin:6px 0"><input type="checkbox" ${a.saveCompetitor ? 'checked' : ''}
+      onchange="setAsinFlag('${asin}','saveCompetitor',this.checked)"> 🕵 Quét competitor khi Run/Continue (ads + organic top 10 → bảng 🏆)</label>
+    <label class="chk" style="margin:6px 0"><input type="checkbox" ${a.trackParent ? 'checked' : ''}
+      onchange="setAsinFlag('${asin}','trackParent',this.checked)"> 🧬 Track cả nhóm parent/child</label>
+    <label class="chk" style="margin:6px 0"><input type="checkbox" ${a.daily ? 'checked' : ''}
+      onchange="setAsinFlag('${asin}','daily',this.checked)"> ⏰ Set daily — chạy theo lịch daily (mục ⏰ dưới cùng), tuần tự từ trên xuống</label>
     <hr style="border:none;border-top:1px solid #edf0f5;margin:10px 0">
     <button class="btn-sm" style="background:#c0392b;color:#fff" onclick="if(confirm('Xoá hẳn ${asin} + toàn bộ lịch sử?')){patchAsin('${asin}',{delete:true});document.getElementById('mmodal').remove()}">🗑 Xoá hẳn ASIN</button>`);
 };
