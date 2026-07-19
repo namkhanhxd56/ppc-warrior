@@ -79,16 +79,13 @@
   .filters input, .filters select { height:28px; font-size:11.5px; }
   .preset { background:#eef4ff; color:#2455e6; border-radius:10px; padding:2px 9px; font-size:11px; cursor:pointer; }
   .preset .x { margin-left:4px; color:#8a94a8; }
-  /* Badge Amazon dạng chip chữ (đọc được ngay, không cần hover) */
-  .bdg-chip { display:inline-block; background:#f3eeff; color:#5a3aa8; border-radius:4px; padding:0 5px; font-size:9.5px; font-weight:700; margin-left:3px; vertical-align:1px; }
-  /* Biến thể: chấm tròn float ở dòng Organic — hover xem chi tiết */
-  .tipwrap { position:relative; cursor:help; display:inline-block; }
-  .tipwrap .vdot { color:#e08a00; font-size:13px; }
-  .tipbox { display:none; position:absolute; z-index:30; left:0; top:100%; margin-top:2px;
-    background:#101828; color:#e8edf6; padding:7px 11px; border-radius:7px; font-size:11.5px;
-    line-height:1.7; white-space:nowrap; box-shadow:0 4px 14px rgba(0,0,0,.25); text-align:left; }
-  .tipbox b { color:#8fd1ff; }
-  .tipwrap:hover .tipbox { display:block; }
+  /* Badge 🏷 + biến thể ● — tooltip float GẮN BODY (#ftip) nên không bị ô cắt */
+  .bdg-ico { cursor:help; font-size:12px; }
+  .vdot { color:#e08a00; font-size:13px; cursor:help; }
+  #ftip { position:fixed; z-index:999; display:none; background:#101828; color:#e8edf6; padding:7px 11px;
+    border-radius:7px; font-size:11.5px; line-height:1.7; white-space:nowrap;
+    box-shadow:0 4px 14px rgba(0,0,0,.3); pointer-events:none; }
+  #ftip b { color:#8fd1ff; }
   /* Tab kết quả lần chạy / ASIN Daily (port từ bản cũ) */
   .tabs { display:flex; gap:8px; margin-bottom:10px; }
   .tabs button.active { background:var(--b); color:#fff; }
@@ -101,7 +98,7 @@
   .badge { display:inline-block; font-size:10.5px; padding:1px 6px; border-radius:8px; background:#eef1f7; margin-left:4px; }
   .variant-row td { background:#f8fafc; color:#556; font-size:12px; }
   .bdgChip { display:inline-block; background:#f3eeff; color:#5a3aa8; border-radius:4px; padding:0 4px; font-size:10.5px; margin-left:3px; }
-  .na { background:#e02020; color:#fff; font-weight:700; }
+  .na { color:#8a94a8; }
   .modal-bg { position:fixed; inset:0; background:rgba(20,26,40,.45); z-index:99; display:flex; align-items:center; justify-content:center; }
   .modal { background:#fff; border-radius:12px; max-width:760px; width:94%; max-height:76vh; display:flex; flex-direction:column; box-shadow:0 18px 60px rgba(0,0,0,.25); }
   .modal .mh { display:flex; align-items:center; padding:12px 16px; border-bottom:1px solid #edf0f5; }
@@ -149,14 +146,23 @@
 
   <!-- ===== BẢNG THEO DÕI (luôn hiện) ===== -->
   <div class="card">
-    <h2>📋 Bảng theo dõi
-      <button class="btn-sm" id="btnVolUp" style="margin-left:auto" title="Nạp file Volume (txt/csv/xlsx — 2 cột keyword|volume)">⬆ Nạp Volume</button>
-      <input type="file" id="volFileTop" accept=".txt,.csv,.xlsx,.xls" style="display:none">
-      <button class="btn-sm" id="btnKwExport" title="Xuất danh sách keyword (csv) để đi check volume (H10...)">⬇ Xuất keywords</button>
-      <span id="volTopMsg" style="font-size:11px;color:var(--mut)"></span>
-      <button class="btn-sm" id="btnSettings">⚙️ Cài đặt bảng</button>
-      <button class="btn-sm" id="btnReload">↻</button>
-    </h2>
+    <div class="tabs" style="margin-bottom:12px">
+      <button id="tabTrack" class="active">📋 Bảng theo dõi</button>
+      <button id="tabDetail">Kết quả lần chạy</button>
+      <button id="tabDaily">ASIN Daily (quyết định)</button>
+      <span id="trackTools" style="margin-left:auto;display:flex;gap:6px;align-items:center">
+        <button class="btn-sm" id="btnVolUp" title="Nạp file Volume (txt/csv/xlsx — 2 cột keyword|volume)">⬆ Nạp Volume</button>
+        <input type="file" id="volFileTop" accept=".txt,.csv,.xlsx,.xls" style="display:none">
+        <button class="btn-sm" id="btnKwExport" title="Xuất danh sách keyword (csv) để đi check volume (H10...)">⬇ Xuất keywords</button>
+        <span id="volTopMsg" style="font-size:11px;color:var(--mut)"></span>
+        <button class="btn-sm" id="btnSettings">⚙️ Cài đặt bảng</button>
+        <button class="btn-sm" id="btnReload">↻</button>
+      </span>
+      <span id="runTools" style="margin-left:auto;display:none;gap:6px;align-items:center">
+        <select id="runSelect" style="font-size:12px;padding:5px;border-radius:6px;border:1px solid #ccd3e0"></select>
+        <button class="btn-sm" id="btnCsv">⬇ CSV</button>
+      </span>
+    </div>
     <div class="bulkbar2">
       <b style="font-size:12px">☑️ Đã tick: <span id="selCount">0</span> keyword</b>
       <button class="btn-sm" style="background:#c0392b;color:#fff" onclick="bulkDeleteKw()">🗑 Xoá</button>
@@ -165,19 +171,10 @@
       <span class="hint" style="font-size:11px;color:var(--mut)">tick = chọn để thao tác — không ảnh hưởng gì tới dữ liệu</span>
     </div>
     <div class="filters" id="filterBar"></div>
-    <div class="twrap" id="tableWrap"><div style="padding:20px;color:var(--mut)">Đang tải...</div></div>
-  </div>
-
-
-  <!-- ===== KẾT QUẢ LẦN CHẠY / ASIN DAILY (bản cũ) ===== -->
-  <div class="card">
-    <div class="tabs">
-      <button id="tabDetail" class="active">Kết quả lần chạy</button>
-      <button id="tabDaily">ASIN Daily (quyết định)</button>
-      <select id="runSelect" style="margin-left:auto;font-size:12px;padding:5px;border-radius:6px;border:1px solid #ccd3e0"></select>
-      <button class="btn-sm" id="btnCsv">⬇ CSV</button>
+    <div id="trackPane">
+      <div class="twrap" id="tableWrap"><div style="padding:20px;color:var(--mut)">Đang tải...</div></div>
     </div>
-    <div class="rscroll" id="resultArea">Chưa có dữ liệu — chạy kiểm tra hoặc chọn lần chạy cũ.</div>
+    <div class="rscroll" id="resultArea" style="display:none">Chưa có dữ liệu — chạy kiểm tra hoặc chọn lần chạy cũ.</div>
   </div>
 
   <!-- ===== Logs ===== -->
@@ -206,7 +203,7 @@
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;');
 
-const UI_VERSION = '0.21.4'; // PHẢI khớp APP_VERSION server.js
+const UI_VERSION = '0.21.5'; // PHẢI khớp APP_VERSION server.js
 (async () => {
   try {
     const v = (await (await fetch('/api/version')).json()).version;
@@ -218,6 +215,22 @@ const UI_VERSION = '0.21.4'; // PHẢI khớp APP_VERSION server.js
     document.body.prepend(bar);
   }
 })();
+
+/* ===== Float tooltip toàn cục (gắn body — không bị td overflow cắt) ===== */
+document.addEventListener('DOMContentLoaded', () => {
+  const ftip = document.createElement('div');
+  ftip.id = 'ftip';
+  document.body.appendChild(ftip);
+  document.addEventListener('mouseover', (e) => {
+    const t = e.target.closest('[data-tip]');
+    if (!t) { ftip.style.display = 'none'; return; }
+    ftip.innerHTML = t.dataset.tip;
+    const r = t.getBoundingClientRect();
+    ftip.style.display = 'block';
+    ftip.style.left = Math.min(r.left, window.innerWidth - ftip.offsetWidth - 12) + 'px';
+    ftip.style.top = (r.bottom + 4) + 'px';
+  });
+});
 
 /* ===== Trạng thái UI (localStorage) ===== */
 let ui = {};
@@ -491,13 +504,14 @@ function renderTable() {
           if (pc && pc.r != null) { prevR = pc.r; break; }
         }
         if (!c) return '<td class="dcell"><span style="color:#c3c9d6">—</span></td>';
-        // Badge Amazon: chip CHỮ đọc được ngay (Overall Pick, Best Seller...)
-        const bdg = (c.bdg || []).map((b) => `<span class="bdg-chip" title="Badge Amazon trên tile của bạn">${esc(b)}</span>`).join('');
-        // Biến thể rank thay: chấm tròn float ở dòng Organic — hover xem ASIN + hạng
-        const va = c.va ? ` <span class="tipwrap"><span class="vdot">●</span><span class="tipbox">Biến thể cùng parent đang rank thay:<br><b>${esc(c.va.asin)}</b> — hạng #${c.va.r}</span></span>` : '';
-        // 3 dòng khớp CHÚ GIẢI cột Loại 1:1 (dòng 1 Organic, dòng 2-3 theo cấu hình) — không <br>, không kẻ ngăn cách
+        // Badge Amazon: icon 🏷 — hover hiện float NGOÀI Ô (không in tên ra bảng)
+        const bdg = (c.bdg || []).length
+          ? ` <span class="bdg-ico" data-tip="Badge Amazon:<br>${c.bdg.map(esc).join('<br>')}">🏷</span>` : '';
+        // Biến thể: chấm ● cam — hover hiện float NGOÀI Ô (td overflow:hidden không cắt được nữa)
+        const va = c.va ? ` <span class="vdot" data-tip="Biến thể cùng parent đang rank thay:<br><b>${esc(c.va.asin)}</b> — hạng #${c.va.r}">●</span>` : '';
+        // 3 dòng khớp CHÚ GIẢI 1:1 — dòng 1 gói nowrap để badge/● không đẩy xuống dòng
         const lines = kwFields.map((fd) => kwFieldLine(fd, c) || '<span class="ln">—</span>').join('');
-        return `<td class="dcell"><span class="ln">${orgChip(c, prevR)}${bdg}${va}</span>${lines}</td>`;
+        return `<td class="dcell"><span class="ln" style="white-space:nowrap">${orgChip(c, prevR)}${bdg}${va}</span>${lines}</td>`;
       }).join('');
       body += `<tr class="${kOff}">
         <td style="${stick('kw', 2)}"><div class="kwrap">
@@ -905,7 +919,7 @@ $('btnKwExport').onclick = () => {
 
 
 /* ===== TAB KẾT QUẢ LẦN CHẠY / ASIN DAILY (port từ v0.19.1) ===== */
-let currentRun = null, currentTab = 'detail';
+let currentRun = null, currentTab = 'track';
 async function loadRunList() {
   const list = await (await fetch('/api/results')).json();
   $('runSelect').innerHTML = list.map(r =>
@@ -913,11 +927,21 @@ async function loadRunList() {
   if (list.length && !currentRun) showRun(list[0].id);
 }
 $('runSelect').onchange = () => showRun($('runSelect').value);
+$('tabTrack').onclick = () => { currentTab='track'; setRTab(); };
 $('tabDetail').onclick = () => { currentTab='detail'; setRTab(); renderRuns(); };
 $('tabDaily').onclick = () => { currentTab='daily'; setRTab(); renderRuns(); };
 function setRTab(){
+  const track = currentTab === 'track';
+  $('tabTrack').classList.toggle('active', track);
   $('tabDetail').classList.toggle('active', currentTab==='detail');
   $('tabDaily').classList.toggle('active', currentTab==='daily');
+  // Bảng theo dõi ↔ khu kết quả: đổi vùng hiển thị + bộ nút góc phải
+  document.getElementById('trackPane').style.display = track ? '' : 'none';
+  document.querySelector('.bulkbar2').style.display = track ? '' : 'none';
+  document.getElementById('filterBar').style.display = track ? '' : 'none';
+  document.getElementById('resultArea').style.display = track ? 'none' : '';
+  document.getElementById('trackTools').style.display = track ? 'flex' : 'none';
+  document.getElementById('runTools').style.display = track ? 'none' : 'flex';
 }
 async function showRun(id) {
   currentRun = await (await fetch('/api/results/' + id)).json();
@@ -989,9 +1013,9 @@ async function renderDaily(asin) {
   $('resultArea').innerHTML = `
     <div style="font-size:12px;color:var(--mut);margin-bottom:6px">
       ASIN <b>${esc(d.asin)}</b> · ▲▼ so với ngày trước (xanh = chuyển biến tốt) ·
-      <span class="na" style="padding:0 4px">#N/A</span> = chưa import file bulk ngày đó · "-" = thiếu Sale total</div>
+      #N/A = chưa import file bulk ngày đó · "-" = thiếu Sale total</div>
     <table><thead><tr><th style="min-width:110px">Chỉ số</th>${head}</tr></thead><tbody>${body}</tbody></table>
-    <style>.na{background:#e02020;color:#fff;font-weight:700}</style>`;
+`;
 }
 /* ============ Bảng chi tiết 1 lần chạy ============ */
 function renderDetail() {
