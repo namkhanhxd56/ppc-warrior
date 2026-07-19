@@ -190,7 +190,7 @@ export function trackingPatchAsin(asin, patch) {
     return t;
   }
   t.asins[key] = t.asins[key] || { enabled: true, loai: "", image: null, trackParent: false, saveCompetitor: false, keywords: {}, addedAt: new Date().toISOString() };
-  for (const f of ["enabled", "loai", "trackParent", "saveCompetitor", "image"]) {
+  for (const f of ["enabled", "loai", "trackParent", "saveCompetitor", "image", "adsScan"]) {
     if (patch[f] !== undefined) t.asins[key][f] = patch[f];
   }
   writeTracking(t);
@@ -210,7 +210,7 @@ export function trackingPatchKeyword(asin, keyword, patch) {
     return t;
   }
   t.asins[key].keywords[k] = t.asins[key].keywords[k] || { enabled: true, volume: null, loai: "", addedAt: new Date().toISOString() };
-  for (const f of ["enabled", "volume", "loai"]) {
+  for (const f of ["enabled", "volume", "loai", "tag"]) {
     if (patch[f] !== undefined) t.asins[key].keywords[k][f] = patch[f];
   }
   writeTracking(t);
@@ -237,6 +237,7 @@ export function trackingSetConfig(cfg) {
   const t = getTracking();
   if (Array.isArray(cfg.metrics)) t.config.metrics = cfg.metrics.slice(0, 3);
   if (Array.isArray(cfg.kwFields)) t.config.kwFields = cfg.kwFields.slice(0, 2);
+  if (Array.isArray(cfg.tags)) t.config.tags = [...new Set(cfg.tags.map((x) => String(x).trim()).filter(Boolean))];
   writeTracking(t);
   return t.config;
 }
@@ -286,13 +287,14 @@ export function getTrackingTable() {
     image: a.image || null,
     trackParent: !!a.trackParent,
     saveCompetitor: !!a.saveCompetitor,
+    adsScan: a.adsScan !== false,
     metrics: met[asin] || {},           // { dateKey: {custom: {...}, spent...} }
     keywords: Object.entries(a.keywords).map(([kw, kcfg]) => ({
       kw,
       enabled: kcfg.enabled !== false,
       volume: kcfg.volume ?? null,
       loai: kcfg.loai || "",
-      tag: bank[asin]?.[kw]?.tag || "",  // Phân loại: PPC | manual | removal | ""
+      tag: kcfg.tag || bank[asin]?.[kw]?.tag || "",  // Phân loại: tag tay đè tag kho (PPC...)
       series: daily[asin]?.[kw] || {}    // { dateKey: {r,page,n,tos,ros,vid,sb,car,bdg,va,rc,t} }
     }))
   }));
