@@ -36,20 +36,22 @@
   .asin-cell img { width:64px; border-radius:6px; }
   .asin-cell .a { font-size:11px; font-weight:700; margin-top:2px; word-break:break-all; }
   .asin-tools { display:flex; gap:3px; justify-content:center; flex-wrap:wrap; margin-top:4px; }
-  .asin-tools button { padding:2px 6px; font-size:11px; background:#eef1f7; border-radius:5px; }
-  .mrow td { background:#f7f9fd; }
+  .asin-tools button { padding:5px 11px; font-size:15px; background:#eef1f7; border-radius:7px; }
+  .mrow td { background:#f7f9fd; border-top:2px solid #39435c; }  /* viền đậm phân tách giữa các ASIN */
+  .mrow td.asin-cell { border-top:2px solid #39435c; }
   .mrow .mlbl { font-weight:700; font-size:11.5px; color:#37456a; }
   .kw-cell { display:flex; gap:5px; align-items:flex-start; }
-  .kw-cell .kwt { flex:1; word-break:break-word; white-space:normal; font-weight:600; font-size:11.5px; }
-  .kw-cell .del { color:#c0392b; cursor:pointer; font-size:11px; visibility:hidden; }
-  tr:hover .kw-cell .del { visibility:visible; }
+  .kw-cell .kwt { flex:1; word-break:break-word; white-space:normal; font-weight:600; font-size:11.5px; line-height:17px; }
+  .kw-cell .del { color:#c0392b; cursor:pointer; font-size:12px; opacity:.55; }
+  .kw-cell .del:hover { opacity:1; }
   .off-row td { opacity:.45; }
   .tagchip { font-size:10px; font-weight:700; background:#e8efff; color:#2455e6; border-radius:5px; padding:1px 6px; }
   .in-cell { width:100%; border:none; background:transparent; font-size:11.5px; padding:1px 2px; }
   .in-cell:hover { background:#f0f4ff; border-radius:3px; }
   .in-cell:focus { background:#fff; outline:1px solid #c7d5ff; border-radius:3px; }
-  .dcell { font-size:11px; line-height:1.55; white-space:normal; }
-  .dcell .ln b { color:#556; font-weight:600; }
+  .dcell { font-size:11px; white-space:normal; }
+  .dcell .ln { display:block; line-height:17px; }  /* mỗi chỉ số 1 DÒNG riêng — khớp chú giải */
+  .dcell .org, .dcell .delta { line-height:17px; }
   /* Chip Organic */
   .org { display:inline-block; border-radius:6px; padding:0 6px; font-weight:700; font-size:11px; }
   .org-top { background:#128a43; color:#fff; }          /* top 3 — xanh lá đậm */
@@ -61,8 +63,8 @@
   .delta.u { color:#128a43; } .delta.d { color:#c0392b; }
   .tosOwn { color:#1a56c8; font-weight:700; }
   .tosUnknown { color:#c77b00; }
-  .metr-line { display:block; }
-  .legend span { display:block; font-size:10px; font-weight:600; color:#8a94a8; line-height:1.55; white-space:nowrap; }
+  .metr-line { display:block; line-height:17px; }
+  .legend span { display:block; font-size:10px; font-weight:600; color:#8a94a8; line-height:17px; white-space:nowrap; }
   .acc-tag { display:inline-block; margin-top:4px; font-size:10px; font-weight:700; background:#fff1de; color:#b45309;
     border-radius:8px; padding:1px 8px; cursor:pointer; }
   .acc-tag.empty { background:#f0f2f6; color:#a3adc0; font-weight:500; }
@@ -95,8 +97,8 @@
     <h2>🎯 Check ranking</h2>
     <div class="row" style="align-items:center">
       <div style="max-width:120px"><label style="margin:0 0 2px">Số trang</label><input type="number" id="maxPages" value="3" min="1" max="5" style="width:100%"></div>
-      <div style="max-width:150px"><label style="margin:0 0 2px">Zip code</label>
-        <div style="display:flex;gap:4px"><input type="text" id="zipInput" maxlength="5" style="width:70px"><button class="btn-sm" id="btnSetZip" title="Mở Amazon đặt zip, lưu cookies">📍</button></div></div>
+      <div style="max-width:170px"><label style="margin:0 0 2px">Zip code</label>
+        <div style="display:flex;gap:4px"><input type="text" id="zipInput" maxlength="5" style="width:70px"><button class="btn-sm" id="btnSetZip" title="Lưu zip — tự kiểm tra & đặt NGẦM trong lúc chạy, không mở trình duyệt">💾</button></div></div>
       <button class="btn-run" id="btnRun" title="Check từ đầu — tạo phiên (cột ngày/giờ) MỚI">▶ Run</button>
       <button class="btn-cont" id="btnContinue" title="Chạy nối tiếp phiên gần nhất (khi Run bị dừng đột ngột) — không tạo cột mới">⏩ Continue</button>
       <button class="btn-stop" id="btnStop">⏹ Dừng</button>
@@ -120,7 +122,11 @@
   <!-- ===== BẢNG THEO DÕI (luôn hiện) ===== -->
   <div class="card">
     <h2>📋 Bảng theo dõi
-      <button class="btn-sm" id="btnSettings" style="margin-left:auto">⚙️ Cài đặt bảng</button>
+      <button class="btn-sm" id="btnVolUp" style="margin-left:auto" title="Nạp file Volume (txt/csv/xlsx — 2 cột keyword|volume)">⬆ Nạp Volume</button>
+      <input type="file" id="volFileTop" accept=".txt,.csv,.xlsx,.xls" style="display:none">
+      <button class="btn-sm" id="btnKwExport" title="Xuất danh sách keyword (csv) để đi check volume (H10...)">⬇ Xuất keywords</button>
+      <span id="volTopMsg" style="font-size:11px;color:var(--mut)"></span>
+      <button class="btn-sm" id="btnSettings">⚙️ Cài đặt bảng</button>
       <button class="btn-sm" id="btnReload">↻</button>
     </h2>
     <div class="filters" id="filterBar"></div>
@@ -152,7 +158,7 @@
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;');
 
-const UI_VERSION = '0.20.1'; // PHẢI khớp APP_VERSION server.js
+const UI_VERSION = '0.20.2'; // PHẢI khớp APP_VERSION server.js
 (async () => {
   try {
     const v = (await (await fetch('/api/version')).json()).version;
@@ -172,7 +178,7 @@ ui.colW = ui.colW || { asin: 96, kw: 200, vol: 64, tag: 66, loai: 96 };
 ui.dateW = ui.dateW || 128;
 ui.filt = ui.filt || { q: '', tag: '', loai: '' };
 ui.presets = ui.presets || [];
-ui.hideOff = ui.hideOff !== false;
+ui.hideOff = ui.hideOff === true; // mặc định HIỆN hàng đã tắt (mờ) — tick chỉ bật/tắt theo dõi, KHÔNG xoá
 ui.showDelta = ui.showDelta !== false;
 ui.orgFmt = ui.orgFmt || 'page'; // 'page' = "Page 1 No 5" | 'rank' = "5"
 const saveUi = () => localStorage.setItem('ppcw_rank_ui', JSON.stringify(ui));
@@ -291,7 +297,7 @@ function renderTable() {
     <button class="btn-sm" id="fSave" title="Lưu bộ lọc hiện tại thành preset phân loại tài khoản">💾 Lưu filter</button>
     <button class="btn-sm" id="fClear">✕</button>
     ${ui.presets.map((p, i) => `<span class="preset" onclick="applyPreset(${i})">${esc(p.name)}<span class="x" onclick="event.stopPropagation();rmPreset(${i})">✕</span></span>`).join('')}
-    <label class="chk" style="margin-left:auto"><input type="checkbox" id="fHide" ${ui.hideOff ? 'checked' : ''}> Ẩn không theo dõi</label>`;
+    <label class="chk" style="margin-left:auto" title="Bật: giấu các ASIN/keyword đã tắt theo dõi khỏi bảng (không xoá gì)"><input type="checkbox" id="fHide" ${ui.hideOff ? 'checked' : ''}> Ẩn hàng đã tắt theo dõi</label>`;
   $('fQ').onchange = (e) => { ui.filt.q = e.target.value.trim().toLowerCase(); saveUi(); renderTable(); };
   $('fTag').onchange = (e) => { ui.filt.tag = e.target.value; saveUi(); renderTable(); };
   $('fLoai').onchange = (e) => { ui.filt.loai = e.target.value.trim().toLowerCase(); saveUi(); renderTable(); };
@@ -311,7 +317,7 @@ function renderTable() {
     ${sessions.map(() => `<col style="width:${ui.dateW}px">`).join('')}</colgroup>`;
   const head = `<thead><tr>
     <th style="position:sticky;left:0;z-index:6">ASIN<span class="rz" data-c="asin"></span></th>
-    <th>Keyword / Chỉ số chính<span class="rz" data-c="kw"></span></th>
+    <th>Keyword<span class="rz" data-c="kw"></span></th>
     <th>Volume<span class="rz" data-c="vol"></span></th>
     <th title="PPC = keyword từ ads (kho keyword) — trống = chưa chạy ads">Phân loại<span class="rz" data-c="tag"></span></th>
     <th>Loại<span class="rz" data-c="loai"></span></th>
@@ -390,7 +396,7 @@ function renderTable() {
       }).join('');
       body += `<tr class="${kOff}">
         <td class="kw-cell${kOff}">
-          <input type="checkbox" ${k.enabled !== false ? 'checked' : ''} title="Theo dõi keyword này" onchange="patchKw('${a.asin}','${esc(k.kw)}',{enabled:this.checked})">
+          <input type="checkbox" ${k.enabled !== false ? 'checked' : ''} title="Theo dõi keyword này — bỏ tick chỉ TẮT theo dõi (hàng mờ đi), muốn xoá dùng 🗑" onchange="patchKw('${a.asin}','${esc(k.kw)}',{enabled:this.checked})">
           <span class="kwt">${esc(k.kw)}</span>
           <span class="del" title="Xoá keyword + lịch sử" onclick="delKw('${a.asin}','${esc(k.kw)}')">🗑</span></td>
         <td><input class="in-cell" value="${k.volume ?? ''}" placeholder="—" onchange="patchKw('${a.asin}','${esc(k.kw)}',{volume:parseFloat(this.value)||null})" title="Volume — nạp file hoặc gõ tay"></td>
@@ -695,14 +701,9 @@ $('lnkBank').onclick = async (e) => {
 $('btnSetZip').onclick = async () => {
   const zip = $('zipInput').value.trim();
   if (!/^\d{5}$/.test(zip)) return alert('Zip phải là 5 chữ số US');
-  $('btnSetZip').disabled = true;
-  $('zipStatus').textContent = '⏳ Đang đặt zip ' + zip + '...';
-  try {
-    const r = await (await fetch('/api/location', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ zip }) })).json();
-    $('zipStatus').textContent = r.ok ? '✅ ' + r.location + ' · ' + r.cookieCount + ' cookies' : '❌ ' + (r.message || 'Lỗi');
-    if (r.ok) $('cookies').value = JSON.stringify(await (await fetch('/api/cookies')).json(), null, 1);
-  } catch (e) { $('zipStatus').textContent = '❌ ' + e.message; }
-  $('btnSetZip').disabled = false;
+  // CHỈ LƯU cấu hình — zip được tự kiểm tra & đặt NGẦM ở đầu mỗi lần chạy (ensureZipLocation)
+  const r = await (await fetch('/api/location', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ zip, saveOnly: true }) })).json();
+  $('zipStatus').textContent = r.ok !== false ? '✅ Đã lưu zip ' + zip + ' — tự đặt ngầm khi chạy' : '❌ ' + (r.message || 'Lỗi');
 };
 (async () => { $('cookies').value = JSON.stringify(await (await fetch('/api/cookies')).json(), null, 1); })();
 $('btnSaveCookies').onclick = async () => {
@@ -736,6 +737,34 @@ $('btnImportBulk').onclick = async () => {
   if (r.ok) loadTracking();
 };
 $('btnReload').onclick = loadTracking;
+
+/* Nạp Volume nhanh + Xuất keywords để check volume */
+$('btnVolUp').onclick = () => $('volFileTop').click();
+$('volFileTop').onchange = async () => {
+  const f = $('volFileTop').files[0];
+  if (!f) return;
+  const fd = new FormData(); fd.append('file', f);
+  $('volTopMsg').textContent = '⏳...';
+  const r = await (await fetch('/api/tracking/volumes', { method: 'POST', body: fd })).json();
+  $('volTopMsg').textContent = r.ok ? `✅ ${r.rows} dòng — áp ${r.applied} keyword` : '❌ ' + r.error;
+  $('volFileTop').value = '';
+  if (r.ok) loadTracking();
+};
+$('btnKwExport').onclick = () => {
+  if (!T) return;
+  const lines = ['keyword,asin,volume'];
+  for (const a of T.asins) {
+    if (ui.hideOff && a.enabled === false) continue;
+    for (const k of a.keywords) {
+      if (ui.hideOff && k.enabled === false) continue;
+      lines.push(`${/[",]/.test(k.kw) ? '"' + k.kw.replace(/"/g, '""') + '"' : k.kw},${a.asin},${k.volume ?? ''}`);
+    }
+  }
+  const el = document.createElement('a');
+  el.href = URL.createObjectURL(new Blob(['\ufeff' + lines.join('\n')], { type: 'text/csv' }));
+  el.download = 'keywords-for-volume.csv';
+  el.click();
+};
 
 loadTracking();
 </script>

@@ -13,7 +13,7 @@ import { etlBulk, queryRows, buildUpdateRows, rowKey } from "./src/adjust/bulk-e
 import * as store from "./src/db/file-store.js";
 
 dotenv.config();
-export const APP_VERSION = "0.20.1"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
+export const APP_VERSION = "0.20.2"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
 
 // RUN_MODE:
 // - "local" (mặc định): bấm Kiểm tra là scrape NGAY trên máy này (dùng 1 người, chạy local)
@@ -188,6 +188,9 @@ app.post("/api/location", async (req, res) => {
   if (running) return res.status(409).json({ ok: false, message: "Đang có phiên chạy — bấm Dừng trước." });
 
   store.saveWorkerConfig({ zip });
+
+  // saveOnly: CHỈ LƯU — zip sẽ tự được kiểm tra & đặt NGẦM ở đầu mỗi lần chạy (ensureZipLocation)
+  if (req.body?.saveOnly) return res.json({ ok: true, saved: true, zip });
 
   // Chế độ queue: server không mở browser — zip đã lưu, AGENT tự đặt trên máy cá nhân
   // trước mỗi job (ensureZipLocation trong agent.js)
