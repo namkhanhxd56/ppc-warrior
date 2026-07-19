@@ -47,14 +47,77 @@
   th { background:#f0f3f9; position:sticky; top:0; z-index:2; }
   td input, td select { padding:4px 6px; font-size:12px; border-radius:5px; }
   .scroll { overflow:auto; max-height:460px; border-radius:8px; }
-  /* Bảng preview: kéo ngang, cột ✓ + Tên campaign CỐ ĐỊNH bên trái; độ rộng cột theo <colgroup> (kéo giãn được) */
+  /* Bảng Create Campaign: kéo ngang, cột ✓ + Tên campaign CỐ ĐỊNH bên trái; độ rộng theo <colgroup> (kéo giãn được).
+     ⚠️ TẤT CẢ th đều position:sticky (top) — không dùng position:relative inline vì sẽ đè mất sticky
+     khiến header trôi trong khi cột thân đứng yên → header/nội dung lệch nhau */
   #previewArea table.resizable { table-layout:fixed; min-width:1400px; }
+  #previewArea th { position:sticky; top:0; z-index:4; overflow:hidden; }
+  #previewArea td { overflow:hidden; }
   #previewArea th:nth-child(1), #previewArea td:nth-child(1) {
     position:sticky; left:0; background:#fff; z-index:3; }
   #previewArea th:nth-child(2), #previewArea td:nth-child(2) {
     position:sticky; left:34px; background:#fff; z-index:3;
     white-space:normal; box-shadow:3px 0 4px -2px rgba(0,0,0,.12); }
-  #previewArea th:nth-child(1), #previewArea th:nth-child(2) { background:#f0f3f9; z-index:4; }
+  #previewArea th:nth-child(1), #previewArea th:nth-child(2) { background:#f0f3f9; z-index:5; }
+  .neg-chip { display:inline-block; background:#fff0e0; color:#b45309; border-radius:6px; padding:0 5px; font-size:10.5px; cursor:help; }
+  /* ===== CARD VIEW campaign (tab SP) — cấu trúc phân tầng, đóng/mở ===== */
+  .camp-card { background:#fff; border:1px solid #e3e8f0; border-radius:10px; margin-bottom:8px; }
+  .camp-card.skipped { opacity:.5; }
+  .camp-card.dup { border-color:#e05555; box-shadow:0 0 0 1px #e0555566; }
+  .camp-head { display:flex; align-items:center; gap:8px; padding:7px 12px 4px; border-left:4px solid var(--acc,#2455e6); border-radius:10px 0 0 0; }
+  .camp-head .caret { cursor:pointer; width:16px; color:#8a94a8; user-select:none; font-size:12px; text-align:center; }
+  .camp-name-in { flex:1; border:none; background:transparent; font-weight:600; font-size:12.5px; padding:3px 6px; border-radius:5px; min-width:120px; }
+  .camp-name-in:hover { background:#f0f4ff; }
+  .camp-name-in:focus { background:#fff; outline:2px solid #c7d5ff; }
+  .type-chip { font-size:10.5px; padding:2px 9px; border-radius:9px; background:#eef1f7; color:#556; flex:0 0 auto; font-weight:600; }
+  /* Chip màu theo loại target */
+  .tchip-exact { background:#e8efff !important; color:#2455e6 !important; }
+  .tchip-phrase { background:#f1eaff !important; color:#7c5cd6 !important; }
+  .tchip-broad { background:#fbe9fb !important; color:#a855c7 !important; }
+  .tchip-product { background:#e2f6f2 !important; color:#0e9f8a !important; }
+  .tchip-expand { background:#e0f2e6 !important; color:#1d7a4f !important; }
+  .tchip-auto { background:#fff1de !important; color:#d97706 !important; }
+  select.tsel { border:none; border-radius:8px; font-weight:600; font-size:11px; padding:2px 6px; }
+  .mini-badge { font-size:10.5px; color:#8a94a8; flex:0 0 auto; }
+  .spec-strip { display:flex; gap:6px; flex-wrap:wrap; align-items:center; padding:2px 12px 8px 36px; border-left:4px solid var(--acc,#2455e6); }
+  .spec { display:inline-flex; align-items:center; gap:4px; background:#f7f9fc; border:1px solid #e8edf4; border-radius:7px; padding:2px 7px; }
+  .spec b { font-size:10px; color:#8a94a8; font-weight:600; }
+  .spec input, .spec select { border:none; background:transparent; padding:1px 2px; font-size:11.5px; width:58px; }
+  .spec input:focus, .spec select:focus { background:#fff; outline:1px solid #c7d5ff; border-radius:4px; }
+  .spec select { width:auto; max-width:150px; }
+  .camp-body { border-top:1px dashed #e3e8f0; padding:8px 14px 12px 26px; background:#fbfcfe; border-radius:0 0 10px 10px; }
+  .neg-row { display:flex; gap:5px; flex-wrap:wrap; align-items:center; margin:5px 0; font-size:11.5px; }
+  .neg-row .lab { font-size:10.5px; font-weight:700; color:#9a5b00; flex:0 0 auto; }
+  .chip { border-radius:10px; padding:1px 8px; font-size:11px; display:inline-flex; gap:5px; align-items:center; }
+  .chip.nege { background:#fff0e0; color:#9a5b00; border:1px solid #f0d9b8; }
+  .chip.negp { background:#ffe3c4; color:#7a4200; border:1px solid #eec9a5; }
+  .chip.negpt { background:#fff; color:#c0392b; border:1px dashed #e8a8a8; }
+  .chip .x { cursor:pointer; font-weight:700; opacity:.55; } .chip .x:hover { opacity:1; }
+  .neg-add { display:inline-flex; gap:4px; align-items:center; }
+  .neg-add input { width:130px; padding:2px 6px; font-size:11px; border-radius:5px; }
+  .neg-add select { padding:2px 4px; font-size:11px; border-radius:5px; }
+  .neg-add button { padding:2px 8px; font-size:11px; background:#eef1f7; border-radius:5px; }
+  .ag-block { border:1px solid #e3e8f0; border-left:3px solid #9db2f5; border-radius:8px; background:#fff; padding:7px 10px; margin:7px 0; }
+  .ag-head { display:flex; gap:8px; align-items:center; margin-bottom:4px; }
+  .ag-head .ag-lab { font-size:11.5px; font-weight:800; color:#5a6ecf; flex:0 0 auto; letter-spacing:.4px; }
+  /* Tầng con của ad group (KEYWORD / PRODUCT TARGET / PRODUCT AD) — cùng cỡ, nhỏ hơn AD GROUP */
+  .tier-lab { font-size:9.5px; font-weight:700; letter-spacing:.3px; border-radius:4px; padding:1px 6px; flex:0 0 auto; white-space:nowrap; }
+  .ag-name-in { flex:1; border:none; background:transparent; font-size:12px; font-weight:600; padding:2px 5px; border-radius:4px; min-width:80px; max-width:300px; }
+  .ag-name-in:hover { background:#f0f4ff; } .ag-name-in:focus { background:#fff; outline:1px solid #c7d5ff; }
+  .tg-row { display:grid; grid-template-columns:104px minmax(120px,240px) 118px 58px 26px; gap:6px; align-items:center; padding:1px 0; font-size:12px; }
+  .tg-row input, .tg-row select { padding:2px 6px; font-size:11.5px; border-radius:5px; }
+  .tg-ico { color:#8a94a8; font-size:9.5px; font-weight:700; letter-spacing:.3px; white-space:nowrap; }
+  .pa-line { font-size:10.5px; color:#a3adc0; margin:2px 0; }
+  .pa-row { display:flex; align-items:center; gap:6px; margin:2px 0; }
+  .pa-row input { padding:2px 6px; font-size:11.5px; border-radius:5px; border:1px solid #d7e0d9; }
+  .rm-btn { cursor:pointer; color:#c0392b; opacity:.5; font-weight:700; text-align:center; } .rm-btn:hover { opacity:1; }
+  /* Dòng AD GROUP con của campaign Remarketing (1 campaign - nhiều ad group) */
+  .ag-row td { background:#f8fafc !important; font-size:11.5px; color:#455; }
+  .ag-row.ag-skip td { text-decoration:line-through; opacity:.45; }
+  .ag-row.ag-skip td:last-child { text-decoration:none; opacity:1; }
+  /* Campaign TRÙNG TÊN → nền đỏ cảnh báo (Amazon từ chối Campaign ID trùng) */
+  .dup td { background:#ffe0e0 !important; }
+  .dup td:nth-child(1), .dup td:nth-child(2) { background:#ffd6d6 !important; }
   /* Dòng bị "bỏ chạy" (nút −): gạch ngang, mờ — bấm ↩ để khôi phục (undo) */
   .skipped td { opacity:.4; text-decoration:line-through; }
   .skipped td:last-child { opacity:1; text-decoration:none; }
@@ -67,10 +130,13 @@
   .stat span { font-size:11px; color:var(--mut); }
   .msg { font-size:12.5px; margin-left:10px; }
   .msg.ok { color:var(--ok); } .msg.err { color:var(--bad); }
-  .bulkbar { display:flex; gap:8px; align-items:flex-end; flex-wrap:wrap; background:#f6f8fc; border:1px solid #e3e8f0;
+  .bulkbar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; background:#f6f8fc; border:1px solid #e3e8f0;
     border-radius:9px; padding:8px 12px; margin:10px 0; }
+  .bulkbar select, .bulkbar input, .bulkbar .btn-sm, .bulkbar button { height:27px; font-size:11.5px; box-sizing:border-box; }
+  .bulkbar b, .bulkbar .hint { font-size:11.5px; line-height:27px; }
   details summary { cursor:pointer; font-size:12.5px; color:var(--mut); font-weight:600; }
   .soon { font-size:11px; background:#fef3c7; color:#b45309; border-radius:6px; padding:2px 8px; }
+  .subsec { border:1px solid #e3e8f0; border-radius:10px; padding:10px 14px; margin-top:10px; background:#fcfdff; }
 </style>
 </head>
 <body>
@@ -79,6 +145,7 @@
   <nav>
     <a href="/">📊 Check Ranking</a>
     <a href="/launching.html" class="active">🚀 Tạo Campaign</a>
+    <a href="/adjust.html">⚙️ Adjust</a>
   </nav>
 </header>
 <main>
@@ -140,10 +207,12 @@
     </div>
   </div>
 
-  <!-- ===== 3. SP ===== -->
+  <!-- ===== 3. Chiến lược bid & loại campaign (3a SP / 3b SB / 3c SD) ===== -->
   <div class="card">
+    <h2>3️⃣ Chiến lược bid &amp; loại campaign</h2>
+    <div class="subsec">
     <details open id="secSP">
-    <summary class="h2"><input type="checkbox" id="onSP" checked onclick="event.stopPropagation()"> 3️⃣ SP — Chiến lược bid &amp; loại campaign</summary>
+    <summary class="h2"><input type="checkbox" id="onSP" checked onclick="event.stopPropagation()"> 3.1 SP — Sponsored Products</summary>
     <p class="sub" style="margin-top:8px">1 keyword × 1 mức bid = 1 campaign. <b>Số mức</b> = số campaign tạo cho mỗi keyword với bid giảm dần · <b>Bước nhảy</b> = khoảng cách giữa các mức. VD bid gốc 0.78, số mức 3, bước 0.02 → 3 campaign: 0.78 / 0.76 / 0.74 (rải bid tìm mức thắng auction rẻ nhất).</p>
 
     <div class="row" style="margin-bottom:12px">
@@ -183,7 +252,6 @@
           <div><label title="Số campaign tạo cho mỗi keyword, bid giảm dần">Số mức ⓘ</label><input type="number" id="levelsExact" value="5" min="1" max="10"></div>
           <div><label title="Khoảng cách bid giữa 2 mức liền nhau">Bước nhảy ⓘ</label><input type="number" id="stepExact" value="0.02" step="0.01"></div>
         </div>
-        <div class="hint">VD: bid 0.67, 5 mức, bước 0.02 → 0.67 / 0.65 / 0.63 / 0.61 / 0.59</div>
         <label>Portfolio (trống = dùng chung)</label><input type="text" id="pfExact">
         <label>Note / chiến lược (optional)</label><input type="text" id="noteExact" placeholder="VD: RANK">
       </div>
@@ -231,34 +299,62 @@
       </div>
 
       <div class="mt-box off" id="boxPt">
-        <h3><input type="checkbox" id="onPt"> Product Targeting (ASIN)</h3>
+        <h3><input type="checkbox" id="onPt"> Product Targeting (1 ASIN)</h3>
+        <div class="hint" style="margin-bottom:4px">Mỗi target ASIN = 1 campaign riêng, tên campaign dùng chính ASIN đó</div>
         <div class="mt-grid">
           <div><label>Bid gốc</label><input type="number" id="bidPt" value="0.67" step="0.01"></div>
           <div><label>Số mức ⓘ</label><input type="number" id="levelsPt" value="3" min="1" max="10"></div>
           <div><label>Bước nhảy ⓘ</label><input type="number" id="stepPt" value="0.02" step="0.01"></div>
         </div>
+        <div style="display:flex;gap:16px;margin-top:8px">
+          <span class="chk" style="margin:0"><input type="checkbox" id="exactPt" checked>
+            <label style="margin:0" title='asin="..." — chỉ đúng trang ASIN đó'><b>Exact</b></label></span>
+          <span class="chk" style="margin:0"><input type="checkbox" id="expandedPt">
+            <label style="margin:0" title='asin-expanded="..." — cả biến thể/sản phẩm liên quan'><b>Expanded</b></label></span>
+        </div>
+        <div class="hint">Tick 1 hoặc cả 2 — chọn cả 2 = 2 product targeting trong cùng 1 ad group</div>
         <label>Portfolio (trống = dùng chung)</label><input type="text" id="pfPt">
         <label>Note / chiến lược (optional)</label><input type="text" id="notePt" placeholder="VD: ATTACK / DEFEND">
       </div>
 
+      <div class="mt-box off" id="boxPtG">
+        <h3><input type="checkbox" id="onPtG"> Product Targeting (ASINs)</h3>
+        <div class="hint" style="margin-bottom:4px">Nhóm 10 ASIN / campaign — nhóm cuối = số còn lại (&lt;10). Tên campaign: "{Group} 1", "{Group} 2"...</div>
+        <div class="mt-grid">
+          <div><label title='Tên campaign nhóm sẽ là "{Group} 1", "{Group} 2"...'>Tên nhóm {Group}</label><input type="text" id="groupNamePt" placeholder="VD: Jar Rivals"></div>
+          <div><label>Bid gốc</label><input type="number" id="bidPtG" value="0.67" step="0.01"></div>
+          <div></div>
+          <div><label>Số mức ⓘ</label><input type="number" id="levelsPtG" value="3" min="1" max="10"></div>
+          <div><label>Bước nhảy ⓘ</label><input type="number" id="stepPtG" value="0.02" step="0.01"></div>
+        </div>
+        <div style="display:flex;gap:16px;margin-top:8px">
+          <span class="chk" style="margin:0"><input type="checkbox" id="exactPtG" checked>
+            <label style="margin:0" title='asin="..." — chỉ đúng trang ASIN đó'><b>Exact</b></label></span>
+          <span class="chk" style="margin:0"><input type="checkbox" id="expandedPtG">
+            <label style="margin:0" title='asin-expanded="..." — cả biến thể/sản phẩm liên quan'><b>Expanded</b></label></span>
+        </div>
+        <div class="hint">Tick 1 hoặc cả 2 — chọn cả 2 = mỗi ASIN có 2 product targeting trong cùng ad group</div>
+        <label>Portfolio (trống = dùng chung)</label><input type="text" id="pfPtG">
+        <label>Note / chiến lược (optional)</label><input type="text" id="notePtG" placeholder="VD: ATTACK">
+      </div>
+
       <div class="mt-box off" id="boxAuto" style="grid-column:span 2">
         <h3><input type="checkbox" id="onAuto"> Auto campaign</h3>
+        <label>Ad types — 4 nhóm targeting luôn được tạo đủ, nhóm không chọn để paused (bật lại sau không cần tạo mới)</label>
+        <div id="adTypes" style="margin-bottom:4px">
+          <span class="pill"><label class="chk" style="margin:0"><input type="checkbox" value="close-match" checked> close-match</label></span>
+          <span class="pill"><label class="chk" style="margin:0"><input type="checkbox" value="loose-match"> loose-match</label></span>
+          <span class="pill"><label class="chk" style="margin:0"><input type="checkbox" value="substitutes"> substitutes</label></span>
+          <span class="pill"><label class="chk" style="margin:0"><input type="checkbox" value="complements"> complements</label></span>
+          <span class="pill"><label class="chk" style="margin:0"><input type="checkbox" value="loose+close"> loose+close</label></span>
+          <span class="pill"><label class="chk" style="margin:0"><input type="checkbox" value="3type"> 3 type</label></span>
+          <span class="pill"><label class="chk" style="margin:0"><input type="checkbox" value="all"> all</label></span>
+        </div>
         <div class="row">
-          <div style="flex:3">
-            <label>Ad types (4 nhóm targeting tạo đủ, nhóm không chọn để paused)</label>
-            <div id="adTypes">
-              <span class="pill"><label class="chk" style="margin:0"><input type="checkbox" value="close-match" checked> close-match</label></span>
-              <span class="pill"><label class="chk" style="margin:0"><input type="checkbox" value="loose-match"> loose-match</label></span>
-              <span class="pill"><label class="chk" style="margin:0"><input type="checkbox" value="substitutes"> substitutes</label></span>
-              <span class="pill"><label class="chk" style="margin:0"><input type="checkbox" value="complements"> complements</label></span>
-              <span class="pill"><label class="chk" style="margin:0"><input type="checkbox" value="loose+close"> loose+close</label></span>
-              <span class="pill"><label class="chk" style="margin:0"><input type="checkbox" value="3type"> 3 type</label></span>
-              <span class="pill"><label class="chk" style="margin:0"><input type="checkbox" value="all"> all</label></span>
-            </div>
-          </div>
-          <div><label>Các mức bid (phẩy ngăn cách)</label><input type="text" id="autoBids" value="0.23, 0.33, 0.39"></div>
-          <div style="max-width:170px"><label>Portfolio (trống = chung)</label><input type="text" id="pfAuto"></div>
-          <div style="max-width:150px"><label>Note (optional)</label><input type="text" id="noteAuto" placeholder="VD: HARVEST"></div>
+          <div><label title="Mỗi ad type × mỗi mức bid = 1 campaign. Thập phân dùng dấu chấm">Các mức bid (cách nhau dấu phẩy, thập phân dấu chấm)</label>
+            <input type="text" id="autoBids" value="0.23, 0.33, 0.39"></div>
+          <div style="max-width:180px"><label>Portfolio (trống = dùng chung)</label><input type="text" id="pfAuto"></div>
+          <div style="max-width:160px"><label>Note / chiến lược (optional)</label><input type="text" id="noteAuto" placeholder="VD: HARVEST"></div>
         </div>
         <div class="hint">Tên campaign Auto dùng <b>Tên phân loại</b> (mục 1) qua placeholder {Category}</div>
       </div>
@@ -279,6 +375,7 @@
         </div>
         <div style="max-width:100px"><label>Placement Top %</label><input type="number" id="placementTop" value="0"></div>
         <div style="max-width:100px"><label>Product Page %</label><input type="number" id="placementProductPage" value="0"></div>
+        <div style="max-width:100px"><label>Amazon Business %</label><input type="number" id="placementAmazonBusiness" value="0"></div>
         <div style="max-width:100px"><label>Rest of Search %</label><input type="number" id="placementRestOfSearch" value="0"></div>
       </div>
       <div class="row" style="margin-top:6px">
@@ -287,46 +384,160 @@
       </div>
     </details>
     </details>
-  </div>
+    </div>
 
-  <!-- ===== 3b. SB ===== -->
-  <div class="card">
+    <div class="subsec">
     <details id="secSB">
-    <summary class="h2"><input type="checkbox" id="onSB" disabled onclick="event.stopPropagation()"> 3️⃣b SB — Sponsored Brands <span class="soon">sắp ra mắt</span></summary>
-    <p class="sub" style="margin-top:8px">Cần file bulk SB mẫu (đã tải từ Amazon Ads) để dựng đúng cấu trúc khối dòng — như đã làm với SP. Bạn tải 1 file bulk có sheet "Sponsored Brands Campaigns" đầy đủ campaign mẫu rồi gửi vào thư mục dự án, tôi sẽ build phần này.</p>
-    </details>
-  </div>
+    <summary class="h2"><input type="checkbox" id="onSB" onclick="event.stopPropagation()"> 3.2 SB — Sponsored Brands Video</summary>
+    <p class="sub" style="margin-top:8px">Cấu trúc theo file mẫu SB Video: KHÔNG có ad group — keyword/targeting gắn thẳng campaign, creative video nằm trên dòng campaign · sheet riêng "Sponsored Brands Campaigns" trong cùng file xuất.</p>
 
-  <!-- ===== 3c. SD ===== -->
-  <div class="card">
-    <details id="secSD">
-    <summary class="h2"><input type="checkbox" id="onSD" disabled onclick="event.stopPropagation()"> 3️⃣c SD — Sponsored Display <span class="soon">sắp ra mắt</span></summary>
-    <p class="sub" style="margin-top:8px">Tương tự SB — cần file bulk SD mẫu để dựng cấu trúc chính xác.</p>
+    <div class="row" style="margin-bottom:10px">
+      <div><label title="Định danh brand đã đăng ký Brand Registry (dạng ENTITY...)">Brand Entity ID *</label>
+        <input type="text" id="sbBrandEntityId" placeholder="ENTITY3GJWQD2AN907C"></div>
+      <div style="flex:2"><label title="Video đã upload vào Asset Library của Amazon Ads">Video Media ID *</label>
+        <input type="text" id="sbMediaId" placeholder="amzn1.assetlibrary.asset1.xxxx:version_v1"></div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(285px,1fr));gap:12px">
+      <div class="mt-box off" id="boxSbKw">
+        <h3><input type="checkbox" id="onSbKw"> SB Video Keyword</h3>
+        <div class="hint" style="margin-bottom:4px">1 keyword = 1 campaign video (Exact) — dùng chung danh sách Keywords mục 2. Bid tay của keyword (kw | bid) được ưu tiên.</div>
+        <div class="mt-grid">
+          <div><label>Bid gốc</label><input type="text" inputmode="decimal" id="bidSbKw" value="0.75"></div>
+          <div><label>Số mức ⓘ</label><input type="number" id="levelsSbKw" value="1" min="1" max="10"></div>
+          <div><label>Bước nhảy ⓘ</label><input type="text" inputmode="decimal" id="stepSbKw" value="0.03"></div>
+          <div><label>Budget</label><input type="text" inputmode="decimal" id="sbBudgetKw" value="6"></div>
+        </div>
+        <label>Portfolio (trống = dùng chung)</label><input type="text" id="pfSbKw">
+        <label>Note / chiến lược (optional)</label><input type="text" id="noteSbKw" placeholder="VD: VIDEO">
+      </div>
+
+      <div class="mt-box off" id="boxSbPt">
+        <h3><input type="checkbox" id="onSbPt"> SB Video Product Target (ASINs)</h3>
+        <div class="hint" style="margin-bottom:4px">Nhóm ≤10 ASIN / campaign video (theo file mẫu). Tên: "{Group} 1", "{Group} 2"...</div>
+        <div class="mt-grid">
+          <div><label>Tên nhóm {Group}</label><input type="text" id="groupNameSbPt" placeholder="VD: Product Target"></div>
+          <div><label>Bid gốc</label><input type="text" inputmode="decimal" id="bidSbPt" value="0.77"></div>
+          <div><label>Budget</label><input type="text" inputmode="decimal" id="sbBudgetPt" value="10"></div>
+          <div><label>Số mức ⓘ</label><input type="number" id="levelsSbPt" value="1" min="1" max="10"></div>
+          <div><label>Bước nhảy ⓘ</label><input type="text" inputmode="decimal" id="stepSbPt" value="0.03"></div>
+        </div>
+        <label>Portfolio (trống = dùng chung)</label><input type="text" id="pfSbPt">
+        <label>Note / chiến lược (optional)</label><input type="text" id="noteSbPt" placeholder="VD: VIDEO">
+      </div>
+    </div>
     </details>
+    </div>
+
+    <div class="subsec">
+    <details id="secSD">
+    <summary class="h2"><input type="checkbox" id="onSD" onclick="event.stopPropagation()"> 3.3 SD — Sponsored Display</summary>
+    <p class="sub" style="margin-top:8px">Cấu trúc theo file mẫu SD: Tactic T00030 · Budget Type Daily · sheet riêng "Sponsored Display Campaigns" trong cùng file xuất. Target ASINs dùng chung danh sách ở mục 2️⃣; Remarketing target chính ASIN ở mục 1️⃣.</p>
+
+    <div class="row" style="margin-bottom:10px">
+      <div style="max-width:170px">
+        <label>Cost Type</label>
+        <select id="sdCostType">
+          <option value="vcpm" selected>vCPM (mặc định theo file)</option>
+          <option value="cpc">CPC</option>
+        </select>
+      </div>
+      <div style="max-width:270px">
+        <label>Bid Optimization</label>
+        <select id="sdBidOpt">
+          <option selected>Optimize for viewable impressions</option>
+          <option>Optimize for page visits</option>
+          <option>Optimize for conversions</option>
+        </select>
+      </div>
+      <div style="max-width:150px"><label>Ad Group Default Bid</label><input type="text" inputmode="decimal" id="sdAdGroupBid" value="2.0"></div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(285px,1fr));gap:12px">
+      <div class="mt-box off" id="boxSdRem">
+        <h3><input type="checkbox" id="onSdRem"> SD Remarketing</h3>
+        <div class="hint" style="margin-bottom:4px">1 campaign / ASIN của mình — 4 ad group theo NGƯỜI ĐÃ XEM sản phẩm (views=exact-product), bid giảm dần theo lookback. Bỏ trống bid = bỏ lookback đó.</div>
+        <div class="mt-grid" style="grid-template-columns:repeat(4,1fr)">
+          <div><label>7 ngày</label><input type="text" inputmode="decimal" id="sdRem7" value="3.7"></div>
+          <div><label>14 ngày</label><input type="text" inputmode="decimal" id="sdRem14" value="3.0"></div>
+          <div><label>30 ngày</label><input type="text" inputmode="decimal" id="sdRem30" value="2.5"></div>
+          <div><label>60 ngày</label><input type="text" inputmode="decimal" id="sdRem60" value="2.0"></div>
+        </div>
+        <div class="mt-grid" style="margin-top:6px">
+          <div><label>Budget</label><input type="text" inputmode="decimal" id="sdBudgetRem" value="8"></div>
+        </div>
+        <label>Portfolio (trống = dùng chung)</label><input type="text" id="pfSdRem">
+        <label>Note / chiến lược (optional)</label><input type="text" id="noteSdRem" placeholder="VD: RETARGET">
+      </div>
+
+      <div class="mt-box off" id="boxSdPt">
+        <h3><input type="checkbox" id="onSdPt"> SD Product Target (1 ASIN)</h3>
+        <div class="hint" style="margin-bottom:4px">Mỗi target ASIN = 1 campaign SD (hiển thị trên trang sản phẩm đối thủ)</div>
+        <div class="mt-grid">
+          <div><label>Bid gốc</label><input type="text" inputmode="decimal" id="bidSdPt" value="2.0"></div>
+          <div><label>Số mức ⓘ</label><input type="number" id="levelsSdPt" value="1" min="1" max="10"></div>
+          <div><label>Bước nhảy ⓘ</label><input type="text" inputmode="decimal" id="stepSdPt" value="0.1"></div>
+          <div><label>Budget</label><input type="text" inputmode="decimal" id="sdBudgetPt" value="10"></div>
+        </div>
+        <label>Portfolio (trống = dùng chung)</label><input type="text" id="pfSdPt">
+        <label>Note / chiến lược (optional)</label><input type="text" id="noteSdPt" placeholder="VD: ATTACK">
+      </div>
+
+      <div class="mt-box off" id="boxSdPtG">
+        <h3><input type="checkbox" id="onSdPtG"> SD Product Target (ASINs)</h3>
+        <div class="hint" style="margin-bottom:4px">Nhóm 10 ASIN / campaign (theo file mẫu — tối đa 10 dòng targeting/campaign). Tên: "{Group} 1", "{Group} 2"...</div>
+        <div class="mt-grid">
+          <div><label>Tên nhóm {Group}</label><input type="text" id="groupNameSdPt" placeholder="VD: Competitor"></div>
+          <div><label>Bid gốc</label><input type="text" inputmode="decimal" id="bidSdPtG" value="2.0"></div>
+          <div><label>Budget</label><input type="text" inputmode="decimal" id="sdBudgetPtG" value="8"></div>
+          <div><label>Số mức ⓘ</label><input type="number" id="levelsSdPtG" value="1" min="1" max="10"></div>
+          <div><label>Bước nhảy ⓘ</label><input type="text" inputmode="decimal" id="stepSdPtG" value="0.1"></div>
+        </div>
+        <div class="chk" style="margin-top:8px"><input type="checkbox" id="expandedSdPtG">
+          <label style="margin:0" title='Bật: asin-expanded="..." — target cả biến thể/sản phẩm liên quan'>Dùng <b>asin-expanded</b></label></div>
+        <label>Portfolio (trống = dùng chung)</label><input type="text" id="pfSdPtG">
+        <label>Note / chiến lược (optional)</label><input type="text" id="noteSdPtG" placeholder="VD: ATTACK">
+      </div>
+    </div>
+    </details>
+    </div>
   </div>
 
   <!-- ===== 4. Tên campaign ===== -->
   <div class="card">
     <h2>4️⃣ Tên campaign</h2>
-    <p class="sub">Placeholder: {ASIN} {SKU} {Keyword} {MatchType} {Bid} {StartDate} {Name} {TargetAsin} {AdType} {Category} {Note} — field trống tự bỏ</p>
+    <p class="sub">Placeholder: {ASIN} {SKU} {Keyword} {MatchType} {Bid} {StartDate} {NameID} {TargetAsin} {Group} {AdType} {Category} {Note} — field trống tự bỏ</p>
     <label>SP Keyword</label>
-    <input type="text" id="nameKw" value="FBA - {ASIN} - SP - {Keyword} - {MatchType} {Bid} - {StartDate} - {Name} - {Note}">
-    <label>Product Targeting</label>
-    <input type="text" id="namePt" value="FBA - {ASIN} - SP - PRODUCT TG - {TargetAsin} - {Bid} - {StartDate} - {Name} - {Note}">
+    <input type="text" id="nameKw" value="FBA - {ASIN} - SP - {Keyword} - {MatchType} {Bid} - {StartDate} - {NameID} - {Note}">
+    <label>Product Targeting (1 ASIN)</label>
+    <input type="text" id="namePt" value="FBA - {ASIN} - SP - PRODUCT TG - {TargetAsin} - {Bid} - {StartDate} - {NameID} - {Note}">
+    <label>Product Targeting (ASINs)</label>
+    <input type="text" id="namePtG" value="FBA - {ASIN} - SP - PRODUCT TG - {Group} - {Bid} - {StartDate} - {NameID} - {Note}">
+    <label>SB Video Keyword</label>
+    <input type="text" id="nameSbKw" value="FBA - SB Video - {ASIN} - {Keyword} - {MatchType} {Bid} - {StartDate} - {NameID} - {Note}">
+    <label>SB Video Product Target (ASINs)</label>
+    <input type="text" id="nameSbPt" value="FBA - SB Video - {ASIN} - {Group} - {Bid} - {StartDate} - {NameID} - {Note}">
+    <label>SD Product Target (1 ASIN)</label>
+    <input type="text" id="nameSdPt" value="FBA - {ASIN} - SD - PRODUCT TG - {TargetAsin} - {Bid} - {StartDate} - {NameID} - {Note}">
+    <label>SD Product Target (ASINs)</label>
+    <input type="text" id="nameSdPtG" value="FBA - {ASIN} - SD - PRODUCT TG - {Group} - {Bid} - {StartDate} - {NameID} - {Note}">
+    <label>SD Remarketing</label>
+    <input type="text" id="nameSdRem" value="FBA - {ASIN} - SD - Remarketing - {StartDate} - {NameID} - {Note}">
     <label>Auto</label>
-    <input type="text" id="nameAuto" value="FBA - {ASIN} - SP - {Category} Auto - {AdType} {Bid} - {StartDate} - {Name} - {Note}">
+    <input type="text" id="nameAuto" value="FBA - {ASIN} - SP - {Category} Auto - {AdType} {Bid} - {StartDate} - {NameID} - {Note}">
     <div class="hint" id="namePreview" style="margin-top:8px"></div>
   </div>
 
-  <!-- ===== 5. Preview & Export ===== -->
+  <!-- ===== 5. Create Campaign ===== -->
   <div class="card">
-    <h2>5️⃣ Xem trước — chỉnh từng campaign — Xuất file</h2>
+    <h2>5️⃣ Create Campaign</h2>
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-      <button class="btn-primary" id="btnPreview">👁 Xem trước</button>
-      <button class="btn-ok" id="btnExport">📦 Xuất bulk XLSX + lưu keyword vào kho (tag PPC)</button>
+      <button class="btn-primary" id="btnPreview">➕ Tạo campaign</button>
+      <button class="btn-ok" id="btnExport">📦 Xuất bulk XLSX</button>
+      <label class="chk" style="margin:0"><input type="checkbox" id="saveToBank" checked> Lưu keyword vào kho (tag PPC)</label>
       <span class="msg" id="exportMsg"></span>
     </div>
-    <div class="hint" style="margin-top:6px">Mọi cột trong bảng đều sửa được từng dòng (tên tự cập nhật theo Bid/Note) · tick nhiều dòng rồi dùng thanh Bulk edit · nút − xoá campaign khỏi file</div>
+    <div class="hint" style="margin-top:6px">Đổi ASIN/keyword rồi bấm ➕ là campaign mới <b>THÊM VÀO</b> danh sách (không xoá kết quả cũ — chỉ mất khi reload trang hoặc bấm 🗑 Xoá toàn bộ) · mọi cột sửa được từng dòng · tick nhiều dòng dùng Bulk edit · nút − bỏ chạy (↩ khôi phục)</div>
     <div id="previewArea" style="margin-top:12px"></div>
   </div>
 
@@ -335,11 +546,11 @@
 <script>
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-const TYPE_LABEL = { SP_KW_EXACT:'Exact', SP_KW_PHRASE:'Phrase', SP_KW_BROAD:'Broad', SP_PT:'Product TG', SP_AUTO:'Auto' };
+const TYPE_LABEL = { SP_KW_EXACT:'Exact', SP_KW_PHRASE:'Phrase', SP_KW_BROAD:'Broad', SP_PT:'Product', SP_PT_GROUP:'Product (nhóm)', SP_AUTO:'Auto', SD_PT:'SD Product', SD_PT_GROUP:'SD Product (nhóm)', SD_REMARKETING:'SD Remarketing', SB_KW:'SB Keyword', SB_PT_GROUP:'SB Product (nhóm)' };
 const STRATEGIES = ['Dynamic bids - down only','Dynamic bids - up and down','Fixed bid'];
 
 /* ===== Cảnh báo server chạy code cũ ===== */
-const UI_VERSION = '0.8.2';
+const UI_VERSION = '0.19.1';
 (async () => {
   try {
     const v = (await (await fetch('/api/version')).json()).version;
@@ -376,12 +587,34 @@ let persistTimer;
 document.addEventListener('input', () => { clearTimeout(persistTimer); persistTimer = setTimeout(persistForm, 250); });
 document.addEventListener('change', () => { clearTimeout(persistTimer); persistTimer = setTimeout(persistForm, 250); });
 
+/* ===== SỐ THẬP PHÂN LUÔN DẤU CHẤM =====
+   type=number bị trình duyệt locale vi render "0,67" — chuyển các ô DECIMAL sang type=text
+   (inputmode=decimal cho bàn phím số trên mobile); gõ "," tự thay bằng "." */
+const DECIMAL_IDS = ['bidMultiplier','maxBidCap','defaultBid','fixedBid','minBid',
+  'stepExact','ratioPhrase','valuePhrase','stepPhrase','ratioBroad','valueBroad','stepBroad',
+  'bidPt','stepPt','bidPtG','stepPtG','dailyBudget','autoDailyBudget','adGroupDefaultBid','autoAdGroupDefaultBid'];
+for (const id of DECIMAL_IDS) {
+  const el = $(id);
+  if (!el) continue;
+  el.type = 'text';
+  el.setAttribute('inputmode', 'decimal');
+  el.value = String(el.value).replace(',', '.');
+}
+document.addEventListener('input', (e) => {
+  const t = e.target;
+  if (t.matches && t.matches('input[inputmode=decimal]') && t.value.includes(',')) {
+    const pos = t.selectionStart;
+    t.value = t.value.replace(/,/g, '.');
+    try { t.setSelectionRange(pos, pos); } catch {}
+  }
+});
+
 /* ===== Bật/tắt mờ box + chế độ hiển thị ===== */
-for (const [chk, box] of [['onExact','boxExact'],['onPhrase','boxPhrase'],['onBroad','boxBroad'],['onPt','boxPt'],['onAuto','boxAuto']]) {
+for (const [chk, box] of [['onExact','boxExact'],['onPhrase','boxPhrase'],['onBroad','boxBroad'],['onPt','boxPt'],['onPtG','boxPtG'],['onAuto','boxAuto'],['onSdRem','boxSdRem'],['onSdPt','boxSdPt'],['onSdPtG','boxSdPtG'],['onSbKw','boxSbKw'],['onSbPt','boxSbPt']]) {
   $(chk).addEventListener('change', () => $(box).classList.toggle('off', !$(chk).checked));
 }
 function refreshBoxes() {
-  for (const [chk, box] of [['onExact','boxExact'],['onPhrase','boxPhrase'],['onBroad','boxBroad'],['onPt','boxPt'],['onAuto','boxAuto']])
+  for (const [chk, box] of [['onExact','boxExact'],['onPhrase','boxPhrase'],['onBroad','boxBroad'],['onPt','boxPt'],['onPtG','boxPtG'],['onAuto','boxAuto'],['onSdRem','boxSdRem'],['onSdPt','boxSdPt'],['onSdPtG','boxSdPtG'],['onSbKw','boxSbKw'],['onSbPt','boxSbPt']])
     $(box).classList.toggle('off', !$(chk).checked);
 }
 function refreshBidMode() {
@@ -396,28 +629,32 @@ function refreshDeriveMode(sel, cls) {
   document.querySelectorAll('.' + cls + '-value').forEach(e => e.style.display = ratio ? 'none' : '');
 }
 $('modePhrase').addEventListener('change', () => refreshDeriveMode('modePhrase', 'phrase'));
+
 $('modeBroad').addEventListener('change', () => refreshDeriveMode('modeBroad', 'broad'));
 
 /* ===== Số mức = 1 → bước nhảy xám ===== */
-for (const [lv, st] of [['levelsExact','stepExact'],['levelsPhrase','stepPhrase'],['levelsBroad','stepBroad'],['levelsPt','stepPt']]) {
+for (const [lv, st] of [['levelsExact','stepExact'],['levelsPhrase','stepPhrase'],['levelsBroad','stepBroad'],['levelsPt','stepPt'],['levelsPtG','stepPtG'],['levelsSdPt','stepSdPt'],['levelsSdPtG','stepSdPtG'],['levelsSbKw','stepSbKw'],['levelsSbPt','stepSbPt']]) {
   const sync = () => { $(st).disabled = Number($(lv).value) <= 1; };
   $(lv).addEventListener('input', sync);
 }
 function refreshSteps() {
-  for (const [lv, st] of [['levelsExact','stepExact'],['levelsPhrase','stepPhrase'],['levelsBroad','stepBroad'],['levelsPt','stepPt']])
+  for (const [lv, st] of [['levelsExact','stepExact'],['levelsPhrase','stepPhrase'],['levelsBroad','stepBroad'],['levelsPt','stepPt'],['levelsPtG','stepPtG'],['levelsSdPt','stepSdPt'],['levelsSdPtG','stepSdPtG'],['levelsSbKw','stepSbKw'],['levelsSbPt','stepSbPt']])
     $(st).disabled = Number($(lv).value) <= 1;
 }
 
 /* ===== Khởi tạo: restore localStorage → thiếu thì lấy settings server ===== */
 let h10Data = {};
 let settingsCache = {};
-const SAVE_FIELDS = ['sku','asin','category','manager','nameKw','namePt','nameAuto',
+const SAVE_FIELDS = ['sku','asin','category','manager','nameKw','namePt','namePtG','nameAuto','nameSdPt','nameSdPtG','nameSdRem','nameSbKw','nameSbPt',
+  'sbBrandEntityId','sbMediaId','bidSbKw','stepSbKw','sbBudgetKw','pfSbKw','noteSbKw','groupNameSbPt','bidSbPt','stepSbPt','sbBudgetPt','pfSbPt','noteSbPt',
+  'sdCostType','sdBidOpt','sdAdGroupBid','sdRem7','sdRem14','sdRem30','sdRem60','sdBudgetRem','sdBudgetPt','sdBudgetPtG',
+  'bidSdPt','stepSdPt','bidSdPtG','stepSdPtG','groupNameSdPt','pfSdPt','pfSdPtG','pfSdRem','noteSdPt','noteSdPtG','noteSdRem',
   'pfGlobal','pfExact','pfPhrase','pfBroad','pfPt','pfAuto',
-  'noteExact','notePhrase','noteBroad','notePt','noteAuto',
+  'noteExact','notePhrase','noteBroad','notePt','notePtG','noteAuto','groupNamePt','pfPtG',
   'bidMode','h10Type','bidMultiplier','maxBidCap','defaultBid','fixedBid','minBid',
   'modePhrase','ratioPhrase','valuePhrase','wordLimitPhrase','offsetPhrase',
   'modeBroad','ratioBroad','valueBroad','wordLimitBroad','offsetBroad',
-  'dailyBudget','autoDailyBudget','biddingStrategy','placementTop','placementProductPage','placementRestOfSearch',
+  'dailyBudget','autoDailyBudget','biddingStrategy','placementTop','placementProductPage','placementRestOfSearch','placementAmazonBusiness',
   'adGroupDefaultBid','autoAdGroupDefaultBid'];
 (async () => {
   const restored = restoreForm();
@@ -427,6 +664,8 @@ const SAVE_FIELDS = ['sku','asin','category','manager','nameKw','namePt','nameAu
     if (!restored) for (const f of SAVE_FIELDS) if (saved[f] !== undefined && $(f)) $(f).value = saved[f];
   } catch {}
   if (!$('startDate').value) $('startDate').value = new Date().toISOString().slice(0,10);
+  // Chuẩn hóa giá trị khôi phục (settings/localStorage cũ có thể chứa dấu phẩy)
+  for (const id of DECIMAL_IDS) if ($(id) && String($(id).value).includes(',')) $(id).value = String($(id).value).replace(/,/g, '.');
   refreshBoxes(); refreshBidMode(); refreshSteps();
   refreshDeriveMode('modePhrase','phrase'); refreshDeriveMode('modeBroad','broad');
   previewNames();
@@ -463,6 +702,20 @@ $('btnSaveInfo').onclick = async () => {
   $('infoMsg').textContent = `✅ Đã lưu hồ sơ sản phẩm "${$('asin').value.trim().toUpperCase()}" + toàn bộ cấu hình (trừ ngày tạo)`;
   setTimeout(() => $('infoMsg').textContent = '', 5000);
 };
+
+/* ===== Nhận keyword THĂNG CẤP từ trang Adjust (search term ra đơn → Exact) ===== */
+(() => {
+  try {
+    const promo = JSON.parse(localStorage.getItem('ppcw_promote_keywords') || 'null');
+    if (!promo || !promo.length) return;
+    localStorage.removeItem('ppcw_promote_keywords');
+    const cur = new Set($('keywords').value.split('\n').map(s => s.trim()).filter(Boolean));
+    promo.forEach(t => cur.add(t));
+    $('keywords').value = [...cur].join('\n');
+    persistForm();
+    $('h10Msg').textContent = `⤴ Đã nhận ${promo.length} search term thăng cấp từ Adjust — chọn Exact và tạo campaign`;
+  } catch {}
+})();
 
 /* ===== Import Helium10 ===== */
 $('btnH10').onclick = async () => {
@@ -557,13 +810,13 @@ function buildPayload() {
       category: $('category').value.trim(), startDate: $('startDate').value, manager: $('manager').value.trim() },
     portfolios: { global: $('pfGlobal').value.trim(), exact: $('pfExact').value.trim(),
       phrase: $('pfPhrase').value.trim(), broad: $('pfBroad').value.trim(),
-      pt: $('pfPt').value.trim(), auto: $('pfAuto').value.trim() },
+      pt: $('pfPt').value.trim(), ptGroup: $('pfPtG').value.trim(), auto: $('pfAuto').value.trim(), sdPt: $('pfSdPt').value.trim(), sdPtG: $('pfSdPtG').value.trim(), sdRem: $('pfSdRem').value.trim(), sbKw: $('pfSbKw').value.trim(), sbPt: $('pfSbPt').value.trim() },
     camp: { dailyBudget: +$('dailyBudget').value, autoDailyBudget: +$('autoDailyBudget').value,
       biddingStrategy: $('biddingStrategy').value,
       placementTop: +$('placementTop').value, placementProductPage: +$('placementProductPage').value,
-      placementRestOfSearch: +$('placementRestOfSearch').value,
+      placementRestOfSearch: +$('placementRestOfSearch').value, placementAmazonBusiness: +$('placementAmazonBusiness').value,
       adGroupDefaultBid: +$('adGroupDefaultBid').value, autoAdGroupDefaultBid: +$('autoAdGroupDefaultBid').value },
-    naming: { kw: $('nameKw').value, pt: $('namePt').value, auto: $('nameAuto').value },
+    naming: { kw: $('nameKw').value, pt: $('namePt').value, ptGroup: $('namePtG').value, auto: $('nameAuto').value, sdPt: $('nameSdPt').value, sdPtG: $('nameSdPtG').value, sdRem: $('nameSdRem').value, sbKw: $('nameSbKw').value, sbPt: $('nameSbPt').value },
     bidRule: { mode: $('bidMode').value, h10Type: $('h10Type').value,
       defaultBid: +$('defaultBid').value, bidMultiplier: +$('bidMultiplier').value,
       maxBidCap: +$('maxBidCap').value, fixedBid: +$('fixedBid').value, minBid: +$('minBid').value },
@@ -576,8 +829,38 @@ function buildPayload() {
                 wordLimit: +$('wordLimitBroad').value, offsetDays: +$('offsetBroad').value,
                 step: +$('stepBroad').value, levels: +$('levelsBroad').value, note: $('noteBroad').value.trim() }
     },
-    pt: { on: sp && $('onPt').checked, bid: +$('bidPt').value, step: +$('stepPt').value, levels: +$('levelsPt').value, note: $('notePt').value.trim() },
+    pt: { on: sp && $('onPt').checked, exact: $('exactPt').checked, expanded: $('expandedPt').checked,
+      bid: +$('bidPt').value, step: +$('stepPt').value, levels: +$('levelsPt').value, note: $('notePt').value.trim() },
+    ptGroup: { on: sp && $('onPtG').checked, exact: $('exactPtG').checked, expanded: $('expandedPtG').checked,
+      groupName: $('groupNamePt').value.trim(), bid: +$('bidPtG').value, step: +$('stepPtG').value, levels: +$('levelsPtG').value, note: $('notePtG').value.trim() },
     auto: { on: sp && $('onAuto').checked, adTypes, bids: $('autoBids').value.split(',').map(s => s.trim()).filter(Boolean), note: $('noteAuto').value.trim() },
+    sb: (() => {
+      const on = $('onSB').checked;
+      const n = (id) => parseFloat(String($(id).value).replace(',', '.'));
+      return {
+        brandEntityId: $('sbBrandEntityId').value.trim(), mediaId: $('sbMediaId').value.trim(),
+        kw: { on: on && $('onSbKw').checked, bid: n('bidSbKw'), step: n('stepSbKw'), levels: +$('levelsSbKw').value,
+              budget: n('sbBudgetKw'), note: $('noteSbKw').value.trim() },
+        pt: { on: on && $('onSbPt').checked, groupName: $('groupNameSbPt').value.trim(),
+              bid: n('bidSbPt'), step: n('stepSbPt'), levels: +$('levelsSbPt').value,
+              budget: n('sbBudgetPt'), note: $('noteSbPt').value.trim() }
+      };
+    })(),
+    sd: (() => {
+      const on = $('onSD').checked;
+      const n = (id) => parseFloat(String($(id).value).replace(',', '.'));
+      return {
+        adGroupBid: n('sdAdGroupBid'), costType: $('sdCostType').value, bidOpt: $('sdBidOpt').value,
+        pt: { on: on && $('onSdPt').checked, bid: n('bidSdPt'), step: n('stepSdPt'), levels: +$('levelsSdPt').value,
+              budget: n('sdBudgetPt'), note: $('noteSdPt').value.trim() },
+        ptGroup: { on: on && $('onSdPtG').checked, groupName: $('groupNameSdPt').value.trim(), expanded: $('expandedSdPtG').checked,
+              bid: n('bidSdPtG'), step: n('stepSdPtG'), levels: +$('levelsSdPtG').value,
+              budget: n('sdBudgetPtG'), note: $('noteSdPtG').value.trim() },
+        remarketing: { on: on && $('onSdRem').checked, budget: n('sdBudgetRem'), note: $('noteSdRem').value.trim(),
+              lookbacks: [[7,'sdRem7'],[14,'sdRem14'],[30,'sdRem30'],[60,'sdRem60']]
+                .map(([days, id]) => ({ days, bid: $(id).value.trim() })).filter(l => l.bid !== '') }
+      };
+    })(),
     keywords,
     targetAsins: $('targetAsins').value.split('\n').map(l => l.trim()).filter(Boolean)
   };
@@ -587,21 +870,52 @@ function buildPayload() {
 function renderTpl(t, ctx) {
   let s = t;
   for (const [k, v] of Object.entries(ctx)) s = s.split('{' + k + '}').join(v ?? '');
-  return s.replace(/\s*-\s*(?=-)/g, '').replace(/\s*-\s*$/, '').replace(/\s{2,}/g, ' ').trim();
+  return s.replace(/(\s*-\s*){2,}/g, ' - ').replace(/\s*-\s*$/, '').replace(/^\s*-\s*/, '').replace(/\s{2,}/g, ' ').trim();
 }
+const DEFAULT_TPL = {
+  kw:   'FBA - {ASIN} - SP - {Keyword} - {MatchType} {Bid} - {StartDate} - {NameID} - {Note}',
+  pt:   'FBA - {ASIN} - SP - PRODUCT TG - {TargetAsin} - {Bid} - {StartDate} - {NameID} - {Note}',
+  ptG:  'FBA - {ASIN} - SP - PRODUCT TG - {Group} - {Bid} - {StartDate} - {NameID} - {Note}',
+  auto: 'FBA - {ASIN} - SP - {Category} Auto - {AdType} {Bid} - {StartDate} - {NameID} - {Note}',
+  sdPt: 'FBA - {ASIN} - SD - PRODUCT TG - {TargetAsin} - {Bid} - {StartDate} - {NameID} - {Note}',
+  sdPtG: 'FBA - {ASIN} - SD - PRODUCT TG - {Group} - {Bid} - {StartDate} - {NameID} - {Note}',
+  sdRem: 'FBA - {ASIN} - SD - Remarketing - {StartDate} - {NameID} - {Note}',
+  sbKw: 'FBA - SB Video - {ASIN} - {Keyword} - {MatchType} {Bid} - {StartDate} - {NameID} - {Note}',
+  sbPt: 'FBA - SB Video - {ASIN} - {Group} - {Bid} - {StartDate} - {NameID} - {Note}'
+};
 function planName(p) {
-  const tpl = p.type === 'SP_AUTO' ? $('nameAuto').value : p.type === 'SP_PT' ? $('namePt').value : $('nameKw').value;
+  const tpl = (p.type === 'SP_AUTO' ? $('nameAuto').value || DEFAULT_TPL.auto
+    : p.type === 'SP_PT_GROUP' ? $('namePtG').value || DEFAULT_TPL.ptG
+    : p.type === 'SP_PT' ? $('namePt').value || DEFAULT_TPL.pt
+    : p.type === 'SD_PT' ? $('nameSdPt').value || DEFAULT_TPL.sdPt
+    : p.type === 'SD_PT_GROUP' ? $('nameSdPtG').value || DEFAULT_TPL.sdPtG
+    : p.type === 'SD_REMARKETING' ? $('nameSdRem').value || DEFAULT_TPL.sdRem
+    : p.type === 'SB_KW' ? $('nameSbKw').value || DEFAULT_TPL.sbKw
+    : p.type === 'SB_PT_GROUP' ? $('nameSbPt').value || DEFAULT_TPL.sbPt
+    : $('nameKw').value || DEFAULT_TPL.kw);
   return renderTpl(tpl, {
-    ASIN: $('asin').value.trim().toUpperCase(), SKU: $('sku').value.trim(), Name: $('manager').value.trim(),
+    ASIN: $('asin').value.trim().toUpperCase(), SKU: $('sku').value.trim(),
+    NameID: $('manager').value.trim(),
     Category: $('category').value.trim(), Keyword: p.keyword || '',
     MatchType: p.matchType ? p.matchType[0].toUpperCase() + p.matchType.slice(1) : '',
-    Bid: Number(p.bid).toFixed(2), StartDate: p.startDateBulk, TargetAsin: p.targetAsin || '',
+    Bid: Number(p.bid).toFixed(2), StartDate: p.startDateBulk, TargetAsin: p.groupLabel || p.targetAsin || '', Group: p.groupLabel || '',
     AdType: p.adType || '', Note: p.note || ''
   });
 }
 
-/* ===== Preview — bảng chỉnh sửa + bulk edit + xoá dòng ===== */
-let plans = [];
+/* ===== Create Campaign — danh sách TÍCH LŨY (nhiều ASIN), filter, bulk, xuất file ===== */
+let plans = [];   // giữ nguyên giữa các lần ➕ — chỉ mất khi reload trang hoặc 🗑 Xoá toàn bộ
+let planUid = 1;
+// Filter: CHỈ 1 tiêu chí tại 1 thời điểm; trường SỐ (Bid/Budget/Placement) cho chọn KHOẢNG min–max
+const filt = { field: '', value: '', min: '', max: '' };
+const FILTER_FIELDS = [
+  ['name', 'Tên campaign', 'text'], ['asin', 'ASIN', 'text'], ['sku', 'SKU', 'text'],
+  ['match', 'Match Type', 'select'], ['target', 'Target', 'text'], ['portfolio', 'Portfolio', 'text'],
+  ['bid', 'Bid', 'range'], ['budget', 'Budget', 'range'],
+  ['placementTop', 'Top %', 'range'], ['placementProductPage', 'PP %', 'range'], ['placementRestOfSearch', 'RoS %', 'range']
+];
+const filterKind = (f) => (FILTER_FIELDS.find(x => x[0] === f) || [])[2] || 'text';
+
 $('btnPreview').onclick = async () => {
   $('exportMsg').textContent = '';
   try {
@@ -610,84 +924,548 @@ $('btnPreview').onclick = async () => {
     const r = await res.json();
     if (!r.ok) throw new Error(r.message);
     if (!Array.isArray(r.plans)) throw new Error('Server trả dữ liệu cũ — hãy restart server');
-    plans = r.plans.map(p => ({ ...p, sel: false }));
+    // THÊM TẤT CẢ vào danh sách — trùng tên sẽ được BÔI ĐỎ cảnh báo (không tự bỏ)
+    const fresh = r.plans.map(p => ({ ...p, uid: planUid++, sel: false }));
+    plans.push(...fresh);
     renderPlans();
+    const cnt = {};
+    plans.forEach(p => cnt[p.name] = (cnt[p.name] || 0) + 1);
+    const dup = plans.filter(p => cnt[p.name] > 1).length;
+    $('exportMsg').className = dup ? 'msg err' : 'msg ok';
+    $('exportMsg').textContent = `➕ Thêm ${fresh.length} campaign · tổng ${plans.length}` + (dup ? ` · ⚠ ${dup} dòng TRÙNG TÊN (bôi đỏ)` : '');
   } catch (e) {
-    $('previewArea').innerHTML = `<span class="msg err">❌ ${esc(e.message)}</span>`;
+    $('exportMsg').className = 'msg err';
+    $('exportMsg').textContent = '❌ ' + e.message;
   }
 };
 
-/* Độ rộng cột (px) — kéo tay cầm ở mép phải header để chỉnh, lưu lại cho lần sau */
-const COL_KEYS = ['sel','name','type','target','bid','budget','strategy','top','pp','ros','portfolio','note','act'];
-let colW = Object.assign(
-  { sel:34, name:320, type:70, target:110, bid:95, budget:90, strategy:195, top:64, pp:64, ros:64, portfolio:125, note:115, act:44 },
-  JSON.parse(localStorage.getItem('ppcw_launch_colw') || '{}'));
+/* ===== 2 TAB kết quả: SP và SD — cột khác nhau (SD KHÔNG có Bidding Strategy/Placement) ===== */
+let tab5 = 'SP';
+const isSD = (p) => String(p.type).startsWith('SD_');
+const isSB = (p) => String(p.type).startsWith('SB_');
+const inTab = (p) => tab5 === 'SD' ? isSD(p) : tab5 === 'SB' ? isSB(p) : (!isSD(p) && !isSB(p));
 
-function renderPlans() {
-  if (!plans.length) { $('previewArea').innerHTML = '<span class="hint">Không có campaign nào.</span>'; return; }
+/* Độ rộng cột (px) — kéo tay cầm ở mép phải header, lưu riêng từng tab */
+const COLS_SP = [
+  ['sel', 34], ['name', 320], ['type', 82], ['target', 110], ['bid', 95], ['budget', 90],
+  ['strategy', 195], ['top', 64], ['pp', 64], ['ros', 64], ['portfolio', 125], ['note', 115], ['act', 44]];
+const COLS_SD = [
+  ['sel', 34], ['name', 340], ['type', 110], ['target', 130], ['bid', 95], ['budget', 90],
+  ['costType', 90], ['bidOpt', 230], ['portfolio', 125], ['note', 115]];
+const COLS_SB = [
+  ['sel', 34], ['name', 360], ['type', 110], ['target', 150], ['bid', 95], ['budget', 90],
+  ['portfolio', 130], ['note', 120]];
+let colW = Object.assign(
+  Object.fromEntries([...COLS_SP.map(([k, w]) => ['sp_' + k, w]), ...COLS_SD.map(([k, w]) => ['sd_' + k, w]), ...COLS_SB.map(([k, w]) => ['sb_' + k, w])]),
+  JSON.parse(localStorage.getItem('ppcw_launch_colw_v2') || '{}'));
+
+const byUid = (uid) => plans.find(p => p.uid === uid);
+const has = (v, q) => String(v ?? '').toLowerCase().includes(q.toLowerCase());
+function visiblePlans() {
+  const base = plans.filter(inTab);
+  if (!filt.field) return base;
+  const kind = filterKind(filt.field);
+  return base.filter(p => {
+    if (kind === 'range') {
+      const v = Number(p[filt.field] ?? 0);
+      if (filt.min !== '' && v < Number(filt.min)) return false;
+      if (filt.max !== '' && v > Number(filt.max)) return false;
+      return true;
+    }
+    const val = filt.field === 'match' ? (TYPE_LABEL[p.type] || p.type)
+      : filt.field === 'target' ? (p.keyword || p.targetAsin || p.adType)
+      : filt.field === 'portfolio' ? p.portfolioId
+      : p[filt.field];
+    if (filt.field === 'match') return !filt.value || val === filt.value;
+    return !filt.value || has(val, filt.value);
+  });
+}
+
+/* ===== Thống kê + đồng bộ tick-all (khôi phục sau refactor tab 17/07) ===== */
+function buildStats() {
   const active = plans.filter(p => !p.skip);
   const stats = active.reduce((a, p) => { a[p.type] = (a[p.type] || 0) + 1; return a; }, {});
   const statHtml = Object.entries(stats).map(([k,v]) => `<div class="stat"><b>${v}</b><span>${TYPE_LABEL[k]||k}</span></div>`).join('');
-  const stratOpts = (cur) => STRATEGIES.map(s => `<option ${s===cur?'selected':''}>${s}</option>`).join('');
-  const cols = COL_KEYS.map(k => `<col style="width:${colW[k]}px">`).join('');
-  const rows = plans.map((p, i) => `
-    <tr id="planrow_${i}" class="${p.skip ? 'skipped' : ''}">
-      <td><input type="checkbox" ${p.sel ? 'checked' : ''} onchange="plans[${i}].sel=this.checked"></td>
-      <td id="planname_${i}" style="font-size:11.5px">${esc(p.name)}</td>
-      <td>${TYPE_LABEL[p.type] || p.type}</td>
-      <td style="overflow:hidden;text-overflow:ellipsis" title="${esc(p.keyword || p.targetAsin || p.adType || '')}">${esc(p.keyword || p.targetAsin || p.adType || '')}</td>
-      <td><input type="number" step="0.01" value="${p.bid}" onchange="editPlan(${i},'bid',this.value)"></td>
-      <td><input type="number" step="0.5" value="${p.budget}" onchange="editPlan(${i},'budget',this.value)"></td>
-      <td><select onchange="editPlan(${i},'biddingStrategy',this.value)">${stratOpts(p.biddingStrategy)}</select></td>
-      <td><input type="number" value="${p.placementTop ?? 0}" onchange="editPlan(${i},'placementTop',this.value)"></td>
-      <td><input type="number" value="${p.placementProductPage ?? 0}" onchange="editPlan(${i},'placementProductPage',this.value)"></td>
-      <td><input type="number" value="${p.placementRestOfSearch ?? 0}" onchange="editPlan(${i},'placementRestOfSearch',this.value)"></td>
-      <td><input type="text" value="${esc(p.portfolioId)}" onchange="editPlan(${i},'portfolioId',this.value)"></td>
-      <td><input type="text" value="${esc(p.note)}" placeholder="mục đích" onchange="editPlan(${i},'note',this.value)"></td>
-      <td><button class="btn-del" title="${p.skip ? 'Khôi phục — chạy lại campaign này' : 'Bỏ chạy campaign này (gạch ngang, bấm lại để khôi phục)'}"
-        onclick="toggleSkip(${i})">${p.skip ? '↩' : '−'}</button></td>
-    </tr>`).join('');
-  const headers = ['<input type="checkbox" id="selAll" onchange="plans.forEach(p=>p.sel=this.checked);renderPlans()">',
-    'Tên campaign (tự cập nhật theo Bid/Note)','Loại','Target','Bid','Budget','Bidding Strategy','Top %','PP %','RoS %','Portfolio','Note',''];
-  $('previewArea').innerHTML = `
-    <div class="statgrid">${statHtml}<div class="stat"><b>${active.length}</b><span>Sẽ xuất</span></div>
-      ${plans.length - active.length ? `<div class="stat" style="background:#fdf0f0;border-color:#f3caca"><b style="color:#c0392b">${plans.length - active.length}</b><span>Bỏ chạy</span></div>` : ''}</div>
-    <div class="bulkbar">
-      <b style="font-size:12px">Bulk edit (dòng đã tick):</b>
-      <div style="max-width:170px">
-        <select id="bulkField">
-          <option value="portfolioId">Portfolio ID</option>
-          <option value="note">Note</option>
-          <option value="bid">Bid</option>
-          <option value="budget">Budget</option>
-          <option value="biddingStrategy">Bidding Strategy</option>
-          <option value="placementTop">Placement Top %</option>
-          <option value="placementProductPage">Product Page %</option>
-          <option value="placementRestOfSearch">Rest of Search %</option>
+  const asinCount = new Set(active.map(p => p.asin).filter(Boolean)).size;
+  const cnt = {};
+  plans.forEach(p => cnt[p.name] = (cnt[p.name] || 0) + 1);
+  const dup = plans.filter(p => cnt[p.name] > 1).length;
+  return `<div class="statgrid">${statHtml}
+    <div class="stat"><b>${active.length}</b><span>Sẽ xuất${asinCount > 1 ? ' · ' + asinCount + ' ASIN' : ''}</span></div>
+    ${dup ? `<div class="stat" style="background:#ffe0e0;border-color:#f3a6a6"><b style="color:#c0392b">${dup}</b><span>⚠ Trùng tên</span></div>` : ''}</div>`;
+}
+function refreshStats() { const el = document.getElementById('statArea'); if (el) el.innerHTML = buildStats(); }
+
+/* Đồng bộ 2 CHIỀU tick-all: bỏ tick 1 dòng → tick-all tự mất; tick đủ lại → tự bật */
+function syncSelUI() {
+  const vis = visiblePlans();
+  const sa = document.getElementById('selAll');
+  if (sa) sa.checked = vis.length > 0 && vis.every(p => p.sel);
+  const bd = document.getElementById('btnDel');
+  if (bd) bd.textContent = plans.length > 0 && plans.every(p => p.sel) ? `🗑 Xoá toàn bộ (${plans.length})` : '🗑 Xoá';
+}
+window.rowSel = (uid, on) => { const p = byUid(uid); if (p) p.sel = on; syncSelUI(); };
+window.agSel = (uid, ai, on) => { const ag = byUid(uid)?.adGroups?.[ai]; if (ag) ag.sel = on; };
+window.rmNegPtCamp = (uid, i) => { const p = byUid(uid); if (p?.negPt) { p.negPt.splice(i, 1); renderPlans(); } };
+window.clearFilter = () => { filt.field = ''; filt.value = ''; filt.min = ''; filt.max = ''; renderPlans(); };
+
+/* ===== CARD VIEW helpers (tab SP) ===== */
+
+// SP: chỉ phân 2 màu MANUAL (xanh) vs AUTO (cam)
+const ACC_COLOR = { SP_KW_EXACT:'#2455e6', SP_KW_PHRASE:'#2455e6', SP_KW_BROAD:'#2455e6',
+  SP_PT:'#2455e6', SP_PT_GROUP:'#2455e6', SP_AUTO:'#d97706',
+  SD_PT:'#0e8ab0', SD_PT_GROUP:'#0e8ab0', SD_REMARKETING:'#d6467e' };
+const negChip = (n, onX) =>
+  `<span class="chip ${n.mt === 'negativePhrase' ? 'negp' : 'nege'}" title="${n.mt}">${esc(n.term)}: <i>${n.mt === 'negativePhrase' ? 'Negative Phrase' : 'Negative Exact'}</i><span class="x" onclick="${onX}">✕</span></span>`;
+// Chip màu theo loại — dùng cho type-chip campaign + select match type
+const TCHIP = { SP_KW_EXACT:'tchip-exact', SP_KW_PHRASE:'tchip-phrase', SP_KW_BROAD:'tchip-broad',
+  SP_PT:'tchip-product', SP_PT_GROUP:'tchip-product', SP_AUTO:'tchip-auto' };
+const MT_CHIP = { exact:'tchip-exact', phrase:'tchip-phrase', broad:'tchip-broad' };
+
+function renderCampCard(p, nameCount) {
+  const open = !!p._open;
+  const negCount = (p.negatives || []).length + (p.negPt || []).length +
+    (p.adGroups || []).reduce((n, a) => n + (a.negatives || []).length + (a.negPt || []).length, 0);
+  const tgCount = (p.adGroups || []).reduce((n, a) => n + (a.targets || []).length, 0);
+  const acc = ACC_COLOR[p.type] || '#2455e6';
+  const dupCls = nameCount[p.name] > 1 ? ' dup' : '';
+
+  const head = `
+    <div class="camp-head" style="--acc:${acc}">
+      <span class="caret" onclick="toggleOpen(${p.uid})">${open ? '▾' : '▸'}</span>
+      <input type="checkbox" ${p.sel ? 'checked' : ''} onchange="rowSel(${p.uid}, this.checked)">
+      <input class="camp-name-in" value="${esc(p.name)}" onchange="editPlan(${p.uid},'name',this.value)" title="Campaign Name — sửa trực tiếp">
+      <span class="mini-badge">${negCount ? '🚫' + negCount + ' · ' : ''}${(p.adGroups || []).length} AG · ${tgCount} target</span>
+    </div>
+    <div class="spec-strip" style="--acc:${acc}">
+      <span class="spec"><b>Start</b><input value="${esc(p.startDateBulk)}" style="width:66px" onchange="editPlan(${p.uid},'startDateBulk',this.value)" title="YYYYMMDD"></span>
+      <span class="spec"><b>End</b><input value="${esc(p.endDateBulk || '')}" style="width:66px" placeholder="—" onchange="editPlan(${p.uid},'endDateBulk',this.value)" title="YYYYMMDD, trống = không hết hạn"></span>
+      <span class="spec" style="${p.type === 'SP_AUTO'
+        ? 'background:#fff1de;border-color:#f5ddb8'
+        : 'background:#e8efff;border-color:#c7d5ff'}"><b style="color:${p.type === 'SP_AUTO' ? '#d97706' : '#2455e6'};font-size:10.5px">${p.type === 'SP_AUTO' ? 'AUTO' : 'MANUAL'}</b></span>
+      <span class="spec"><b>Budget $</b><input inputmode="decimal" value="${String(p.budget).replace(',', '.')}" style="width:40px" onchange="editPlan(${p.uid},'budget',this.value)"></span>
+      <span class="spec"><b>Strategy</b><select onchange="editPlan(${p.uid},'biddingStrategy',this.value)">
+        ${STRATEGIES.map(st => `<option ${st === p.biddingStrategy ? 'selected' : ''}>${st.replace('Dynamic bids - ', 'Dyn ')}</option>`).join('')}</select></span>
+      <span class="spec"><b>Top%</b><input inputmode="decimal" value="${p.placementTop ?? 0}" style="width:30px" onchange="editPlan(${p.uid},'placementTop',this.value)"></span>
+      <span class="spec"><b>PP%</b><input inputmode="decimal" value="${p.placementProductPage ?? 0}" style="width:30px" onchange="editPlan(${p.uid},'placementProductPage',this.value)"></span>
+      <span class="spec"><b>AB%</b><input inputmode="decimal" value="${p.placementAmazonBusiness ?? 0}" style="width:30px" onchange="editPlan(${p.uid},'placementAmazonBusiness',this.value)" title="Amazon Business"></span>
+      <span class="spec"><b>RoS%</b><input inputmode="decimal" value="${p.placementRestOfSearch ?? 0}" style="width:30px" onchange="editPlan(${p.uid},'placementRestOfSearch',this.value)"></span>
+      <span class="spec"><b>Portfolio</b><input value="${esc(p.portfolioId)}" style="width:118px" onchange="editPlan(${p.uid},'portfolioId',this.value)"></span>
+      <span class="spec"><b>Note</b><input value="${esc(p.note)}" style="width:70px" onchange="editPlan(${p.uid},'note',this.value)"></span>
+    </div>`;
+
+  if (!open) return `<div class="camp-card${p.skip ? ' skipped' : ''}${dupCls}" id="card_${p.uid}">${head}</div>`;
+
+  const campNegs = ((p.negatives || []).length + (p.negPt || []).length) ? `
+    <div class="neg-row">
+      <span class="lab">🚫 NEGATIVE CẢ CAMPAIGN</span>
+      ${(p.negatives || []).map((n, i) => negChip(n, `rmNegCamp(${p.uid},${i})`)).join('')}
+      ${(p.negPt || []).map((a, i) => `<span class="chip negpt" title='Negative Product — xuất file rải vào mọi ad group'>${esc(a)}: <i>Negative Product</i><span class="x" onclick="rmNegPtCamp(${p.uid},${i})">✕</span></span>`).join('')}
+    </div>` : '';
+
+  const agBlocks = (p.adGroups || []).map((ag, ai) => {
+    const kind = (ag.targets && ag.targets[0]) ? ag.targets[0].kind : (ag.kind || 'kw');
+    const targets = (ag.targets || []).map((t, ti) => {
+      if (t.kind === 'kw') return `
+      <div class="tg-row">
+        <span class="tg-ico">KEYWORD</span>
+        <input value="${esc(t.text)}" placeholder="keyword" onchange="editTarget(${p.uid},${ai},${ti},'text',this.value)">
+        <select class="tsel ${MT_CHIP[t.mt] || 'tchip-exact'}" onchange="editTarget(${p.uid},${ai},${ti},'mt',this.value,this)">
+          ${['exact','phrase','broad'].map(m => `<option ${t.mt === m ? 'selected' : ''}>${m.charAt(0).toUpperCase() + m.slice(1)}</option>`).join('')}</select>
+        <input inputmode="decimal" value="${String(t.bid).replace(',', '.')}" onchange="editTarget(${p.uid},${ai},${ti},'bid',this.value)" title="Bid">
+        ${ti > 0 ? `<span class="rm-btn" onclick="rmTarget(${p.uid},${ai},${ti})">✕</span>` : '<span></span>'}
+      </div>`;
+      if (t.kind === 'auto') return `
+      <div class="tg-row">
+        <span class="tg-ico">AUTO</span>
+        <input value="${esc(t.expr)}" disabled>
+        <select onchange="editTarget(${p.uid},${ai},${ti},'state',this.value)">
+          <option ${t.state !== 'paused' ? 'selected' : ''}>enabled</option><option ${t.state === 'paused' ? 'selected' : ''}>paused</option></select>
+        <input inputmode="decimal" value="${String(t.bid).replace(',', '.')}" onchange="editTarget(${p.uid},${ai},${ti},'bid',this.value)" title="Bid">
+        <span></span>
+      </div>`;
+      // PT: bố trí giống keyword — ASIN | Product / Product-Expand | Bid
+      const m = String(t.expr || '').match(/^(asin-expanded|asin)="?([A-Z0-9]*)"?/) || [];
+      const ptType = m[1] || 'asin';
+      const ptAsin = m[2] || '';
+      return `
+      <div class="tg-row">
+        <span class="tg-ico">PRODUCT TARGET</span>
+        <input value="${esc(ptAsin)}" placeholder="B0XXXXXXXX" maxlength="10" onchange="editTarget(${p.uid},${ai},${ti},'ptAsin',this.value)" title="ASIN target">
+        <select class="tsel ${ptType === 'asin-expanded' ? 'tchip-expand' : 'tchip-product'}" onchange="editTarget(${p.uid},${ai},${ti},'ptType',this.value,this)" title='Product = asin="" · Product-Expand = asin-expanded=""'>
+          <option value="asin" ${ptType === 'asin' ? 'selected' : ''}>Product</option>
+          <option value="asin-expanded" ${ptType === 'asin-expanded' ? 'selected' : ''}>Product-Expand</option>
         </select>
+        <input inputmode="decimal" value="${String(t.bid).replace(',', '.')}" onchange="editTarget(${p.uid},${ai},${ti},'bid',this.value)" title="Bid">
+        ${ti > 0 ? `<span class="rm-btn" onclick="rmTarget(${p.uid},${ai},${ti})">✕</span>` : '<span></span>'}
+      </div>`;
+    }).join('');
+    // 1 ad group chỉ 1 loại target — nút thêm theo loại
+    const addTarget = kind === 'kw'
+      ? `<button style="background:#eef1f7;border-radius:5px;padding:2px 8px;font-size:11px" onclick="addTargetKw(${p.uid},${ai})">+ Keyword</button>`
+      : kind === 'pt'
+      ? `<button style="background:#eef1f7;border-radius:5px;padding:2px 8px;font-size:11px" onclick="addTargetPt(${p.uid},${ai})">+ Target ASIN</button>`
+      : '';
+    // PRODUCT AD: mỗi Ad 1 hàng — SKU bắt buộc, ASIN optional
+    const productAds = `
+      <div style="margin:3px 0">
+        ${(ag.productAds || []).map((pa, i) => `
+        <div class="pa-row">
+          ${i === 0 ? '<span class="tier-lab" style="background:#e7f3ec;color:#1d7a4f;width:98px;text-align:center">PRODUCT AD</span>' : '<span class="tier-lab" style="visibility:hidden;width:98px">PRODUCT AD</span>'}
+          <b style="font-size:10px;color:#888">SKU*</b><input value="${esc(pa.sku || '')}" placeholder="bắt buộc" style="width:110px${pa.sku ? '' : ';border-color:#e05252;background:#fff5f5'}" onchange="editPa(${p.uid},${ai},${i},'sku',this.value)">
+          <b style="font-size:10px;color:#888">ASIN</b><input value="${esc(pa.asin || '')}" maxlength="10" placeholder="optional" style="width:100px" onchange="editPa(${p.uid},${ai},${i},'asin',this.value)">
+          ${i > 0 ? `<span class="rm-btn" onclick="rmProductAd(${p.uid},${ai},${i})">✕</span>` : ''}
+          ${i === (ag.productAds.length - 1) ? `<button style="background:#e7f3ec;color:#1d7a4f;border-radius:5px;padding:2px 8px;font-size:11px" onclick="addProductAd(${p.uid},${ai})">+ Product Ad</button>` : ''}
+        </div>`).join('')}
+      </div>`;
+    const agNegKw = (ag.negatives || []).length ? `
+      <div class="neg-row">
+        <span class="lab" style="color:#b06a00">🚫 Negative KW (ad group)</span>
+        ${ag.negatives.map((n, i) => negChip(n, `rmNegAg(${p.uid},${ai},${i})`)).join('')}
+      </div>` : '';
+    const agNegPt = (ag.negPt || []).length ? `
+      <div class="neg-row">
+        <span class="lab" style="color:#c0392b">🚫 Negative PT</span>
+        ${ag.negPt.map((a, i) => `<span class="chip negpt">${esc(a)}: <i>Negative Product</i><span class="x" onclick="rmNegPt(${p.uid},${ai},${i})">✕</span></span>`).join('')}
+      </div>` : '';
+    return `
+    <div class="ag-block">
+      <div class="ag-head">
+        <input type="checkbox" ${ag.sel ? 'checked' : ''} onchange="agSel(${p.uid},${ai},this.checked)" title="Tick để bulk edit / negative / xoá ad group này">
+        <span class="ag-lab">AD GROUP</span>
+        <input class="ag-name-in" value="${esc(ag.name)}" onchange="editAg(${p.uid},${ai},'name',this.value)" title="Ad Group Name">
+        <span class="spec"><b>Default Bid</b><input inputmode="decimal" value="${String(ag.defaultBid).replace(',', '.')}" style="width:40px" onchange="editAg(${p.uid},${ai},'defaultBid',this.value)"></span>
+        ${addTarget}
+        ${(p.adGroups.length > 1) ? `<span class="rm-btn" title="Xoá ad group" onclick="rmAdGroup(${p.uid},${ai})">✕</span>` : ''}
       </div>
-      <div style="max-width:210px" id="bulkValWrap"><input type="text" id="bulkVal" placeholder="giá trị"></div>
+      ${productAds}
+      ${targets}
+      ${agNegKw}
+      ${agNegPt}
+    </div>`;
+  }).join('');
+
+  return `<div class="camp-card${p.skip ? ' skipped' : ''}${dupCls}" id="card_${p.uid}">${head}
+    <div class="camp-body">
+      ${campNegs}
+      ${agBlocks}
+      ${p.type === 'SP_AUTO'
+        ? `<button style="background:#fff4e6;color:#d97706;border-radius:6px;padding:4px 12px;font-size:11.5px" onclick="addAdGroup(${p.uid},'auto')">+ Ad group Auto</button>`
+        : `<button style="background:#eef4ff;color:#2455e6;border-radius:6px;padding:4px 12px;font-size:11.5px" onclick="addAdGroup(${p.uid},'kw')">+ Ad group Keyword</button>
+           <button style="background:#e8f6f2;color:#0e9f8a;border-radius:6px;padding:4px 12px;font-size:11.5px;margin-left:6px" onclick="addAdGroup(${p.uid},'pt')">+ Ad group Product</button>`}
+    </div>
+  </div>`;
+}
+
+/* Card view tab SD — cùng ngôn ngữ thiết kế với SP, thay kiểu sub-row cũ */
+function renderSdCard(p, nameCount) {
+  const open = !!p._open;
+  const acc = ACC_COLOR[p.type] || '#0e8ab0';
+  const dupCls = nameCount[p.name] > 1 ? ' dup' : '';
+  const rem = p.type === 'SD_REMARKETING';
+  const agN = rem ? (p.lookbacks || []).filter(l => !l.skip).length : 1;
+  const tgN = rem ? agN : (p.targetAsins ? p.targetAsins.length : 1);
+
+  const head = `
+    <div class="camp-head" style="--acc:${acc}">
+      <span class="caret" onclick="toggleOpen(${p.uid})">${open ? '▾' : '▸'}</span>
+      <input type="checkbox" ${p.sel ? 'checked' : ''} onchange="rowSel(${p.uid}, this.checked)">
+      <input class="camp-name-in" value="${esc(p.name)}" onchange="editPlan(${p.uid},'name',this.value)" title="Campaign Name — sửa trực tiếp">
+      <span class="type-chip">${TYPE_LABEL[p.type] || p.type}</span>
+      <span class="mini-badge">${agN} AG · ${tgN} target</span>
+    </div>
+    <div class="spec-strip" style="--acc:${acc}">
+      <span class="spec"><b>Start</b><input value="${esc(p.startDateBulk)}" style="width:66px" onchange="editPlan(${p.uid},'startDateBulk',this.value)" title="YYYYMMDD"></span>
+      <span class="spec"><b>Tactic</b> T00030</span>
+      <span class="spec"><b>Budget $</b><input inputmode="decimal" value="${String(p.budget).replace(',', '.')}" style="width:40px" onchange="editPlan(${p.uid},'budget',this.value)"></span>
+      <span class="spec"><b>Cost</b><select onchange="editPlan(${p.uid},'sdCostType',this.value)">
+        <option value="vcpm" ${p.sdCostType === 'vcpm' ? 'selected' : ''}>vCPM</option>
+        <option value="cpc" ${p.sdCostType === 'cpc' ? 'selected' : ''}>CPC</option></select></span>
+      <span class="spec"><b>Bid Opt</b><select onchange="editPlan(${p.uid},'sdBidOpt',this.value)">
+        ${['Optimize for viewable impressions','Optimize for page visits','Optimize for conversions']
+          .map(o => `<option ${p.sdBidOpt === o ? 'selected' : ''} value="${o}">${o.replace('Optimize for ', '')}</option>`).join('')}</select></span>
+      ${rem ? '' : `<span class="spec"><b>Bid</b><input inputmode="decimal" value="${Number(p.bid).toFixed(2)}" style="width:40px" onchange="editPlan(${p.uid},'bid',this.value)"></span>`}
+      <span class="spec"><b>Portfolio</b><input value="${esc(p.portfolioId)}" style="width:118px" onchange="editPlan(${p.uid},'portfolioId',this.value)"></span>
+      <span class="spec"><b>Note</b><input value="${esc(p.note)}" style="width:70px" onchange="editPlan(${p.uid},'note',this.value)"></span>
+    </div>`;
+
+  if (!open) return `<div class="camp-card${p.skip ? ' skipped' : ''}${dupCls}" id="card_${p.uid}">${head}</div>`;
+
+  const paLine = `<div class="pa-line"><span class="ag-lab" style="background:#e7f3ec;color:#1d7a4f">PRODUCT AD</span> SKU ${esc(p.sku || '')} × ${esc(p.asin || '')}</div>`;
+  let body;
+  if (rem) {
+    // 1 campaign - nhiều ad group theo lookback: mỗi lookback 1 khối AG, bid riêng, bỏ/khôi phục riêng
+    body = (p.lookbacks || []).map((l, i) => `
+      <div class="ag-block${l.skip ? ' skipped' : ''}">
+        <div class="ag-head">
+          <span class="ag-lab">AD GROUP</span>
+          <b style="font-size:12px">${l.days}days viewer</b>
+          <span class="spec"><b>Bid</b><input inputmode="decimal" value="${String(l.bid).replace(',', '.')}" style="width:40px" onchange="editLookback(${p.uid},${i},this.value)"></span>
+          ${(p.lookbacks.length > 1) ? `<span class="rm-btn" title="Xoá ad group lookback này" onclick="rmLookback(${p.uid},${i})">✕</span>` : ''}
+        </div>
+        ${paLine}
+        <div class="tg-row">
+          <span class="tg-ico">VT</span>
+          <input value='views=(exact-product lookback=${l.days})' disabled title="Người đã XEM sản phẩm trong ${l.days} ngày qua">
+          <span class="hint">Audience — viewer remarketing</span><span></span><span></span>
+        </div>
+      </div>`).join('');
+  } else {
+    const asins = p.targetAsins || [p.targetAsin];
+    body = `
+      <div class="ag-block">
+        <div class="ag-head">
+          <span class="ag-lab">AD GROUP</span>
+          <b style="font-size:12px">${esc(p.groupLabel || p.targetAsin || '')}</b>
+          <span class="hint">bid dùng chung — chỉnh ở dải thông số trên</span>
+        </div>
+        ${paLine}
+        ${asins.map(a => `
+        <div class="tg-row">
+          <span class="tg-ico">PT</span>
+          <input value='asin="${esc(a)}"' disabled>
+          <span class="hint">Contextual targeting</span>
+          <input inputmode="decimal" value="${Number(p.bid).toFixed(2)}" disabled title="Bid chung của campaign">
+          <span></span>
+        </div>`).join('')}
+      </div>`;
+  }
+
+  return `<div class="camp-card${p.skip ? ' skipped' : ''}${dupCls}" id="card_${p.uid}">${head}
+    <div class="camp-body">${body}</div>
+  </div>`;
+}
+
+function renderPlans() {
+  if (!plans.length) { $('previewArea').innerHTML = '<span class="hint">Chưa có campaign nào — bấm ➕ Tạo campaign.</span>'; return; }
+  const spCount = plans.filter(p => !isSD(p) && !isSB(p)).length;
+  const sdCount = plans.filter(isSD).length;
+  const sbCount = plans.filter(isSB).length;
+  if (tab5 === 'SD' && !sdCount) tab5 = spCount ? 'SP' : (sbCount ? 'SB' : 'SP');
+  if (tab5 === 'SB' && !sbCount) tab5 = spCount ? 'SP' : (sdCount ? 'SD' : 'SP');
+  if (tab5 === 'SP' && !spCount) tab5 = sdCount ? 'SD' : (sbCount ? 'SB' : 'SP');
+
+  const vis = visiblePlans();
+  const stratOpts = (cur) => STRATEGIES.map(s => `<option ${s===cur?'selected':''}>${s}</option>`).join('');
+  const nameCount = {};
+  plans.forEach(p => nameCount[p.name] = (nameCount[p.name] || 0) + 1);
+  const allSel = vis.length > 0 && vis.every(p => p.sel);
+  const allPlansSel = plans.length > 0 && plans.every(p => p.sel);
+
+  const sd = tab5 === 'SD';
+  const sb = tab5 === 'SB';
+  const sp = !sd && !sb;
+  const colDefs = sd ? COLS_SD : COLS_SB;
+  const pref = sd ? 'sd_' : 'sb_';
+  const cols = colDefs.map(([k]) => `<col style="width:${colW[pref + k]}px">`).join('');
+  const targetCell = (p) => esc(p.targetAsins ? `${p.groupLabel} (${p.targetAsins.length} ASIN)`
+    : p.lookbacks ? 'Viewer ' + p.lookbacks.filter(l => !l.skip).map(l => l.days + 'd').join('/')
+    : (p.keyword || p.targetAsin || p.adType || ''));
+  const targetTitle = (p) => esc(p.targetAsins ? p.groupLabel + ': ' + p.targetAsins.join(', ') : (p.keyword || p.targetAsin || p.adType || ''));
+
+  const rows = !sb ? '' : vis.map(p => {
+    const common1 = `
+      <td><input type="checkbox" ${p.sel ? 'checked' : ''} onchange="rowSel(${p.uid}, this.checked)"></td>
+      <td id="planname_${p.uid}" style="font-size:11.5px">${esc(p.name)}${(p.negatives && p.negatives.length) ? ` <span class="neg-chip" title="${esc(p.negatives.map(n => n.term + ' (' + (n.mt === 'negativePhrase' ? 'P' : 'E') + ')').join(', '))}">🚫${p.negatives.length}</span>` : ''}</td>
+      <td>${TYPE_LABEL[p.type] || p.type}</td>
+      <td style="text-overflow:ellipsis" title="${targetTitle(p)}">${targetCell(p)}</td>
+      <td>${p.lookbacks
+        ? `<span class="hint" title="Bid riêng từng ad group — chỉnh ở các dòng con bên dưới">${p.lookbacks.filter(l => !l.skip).length} ad group</span>`
+        : `<input type="text" inputmode="decimal" value="${Number(p.bid).toFixed(2)}" onchange="editPlan(${p.uid},'bid',this.value)">`}</td>
+      <td><input type="text" inputmode="decimal" value="${String(p.budget).replace(',', '.')}" onchange="editPlan(${p.uid},'budget',this.value)"></td>`;
+    const mid = sb ? '' : sd ? `
+      <td><select onchange="editPlan(${p.uid},'sdCostType',this.value)">
+        <option value="vcpm" ${p.sdCostType==='vcpm'?'selected':''}>vCPM</option>
+        <option value="cpc" ${p.sdCostType==='cpc'?'selected':''}>CPC</option></select></td>
+      <td><select onchange="editPlan(${p.uid},'sdBidOpt',this.value)">
+        ${['Optimize for viewable impressions','Optimize for page visits','Optimize for conversions']
+          .map(o => `<option ${p.sdBidOpt===o?'selected':''}>${o}</option>`).join('')}</select></td>` : `
+      <td><select onchange="editPlan(${p.uid},'biddingStrategy',this.value)">${stratOpts(p.biddingStrategy)}</select></td>
+      <td><input type="number" lang="en-US" value="${p.placementTop ?? 0}" onchange="editPlan(${p.uid},'placementTop',this.value)"></td>
+      <td><input type="number" lang="en-US" value="${p.placementProductPage ?? 0}" onchange="editPlan(${p.uid},'placementProductPage',this.value)"></td>
+      <td><input type="number" lang="en-US" value="${p.placementRestOfSearch ?? 0}" onchange="editPlan(${p.uid},'placementRestOfSearch',this.value)"></td>`;
+    const tail = `
+      <td><input type="text" value="${esc(p.portfolioId)}" onchange="editPlan(${p.uid},'portfolioId',this.value)"></td>
+      <td><input type="text" value="${esc(p.note)}" placeholder="mục đích" onchange="editPlan(${p.uid},'note',this.value)"></td>`;
+    const mainRow = `<tr id="planrow_${p.uid}" class="${p.skip ? 'skipped' : ''}${nameCount[p.name] > 1 ? ' dup' : ''}">${common1}${mid}${tail}</tr>`;
+    // Remarketing: 1 campaign - NHIỀU ad group → mỗi lookback 1 dòng con, chỉnh bid riêng, bỏ/khôi phục riêng
+    if (sd && p.lookbacks) {
+      const agRows = p.lookbacks.map((l, i) => `
+        <tr class="ag-row${l.skip ? ' ag-skip' : ''}" id="agrow_${p.uid}_${i}">
+          <td></td>
+          <td style="padding-left:22px">↳ Ad group: <b>${l.days}days viewer</b></td>
+          <td>Ad Group</td>
+          <td title="Người đã XEM sản phẩm trong ${l.days} ngày qua">views=(exact-product lookback=${l.days})</td>
+          <td><input type="text" inputmode="decimal" value="${String(l.bid).replace(',', '.')}" onchange="editLookback(${p.uid},${i},this.value)"></td>
+          <td></td><td></td><td></td><td></td><td></td>
+          <td><button class="btn-del" title="${l.skip ? 'Khôi phục ad group này' : 'Bỏ ad group này khỏi campaign'}"
+            onclick="toggleLookback(${p.uid},${i})">${l.skip ? '↩' : '−'}</button></td>
+        </tr>`).join('');
+      return mainRow + agRows;
+    }
+    return mainRow;
+  }).join('');
+
+  const selAllBox = `<input type="checkbox" id="selAll" ${allSel ? 'checked' : ''} title="Chọn/bỏ chọn tất cả dòng đang hiển thị">`;
+  const headers = sd
+    ? [selAllBox,'Tên campaign','Loại','Target','Bid','Budget','Cost Type','Bid Optimization','Portfolio','Note']
+    : [selAllBox,'Tên campaign','Loại','Target','Bid','Budget','Portfolio','Note'];
+
+  const bulkOpts = sd
+    ? [['portfolioId','Portfolio ID'],['note','Note'],['bid','Bid'],['budget','Budget'],['sdCostType','Cost Type'],['sdBidOpt','Bid Optimization']]
+    : sb
+    ? [['portfolioId','Portfolio ID'],['note','Note'],['bid','Bid'],['budget','Budget']]
+    : [['portfolioId','Portfolio ID'],['note','Note'],['bid','Bid (mọi target)'],['budget','Budget'],['biddingStrategy','Bidding Strategy'],
+       ['placementTop','Placement Top %'],['placementProductPage','Product Page %'],['placementAmazonBusiness','Amazon Business %'],['placementRestOfSearch','Rest of Search %']];
+
+  const oldScroll = document.querySelector('#previewArea .scroll');
+  const keepTop = oldScroll ? oldScroll.scrollTop : 0;
+  const keepLeft = oldScroll ? oldScroll.scrollLeft : 0;
+  // Giữ nguyên panel Negative (mở/đóng + nội dung đã gõ) qua các lần re-render
+  const oldNeg = document.getElementById('negPanel');
+  const negKeep = oldNeg ? { open: oldNeg.style.display !== 'none',
+    terms: document.getElementById('negTerms')?.value || '', mt: document.getElementById('negMt')?.value,
+    pt: document.getElementById('negPtAsins')?.value || '' } : null;
+
+  $('previewArea').innerHTML = `
+    <div id="statArea">${buildStats()}</div>
+
+    <div class="tabs" style="margin:10px 0 6px">
+      <button class="${tab5==='SP'?'active':''} btn-sm" style="padding:7px 18px" ${spCount?'':'disabled'}
+        onclick="tab5='SP';renderPlans()">SP — Sponsored Products (${spCount})</button>
+      <button class="${tab5==='SD'?'active':''} btn-sm" style="padding:7px 18px" ${sdCount?'':'disabled'}
+        onclick="tab5='SD';renderPlans()">SD — Sponsored Display (${sdCount})</button>
+      <button class="${tab5==='SB'?'active':''} btn-sm" style="padding:7px 18px" ${sbCount?'':'disabled'}
+        onclick="tab5='SB';renderPlans()">SB — Sponsored Brands (${sbCount})</button>
+      <span class="hint" style="align-self:center;margin-left:6px">1 file xuất — mỗi loại 1 sheet riêng đúng cấu trúc</span>
+    </div>
+
+    <div class="bulkbar" style="gap:6px">
+      <b style="font-size:12px;flex:0 0 auto">🔎</b>
+      <select id="fField" style="max-width:135px;flex:0 0 auto">
+        <option value="">— Filter —</option>
+        ${FILTER_FIELDS.map(([k, lb]) => `<option value="${k}" ${filt.field===k?'selected':''}>${lb}</option>`).join('')}
+      </select>
+      <span id="fValWrap" style="flex:0 0 auto"></span>
+      <button class="btn-sm" onclick="clearFilter()" style="flex:0 0 auto">✕</button>
+      <span class="hint" style="flex:0 0 auto">${vis.length}/${plans.filter(inTab).length} dòng</span>
+
+      <span style="border-left:1px solid #ccd3e0;height:24px;margin:0 4px"></span>
+
+      <b style="font-size:12px;flex:0 0 auto">Bulk edit:</b>
+      <select id="bulkField" style="max-width:150px;flex:0 0 auto">
+        ${bulkOpts.map(([v, lb]) => `<option value="${v}">${lb}</option>`).join('')}
+      </select>
+      <span id="bulkValWrap" style="flex:0 0 auto"><input type="text" id="bulkVal" placeholder="giá trị" style="width:105px"></span>
       <button class="btn-sm" onclick="applyBulk()">Áp dụng</button>
-      <button class="btn-sm" onclick="skipSelected(true)" style="background:#fde8e8;color:#c0392b">− Bỏ chạy dòng đã tick</button>
-      <button class="btn-sm" onclick="skipSelected(false)">↩ Khôi phục dòng đã tick</button>
+      ${!sd && !sb ? `<button class="btn-sm" onclick="toggleNegPanel()" style="background:#fff0e0;color:#b45309">🚫 Negative</button>` : ''}
+      <button class="btn-sm" onclick="showDeleted()" ${deletedLog.length ? '' : 'disabled'}>🗂 Đã xoá (${deletedLog.length})</button>
+      <button class="btn-sm" onclick="deleteTicked()" style="background:#c0392b;color:#fff;margin-left:auto" id="btnDel">${allPlansSel ? `🗑 Xoá toàn bộ (${plans.length})` : '🗑 Xoá'}</button>
       <span class="hint" id="bulkMsg"></span>
     </div>
-    <div class="scroll"><table class="resizable">
+
+    <div id="negPanel" style="display:none;background:#fff8ef;border:1px solid #f0d9b8;border-radius:9px;padding:10px 12px;margin:0 0 10px">
+      <b style="font-size:12px">🚫 Negative — áp theo TICK: tick campaign → negative cấp CAMPAIGN · tick ad group → negative cấp AD GROUP · tick cả 2 → cả 2</b>
+      <div class="hint" style="margin:2px 0 6px">Cấp campaign: Campaign Negative Keyword (PT campaign sẽ tự rải Negative Product Targeting vào mọi ad group — Amazon SP không có entity PT cấp campaign) · Cấp ad group: Negative Keyword + Negative Product Targeting</div>
+      <div style="display:flex;gap:14px;align-items:flex-start;flex-wrap:wrap">
+        <div style="flex:1;min-width:240px">
+          <b style="font-size:11px;color:#b06a00">NEGATIVE KEYWORD</b>
+          <textarea id="negTerms" rows="3" style="display:block;width:100%;margin-top:3px" placeholder="mỗi dòng 1 từ khóa chặn&#10;wedding picture frame&#10;box"></textarea>
+          <select id="negMt" style="margin-top:4px">
+            <option value="negativeExact">Negative Exact — chặn đúng cụm</option>
+            <option value="negativePhrase">Negative Phrase — chặn mọi search chứa cụm</option>
+          </select>
+        </div>
+        <div style="flex:1;min-width:240px">
+          <b style="font-size:11px;color:#c0392b">NEGATIVE PRODUCT</b>
+          <textarea id="negPtAsins" rows="3" style="display:block;width:100%;margin-top:3px" placeholder="mỗi dòng 1 ASIN chặn&#10;B0XXXXXXXX"></textarea>
+        </div>
+        <div style="flex:0 0 auto;display:flex;flex-direction:column;gap:6px">
+          <button class="btn-sm" onclick="applyNegatives()" style="background:#b45309;color:#fff">➕ Thêm theo tick</button>
+          <button class="btn-sm" onclick="clearNegatives()">Gỡ hết negative (tick)</button>
+        </div>
+      </div>
+    </div>
+    ${(sp || sd)
+      ? `<div class="scroll" style="max-height:600px;background:transparent;border:none">
+           <div style="display:flex;gap:10px;align-items:center;margin-bottom:6px">
+             <label class="chk" style="margin:0;font-size:11.5px"><input type="checkbox" id="selAll" ${allSel ? 'checked' : ''}> Chọn tất cả</label>
+             <span class="hint">▸ bấm mũi tên mở cấu trúc campaign · tên/thông số sửa trực tiếp trên thẻ</span>
+           </div>
+           ${vis.map(px => sp ? renderCampCard(px, nameCount) : renderSdCard(px, nameCount)).join('') || '<span class="hint">Không có campaign.</span>'}
+         </div>`
+      : `<div class="scroll"><table class="resizable">
       <colgroup>${cols}</colgroup>
-      <thead><tr>${headers.map((h, ci) =>
-        `<th style="position:relative">${h}<span class="rz" data-col="${ci}"></span></th>`).join('')}</tr></thead>
-      <tbody>${rows}</tbody></table></div>`;
+      <thead><tr>${headers.map((h, ci) => `<th>${h}<span class="rz" data-col="${ci}"></span></th>`).join('')}</tr></thead>
+      <tbody>${rows}</tbody></table></div>`}`;
+
+  if (negKeep) {
+    const np = document.getElementById('negPanel');
+    if (np) {
+      np.style.display = negKeep.open ? 'block' : 'none';
+      const t1 = document.getElementById('negTerms'), m1 = document.getElementById('negMt'), p1 = document.getElementById('negPtAsins');
+      if (t1) t1.value = negKeep.terms;
+      if (m1 && negKeep.mt) m1.value = negKeep.mt;
+      if (p1) p1.value = negKeep.pt;
+    }
+  }
+  $('selAll').onchange = (e) => {
+    visiblePlans().forEach(p => {
+      p.sel = e.target.checked;
+      const cb = document.querySelector(`#planrow_${p.uid} input[type=checkbox], #card_${p.uid} input[type=checkbox]`);
+      if (cb) cb.checked = p.sel;
+    });
+    syncSelUI();
+  };
   $('bulkField').addEventListener('change', () => {
-    $('bulkValWrap').innerHTML = $('bulkField').value === 'biddingStrategy'
-      ? `<select id="bulkVal">${STRATEGIES.map(s => `<option>${s}</option>`).join('')}</select>`
-      : `<input type="text" id="bulkVal" placeholder="giá trị">`;
+    const f = $('bulkField').value;
+    $('bulkValWrap').innerHTML = f === 'biddingStrategy'
+      ? `<select id="bulkVal" style="width:190px">${STRATEGIES.map(s => `<option>${s}</option>`).join('')}</select>`
+      : f === 'sdCostType'
+      ? `<select id="bulkVal" style="width:90px"><option value="vcpm">vCPM</option><option value="cpc">CPC</option></select>`
+      : f === 'sdBidOpt'
+      ? `<select id="bulkVal" style="width:230px">${['Optimize for viewable impressions','Optimize for page visits','Optimize for conversions'].map(o => `<option>${o}</option>`).join('')}</select>`
+      : `<input type="text" id="bulkVal" placeholder="giá trị" style="width:105px">`;
+  });
+
+  // Filter control động theo loại field: text / select match / khoảng số min–max
+  function renderFilterControl() {
+    const kind = filt.field ? filterKind(filt.field) : '';
+    if (!filt.field) { $('fValWrap').innerHTML = ''; return; }
+    if (kind === 'select') {
+      $('fValWrap').innerHTML = `<select id="fVal" style="width:140px">
+        ${['','Exact','Phrase','Broad','Product','Product (nhóm)','Auto','SD Product','SD Product (nhóm)','SD Remarketing','SB Keyword','SB Product (nhóm)'].map(v => `<option value="${v}" ${filt.value===v?'selected':''}>${v || 'Tất cả'}</option>`).join('')}</select>`;
+      $('fVal').addEventListener('change', (e) => { filt.value = e.target.value; renderPlans(); });
+    } else if (kind === 'range') {
+      $('fValWrap').innerHTML = `<input type="text" inputmode="decimal" id="fMin" placeholder="từ" value="${filt.min}" style="width:70px">
+        <span class="hint">–</span>
+        <input type="text" inputmode="decimal" id="fMax" placeholder="đến" value="${filt.max}" style="width:70px">`;
+      let t;
+      const on = () => { clearTimeout(t); t = setTimeout(() => { filt.min = $('fMin').value; filt.max = $('fMax').value; renderPlans(); }, 400); };
+      $('fMin').addEventListener('input', on);
+      $('fMax').addEventListener('input', on);
+    } else {
+      $('fValWrap').innerHTML = `<input type="text" id="fVal" placeholder="giá trị" value="${esc(filt.value)}" style="width:130px">`;
+      let t;
+      $('fVal').addEventListener('input', (e) => { clearTimeout(t); t = setTimeout(() => { filt.value = e.target.value.trim(); renderPlans(); }, 400); });
+    }
+  }
+  const newScroll = document.querySelector('#previewArea .scroll');
+  if (newScroll) { newScroll.scrollTop = keepTop; newScroll.scrollLeft = keepLeft; }
+  renderFilterControl();
+  $('fField').addEventListener('change', (e) => {
+    filt.field = e.target.value; filt.value = ''; filt.min = ''; filt.max = '';
+    renderPlans();
+    if (filt.field) { const el = $('fVal') || $('fMin'); if (el) el.focus(); }
   });
   attachResizers();
 }
 
-/* ===== Kéo giãn cột (lưu độ rộng vào localStorage) ===== */
+/* ===== Kéo giãn cột (lưu độ rộng theo tab) ===== */
 function attachResizers() {
   const table = document.querySelector('#previewArea table');
+  if (!table) return;
+  const keys = (tab5 === 'SD' ? COLS_SD : tab5 === 'SB' ? COLS_SB : COLS_SP).map(([k]) => (tab5 === 'SD' ? 'sd_' : tab5 === 'SB' ? 'sb_' : 'sp_') + k);
   const colEls = table.querySelectorAll('col');
   table.querySelectorAll('.rz').forEach(rz => {
     rz.addEventListener('mousedown', (e) => {
@@ -699,13 +1477,13 @@ function attachResizers() {
       const move = (ev) => {
         const w = Math.max(40, startW + ev.clientX - startX);
         colEls[ci].style.width = w + 'px';
-        colW[COL_KEYS[ci]] = w;
+        colW[keys[ci]] = w;
       };
       const up = () => {
         document.removeEventListener('mousemove', move);
         document.removeEventListener('mouseup', up);
         rz.classList.remove('active');
-        localStorage.setItem('ppcw_launch_colw', JSON.stringify(colW));
+        localStorage.setItem('ppcw_launch_colw_v2', JSON.stringify(colW));
       };
       document.addEventListener('mousemove', move);
       document.addEventListener('mouseup', up);
@@ -713,16 +1491,226 @@ function attachResizers() {
   });
 }
 
-window.editPlan = (i, field, val) => {
-  plans[i][field] = ['bid','budget','placementTop','placementProductPage','placementRestOfSearch'].includes(field)
-    ? parseFloat(String(val).replace(',', '.')) || 0 : val;
-  if (field === 'bid' || field === 'note') {
-    plans[i].name = planName(plans[i]);
-    document.getElementById('planname_' + i).textContent = plans[i].name;
+window.editPlan = (uid, field, val) => {
+  const p = byUid(uid);
+  if (!p) return;
+  const numeric = ['bid','budget','placementTop','placementProductPage','placementRestOfSearch','placementAmazonBusiness'];
+  p[field] = numeric.includes(field) ? parseFloat(String(val).replace(',', '.')) || 0 : val;
+  if (field === 'bid' && p.adGroups) {
+    // bid cấp campaign (bulk) → lan xuống mọi target
+    p.adGroups.forEach(ag => (ag.targets || []).forEach(t => t.bid = p.bid));
+  }
+  if (field === 'name') { refreshDupUI(); refreshStats(); return; }
+  if ((field === 'bid' || field === 'note') && !p.adGroups) {
+    // bảng SD/SB cũ: tên tự render lại
+    p.name = planName(p);
+    const el = document.getElementById('planname_' + uid);
+    if (el) el.textContent = p.name;
+    refreshDupUI();
   }
 };
-window.toggleSkip = (i) => { plans[i].skip = !plans[i].skip; renderPlans(); };
-window.skipSelected = (on) => { plans.forEach(p => { if (p.sel) p.skip = on; }); renderPlans(); };
+
+/* ===== Handlers CARD VIEW (cấu trúc phân tầng SP) ===== */
+window.toggleOpen = (uid) => { const p = byUid(uid); if (p) { p._open = !p._open; renderPlans(); } };
+window.editAg = (uid, ai, field, val) => {
+  const ag = byUid(uid)?.adGroups?.[ai];
+  if (!ag) return;
+  ag[field] = field === 'defaultBid' ? (parseFloat(String(val).replace(',', '.')) || 0) : val;
+};
+window.editTarget = (uid, ai, ti, field, val, el) => {
+  const p = byUid(uid);
+  const t = p?.adGroups?.[ai]?.targets?.[ti];
+  if (!t) return;
+  if (field === 'ptAsin' || field === 'ptType') {
+    // PT: expr dựng lại từ ASIN + loại (Product = asin, Product-Expand = asin-expanded)
+    const m = String(t.expr || '').match(/^(asin-expanded|asin)="?([A-Z0-9]*)"?/) || [];
+    const type = field === 'ptType' ? val : (m[1] || 'asin');
+    const asin = field === 'ptAsin' ? String(val).trim().toUpperCase() : (m[2] || '');
+    if (field === 'ptAsin' && asin && !/^[A-Z0-9]{10}$/.test(asin)) alert('ASIN không hợp lệ (10 ký tự A-Z0-9) — dòng này sẽ bị bỏ qua khi xuất');
+    t.expr = `${type}="${asin}"`;
+    if (field === 'ptType' && el) el.className = 'tsel ' + (val === 'asin-expanded' ? 'tchip-expand' : 'tchip-product'); // đổi màu tại chỗ, không re-render
+    return;
+  }
+  if (field === 'mt') {
+    t.mt = String(val).toLowerCase();
+    if (el) el.className = 'tsel ' + (MT_CHIP[t.mt] || 'tchip-exact'); // đổi màu tại chỗ, không re-render
+    return;
+  }
+  t[field] = field === 'bid' ? (parseFloat(String(val).replace(',', '.')) || 0) : val;
+  if (field === 'bid' && ti === 0 && ai === 0) p.bid = t.bid; // đồng bộ bid đại diện (filter/bulk)
+};
+window.rmTarget = (uid, ai, ti) => {
+  if (ti === 0) return; // target đầu tiên không cho xoá
+  const ag = byUid(uid)?.adGroups?.[ai];
+  if (ag) { ag.targets.splice(ti, 1); renderPlans(); }
+};
+window.addTargetKw = (uid, ai) => {
+  const p = byUid(uid); const ag = p?.adGroups?.[ai];
+  if (!ag) return;
+  ag.targets.push({ kind: 'kw', text: '', mt: 'exact', bid: p.bid || 0.5 });
+  renderPlans();
+};
+window.addTargetPt = (uid, ai) => {
+  const p = byUid(uid); const ag = p?.adGroups?.[ai];
+  if (!ag) return;
+  ag.targets.push({ kind: 'pt', expr: 'asin=""', bid: p.bid || 0.5 });
+  renderPlans();
+};
+window.addProductAd = (uid, ai) => {
+  const p = byUid(uid); const ag = p?.adGroups?.[ai];
+  if (!ag) return;
+  ag.productAds = ag.productAds || [];
+  ag.productAds.push({ sku: p.sku || '', asin: p.asin || '' });
+  renderPlans();
+};
+window.rmProductAd = (uid, ai, i) => {
+  if (i === 0) return; // Product Ad đầu tiên không cho xoá
+  const ag = byUid(uid)?.adGroups?.[ai];
+  if (ag?.productAds) { ag.productAds.splice(i, 1); renderPlans(); }
+};
+window.editPa = (uid, ai, i, field, val) => {
+  const pa = byUid(uid)?.adGroups?.[ai]?.productAds?.[i];
+  if (pa) pa[field] = field === 'asin' ? val.trim().toUpperCase() : val.trim();
+};
+window.rmLookback = (uid, i) => {
+  const p = byUid(uid);
+  if (p?.lookbacks && p.lookbacks.length > 1) { p.lookbacks.splice(i, 1); renderPlans(); }
+};
+window.addAdGroup = (uid, kind) => {
+  const p = byUid(uid);
+  if (!p || !p.adGroups) return;
+  // Campaign Manual chỉ tạo AG manual (kw hoặc pt); campaign Auto chỉ tạo AG auto
+  kind = p.type === 'SP_AUTO' ? 'auto' : (kind === 'pt' ? 'pt' : 'kw');
+  const bid = p.bid || 0.5;
+  const targets = kind === 'auto'
+    ? ['close-match', 'loose-match', 'substitutes', 'complements'].map(expr => ({ kind: 'auto', expr, bid, state: 'enabled' }))
+    : kind === 'pt'
+    ? [{ kind: 'pt', expr: 'asin=""', bid }]
+    : [{ kind: 'kw', text: '', mt: 'exact', bid }];
+  p.adGroups.push({ name: `${p.name} - AG${p.adGroups.length + 1}`, kind,
+    defaultBid: p.adGroups[0]?.defaultBid || 0.25, targets,
+    negatives: [], negPt: [],
+    productAds: [{ sku: p.sku || '', asin: p.asin || '' }] });
+  renderPlans();
+};
+window.rmAdGroup = (uid, ai) => {
+  const p = byUid(uid);
+  if (p && p.adGroups && p.adGroups.length > 1) { p.adGroups.splice(ai, 1); renderPlans(); }
+};
+window.rmNegCamp = (uid, i) => { const p = byUid(uid); if (p?.negatives) { p.negatives.splice(i, 1); renderPlans(); } };
+window.rmNegAg = (uid, ai, i) => { const ag = byUid(uid)?.adGroups?.[ai]; if (ag?.negatives) { ag.negatives.splice(i, 1); renderPlans(); } };
+window.rmNegPt = (uid, ai, i) => { const ag = byUid(uid)?.adGroups?.[ai]; if (ag?.negPt) { ag.negPt.splice(i, 1); renderPlans(); } };
+function refreshDupUI() {
+  const cnt = {};
+  plans.forEach(pl => cnt[pl.name] = (cnt[pl.name] || 0) + 1);
+  plans.forEach(pl => {
+    const r = document.getElementById('planrow_' + pl.uid);
+    if (r) r.classList.toggle('dup', cnt[pl.name] > 1);
+  });
+  refreshStats();
+}
+window.editLookback = (uid, i, val) => {
+  const p = byUid(uid);
+  if (!p || !p.lookbacks || !p.lookbacks[i]) return;
+  p.lookbacks[i].bid = parseFloat(String(val).replace(',', '.')) || 0;
+};
+window.toggleLookback = (uid, i) => {
+  const p = byUid(uid);
+  if (!p || !p.lookbacks || !p.lookbacks[i]) return;
+  p.lookbacks[i].skip = !p.lookbacks[i].skip;
+  renderPlans(); // scroll đã được giữ nguyên trong renderPlans
+};
+window.toggleNegPanel = () => {
+  const el = document.getElementById('negPanel');
+  if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
+};
+window.applyNegatives = () => {
+  const terms = document.getElementById('negTerms').value.split('\n').map(t => t.trim().toLowerCase()).filter(Boolean);
+  const ptAsins = (document.getElementById('negPtAsins')?.value || '').split('\n')
+    .map(t => t.trim().toUpperCase()).filter(t => /^[A-Z0-9]{10}$/.test(t));
+  const mt = document.getElementById('negMt').value;
+  const spPlans = plans.filter(p => !isSD(p) && !isSB(p));
+  const pickedCamps = spPlans.filter(p => p.sel);
+  const pickedAgs = spPlans.flatMap(p => (p.adGroups || []).filter(a => a.sel).map(a => ({ p, a })));
+  if (!terms.length && !ptAsins.length) { alert('Nhập từ khóa chặn hoặc ASIN chặn (mỗi dòng 1 mục)'); return; }
+  if (!pickedCamps.length && !pickedAgs.length) { alert('Tick campaign (cấp campaign) hoặc ad group (cấp ad group) trước'); return; }
+  // Cấp CAMPAIGN: Campaign Negative Keyword; Negative Product → xuất file tự rải vào mọi ad group
+  for (const p of pickedCamps) {
+    p.negatives = p.negatives || []; p.negPt = p.negPt || [];
+    for (const term of terms) if (!p.negatives.some(n => n.term === term && n.mt === mt)) p.negatives.push({ term, mt });
+    for (const a of ptAsins) if (!p.negPt.includes(a)) p.negPt.push(a);
+  }
+  // Cấp AD GROUP: Negative Keyword + Negative Product Targeting
+  for (const { a } of pickedAgs) {
+    a.negatives = a.negatives || []; a.negPt = a.negPt || [];
+    for (const term of terms) if (!a.negatives.some(n => n.term === term && n.mt === mt)) a.negatives.push({ term, mt });
+    for (const x of ptAsins) if (!a.negPt.includes(x)) a.negPt.push(x);
+  }
+  renderPlans();
+};
+window.clearNegatives = () => {
+  plans.forEach(p => {
+    if (p.sel) { p.negatives = []; p.negPt = []; }
+    (p.adGroups || []).forEach(ag => { if (ag.sel || p.sel) { ag.negatives = []; ag.negPt = []; } });
+  });
+  renderPlans();
+};
+// Xoá: campaign đã tick + ad group đã tick (campaign hết ad group → xoá luôn); lưu vào deletedLog để xem lại
+let deletedLog = [];
+window.deleteTicked = () => {
+  const selCamps = plans.filter(p => p.sel);
+  const selAgs = plans.flatMap(p => (p.adGroups || []).filter(a => a.sel && !p.sel).map(a => ({ p, a })));
+  if (!selCamps.length && !selAgs.length) { const m = document.getElementById('bulkMsg'); if (m) m.textContent = 'Chưa tick campaign/ad group nào'; return; }
+  if (selCamps.length === plans.length && plans.length) {
+    if (!confirm(`Xoá toàn bộ ${plans.length} campaign trong danh sách?`)) return;
+  }
+  const now = new Date().toLocaleTimeString('vi-VN');
+  for (const { p, a } of selAgs) {
+    deletedLog.push({ kind: 'ag', name: a.name, campName: p.name, when: now, campUid: p.uid, ag: a });
+    p.adGroups = p.adGroups.filter(x => x !== a);
+  }
+  for (const p of selCamps) deletedLog.push({ kind: 'camp', name: p.name, when: now, plan: p });
+  plans = plans.filter(p => !p.sel && (!p.adGroups || p.adGroups.length > 0));
+  renderPlans();
+};
+// Pop-up xem lại đã xoá (khôi phục từng dòng được)
+window.showDeleted = () => {
+  document.getElementById('delModal')?.remove();
+  const items = deletedLog.map((d, i) => `
+    <div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid #f0f2f6;font-size:12px">
+      <span class="ag-lab" style="background:${d.kind === 'camp' ? '#eef4ff' : '#fff4e6'};color:${d.kind === 'camp' ? '#2455e6' : '#b06a00'}">${d.kind === 'camp' ? 'CAMPAIGN' : 'AD GROUP'}</span>
+      <span style="flex:1">${esc(d.name)}${d.kind === 'ag' ? ` <span class="hint">∈ ${esc(d.campName)}</span>` : ''}</span>
+      <span class="hint">${d.when}</span>
+      <button class="btn-sm" onclick="restoreDeleted(${i})">↩ Khôi phục</button>
+    </div>`).join('') || '<div class="hint" style="padding:10px 0">Chưa xoá gì.</div>';
+  const wrap = document.createElement('div');
+  wrap.id = 'delModal';
+  wrap.style.cssText = 'position:fixed;inset:0;background:rgba(20,26,40,.45);z-index:99;display:flex;align-items:center;justify-content:center';
+  wrap.innerHTML = `
+    <div style="background:#fff;border-radius:12px;max-width:720px;width:92%;max-height:70vh;display:flex;flex-direction:column;box-shadow:0 18px 60px rgba(0,0,0,.25)">
+      <div style="display:flex;align-items:center;padding:12px 16px;border-bottom:1px solid #edf0f5">
+        <b style="font-size:13px">🗂 Đã xoá (${deletedLog.length})</b>
+        <button class="btn-sm" style="margin-left:auto" onclick="document.getElementById('delModal').remove()">✕ Đóng</button>
+      </div>
+      <div style="overflow:auto;padding:6px 16px 14px">${items}</div>
+    </div>`;
+  wrap.onclick = (e) => { if (e.target === wrap) wrap.remove(); };
+  document.body.appendChild(wrap);
+};
+window.restoreDeleted = (i) => {
+  const d = deletedLog[i];
+  if (!d) return;
+  if (d.kind === 'camp') { d.plan.sel = false; plans.push(d.plan); }
+  else {
+    const host = plans.find(p => p.uid === d.campUid);
+    d.ag.sel = false;
+    if (host) host.adGroups.push(d.ag);
+    else { alert('Campaign gốc đã xoá — khôi phục campaign trước'); return; }
+  }
+  deletedLog.splice(i, 1);
+  renderPlans();
+  showDeleted();
+};
 window.applyBulk = () => {
   const field = $('bulkField').value, val = $('bulkVal').value;
   const sel = plans.filter(p => p.sel);
@@ -733,13 +1721,17 @@ window.applyBulk = () => {
     if (field === 'bid' || field === 'note') p.name = planName(p);
   }
   renderPlans();
-  $('bulkMsg') && ($('bulkMsg').textContent = `✅ Đã áp cho ${sel.length} dòng`);
+  refreshDupUI();
+  const m = document.getElementById('bulkMsg');
+  if (m) m.textContent = `✅ Đã áp cho ${sel.length} dòng`;
 };
 
 /* ===== Export ===== */
 $('btnExport').onclick = async () => {
+  if (!plans.length) { $('exportMsg').className = 'msg err'; $('exportMsg').textContent = '❌ Chưa có campaign — bấm ➕ Tạo campaign trước'; return; }
   const payload = buildPayload();
-  if (plans.length) payload.plans = plans.filter(p => !p.skip); // dòng gạch ngang (−) không xuất
+  payload.plans = plans.filter(p => !p.skip); // dòng gạch ngang (−) không xuất
+  payload.saveToBank = $('saveToBank').checked;
   $('exportMsg').className = 'msg'; $('exportMsg').textContent = '⏳ Đang dựng file...';
   const res = await fetch('/api/launch/export', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
   if (!res.ok) {
@@ -754,7 +1746,8 @@ $('btnExport').onclick = async () => {
   a.download = (res.headers.get('Content-Disposition') || '').match(/filename="(.+)"/)?.[1] || 'bulk-create.xlsx';
   a.click();
   $('exportMsg').className = 'msg ok';
-  $('exportMsg').textContent = `✅ ${info.campaigns} campaign · kho keyword +${info.bank?.added ?? 0} (tag PPC)` +
+  $('exportMsg').textContent = `✅ ${info.campaigns} campaign` + (info.asins > 1 ? ` · ${info.asins} ASIN` : '') +
+    (payload.saveToBank ? ` · kho keyword +${info.bank?.added ?? 0} (tag PPC)` : '') +
     (info.bank?.kept ? ` · ${info.bank.kept} giữ tag removal` : '') + ' · đã lưu snapshot';
 };
 

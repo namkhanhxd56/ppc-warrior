@@ -7,12 +7,13 @@ import * as XLSX from "xlsx";
 import { launchBrowser, loadCookies, newCleanPage, verifySession } from "./src/scraper/browser.js";
 import { setZipLocation, ensureZipLocation } from "./src/scraper/set-location.js";
 import { runBatch } from "./src/jobs/run-batch.js";
-import { planCampaigns, buildRowsFromPlans, BULK_HEADER, DEFAULTS as LAUNCH_DEFAULTS } from "./src/launching/bulk-builder.js";
+import { planCampaigns, buildRowsFromPlans, buildSdRows, buildSbRows, BULK_HEADER, SD_HEADER, SB_HEADER, DEFAULTS as LAUNCH_DEFAULTS } from "./src/launching/bulk-builder.js";
 import { parseH10 } from "./src/launching/h10-parser.js";
+import { etlBulk, queryRows, buildUpdateRows, rowKey } from "./src/adjust/bulk-etl.js";
 import * as store from "./src/db/file-store.js";
 
 dotenv.config();
-export const APP_VERSION = "0.8.2"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
+export const APP_VERSION = "0.19.1"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
 
 // RUN_MODE:
 // - "local" (mặc định): bấm Kiểm tra là scrape NGAY trên máy này (dùng 1 người, chạy local)
@@ -294,33 +295,59 @@ app.post("/api/launch/preview", (req, res) => {
   }
 });
 
-// Export: nhận plans ĐÃ CHỈNH từ preview (nếu có) → xlsx bulk + snapshot + kho keyword tag PPC
+// Export: nhận plans ĐÃ CHỈNH từ preview (có thể gom NHIỀU ASIN) → xlsx bulk + snapshot
+// + kho keyword tag PPC (tùy chọn saveToBank, mặc định bật)
 app.post("/api/launch/export", (req, res) => {
   try {
     const body = req.body || {};
-    const planned = planCampaigns(body);
-    const plans = Array.isArray(body.plans) && body.plans.length ? body.plans : planned.plans;
-    const { trackingKeywords, asin } = planned;
-    const rows = buildRowsFromPlans(plans, body);
-    const stats = {};
-    for (const p of plans) if (p?.name) stats[p.type] = (stats[p.type] || 0) + 1;
+    // Có plans từ danh sách tích lũy → dùng thẳng (không phụ thuộc form hiện tại);
+    // không có → dựng từ form
+    const plans = Array.isArray(body.plans) && body.plans.length
+      ? body.plans
+      : planCampaigns(body).plans;
+    const rows = buildRowsFromPlans(plans, body);       // SP → sheet "Sponsored Products Campaigns" (kèm Negative Keyword đính kèm)
+    const sdRows = buildSdRows(plans, body);             // SD → sheet "Sponsored Display Campaigns" (22 cột)
+    const sbRows = buildSbRows(plans, body);             // SB Video → sheet "Sponsored Brands Campaigns" (32 cột)
     const campaigns = plans.filter((p) => p?.name);
-    if (!rows.length) throw new Error("Không có campaign nào — kiểm tra keyword/lựa chọn match type");
+    const stats = {};
+    for (const p of campaigns) stats[p.type] = (stats[p.type] || 0) + 1;
+    if (!rows.length && !sdRows.length && !sbRows.length) throw new Error("Không có campaign nào — kiểm tra keyword/lựa chọn loại campaign");
 
-    const ws = XLSX.utils.json_to_sheet(rows, { header: BULK_HEADER });
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Sponsored Products Campaigns");
+    if (rows.length) {
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows, { header: BULK_HEADER }), "Sponsored Products Campaigns");
+    }
+    if (sdRows.length) {
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(sdRows, { header: SD_HEADER }), "Sponsored Display Campaigns");
+    }
+    if (sbRows.length) {
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(sbRows, { header: SB_HEADER }), "Sponsored Brands Campaigns");
+    }
     const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
 
-    // Lưu snapshot đối chiếu (spec mục 2 — Output) + kho keyword tag PPC (spec: Ghi vào DB)
+    // Kho keyword tag PPC: gom keyword theo TỪNG ASIN trên plan (multi-ASIN OK)
+    const saveToBank = body.saveToBank !== false;
+    const bank = { added: 0, kept: 0 };
+    if (saveToBank) {
+      const byAsin = {};
+      for (const p of campaigns) {
+        if (p.keyword && p.asin) (byAsin[p.asin] = byAsin[p.asin] || new Set()).add(p.keyword);
+      }
+      for (const [a, set] of Object.entries(byAsin)) {
+        const r = store.upsertKeywords(a, [...set], "PPC", "launching");
+        bank.added += r.added; bank.kept += r.kept;
+      }
+    }
+
+    const asins = [...new Set(campaigns.map((p) => p.asin).filter(Boolean))];
+    const label = asins.length === 1 ? asins[0] : `${asins.length}asin`;
     const snapId = store.saveExportSnapshot(
-      { asin, campaigns: campaigns.length, rows: rows.length, stats }, buf);
-    const bank = store.upsertKeywords(asin, trackingKeywords, "PPC", "launching");
+      { asin: label, asins, campaigns: campaigns.length, rows: rows.length + sdRows.length + sbRows.length, stats }, buf);
 
     res.setHeader("Content-Disposition",
-      `attachment; filename="bulk-create-${asin}-${new Date().toISOString().slice(0, 10)}.xlsx"`);
+      `attachment; filename="bulk-create-${label}-${new Date().toISOString().slice(0, 10)}.xlsx"`);
     res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-    res.setHeader("X-Launch-Info", JSON.stringify({ snapId, campaigns: campaigns.length, bank }));
+    res.setHeader("X-Launch-Info", JSON.stringify({ snapId, campaigns: campaigns.length, bank, saveToBank, asins: asins.length }));
     res.send(buf);
   } catch (e) {
     res.status(400).json({ ok: false, message: e.message });
@@ -378,6 +405,92 @@ app.get("/api/competitor-snapshot/:asin", (req, res) => {
     .sort((x, y) => y.count - x.count);
 
   res.json({ asin, runsScanned, runsWithSnapshot, competitors });
+});
+
+/* ===================== MODULE ADJUST (chỉnh sửa ads từ file bulk) ===================== */
+const ADJUST_DIR = "./data/adjust";
+const adjustCache = new Map(); // id → dataset (lazy load)
+const uploadBig = multer({ dest: "./data/uploads", limits: { fileSize: 300 * 1024 * 1024 } });
+
+function adjustIndex() {
+  try { return JSON.parse(fs.readFileSync(`${ADJUST_DIR}/index.json`, "utf8")); } catch { return []; }
+}
+function loadDataset(id) {
+  if (adjustCache.has(id)) return adjustCache.get(id);
+  if (!/^[\w-]+$/.test(id)) return null;
+  try {
+    const ds = JSON.parse(fs.readFileSync(`${ADJUST_DIR}/${id}.json`, "utf8"));
+    ds.byKey = new Map(ds.records.map((r) => [rowKey(r), r]));
+    adjustCache.set(id, ds);
+    return ds;
+  } catch { return null; }
+}
+
+// Upload + ETL (file 30-40MB/300k dòng → chạy server-side, mất ~10-30s)
+app.post("/api/adjust/import", (req, res, next) => uploadBig.single("file")(req, res, next), (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ ok: false, message: "Chưa chọn file" });
+    const ds = etlBulk(fs.readFileSync(req.file.path), req.file.originalname);
+    fs.unlinkSync(req.file.path);
+
+    fs.mkdirSync(ADJUST_DIR, { recursive: true });
+    const id = `${ds.meta.windowStart || "x"}-${ds.meta.windowEnd || "x"}-${Date.now().toString(36)}`;
+    fs.writeFileSync(`${ADJUST_DIR}/${id}.json`, JSON.stringify(ds));
+    const idx = adjustIndex().filter((d) => d.id !== id);
+    idx.unshift({ id, ...ds.meta });
+    fs.writeFileSync(`${ADJUST_DIR}/index.json`, JSON.stringify(idx.slice(0, 20), null, 1));
+    ds.byKey = new Map(ds.records.map((r) => [rowKey(r), r]));
+    adjustCache.set(id, ds);
+
+    res.json({ ok: true, id, meta: ds.meta });
+  } catch (e) {
+    res.status(400).json({ ok: false, message: e.message });
+  }
+});
+
+app.get("/api/adjust/datasets", (req, res) => res.json(adjustIndex()));
+
+// Query bảng làm việc (filter/sort/phân trang server-side)
+app.post("/api/adjust/query", (req, res) => {
+  const { id, tab } = req.body || {};
+  const ds = loadDataset(id);
+  if (!ds) return res.status(404).json({ ok: false, message: "Chưa có dataset — upload file bulk trước" });
+  const list = tab === "terms" ? ds.terms : ds.records;
+  const out = queryRows(list, req.body);
+  // gắn rowKey cho tab targets (để ledger sửa đổi)
+  if (tab !== "terms") out.rows = out.rows.map((r) => ({ k: rowKey(r), ...r }));
+  res.json({ ok: true, ...out, meta: ds.meta });
+});
+
+// Xuất file UPDATE (chỉ dòng thay đổi + Negative mới) + audit log
+app.post("/api/adjust/export", (req, res) => {
+  try {
+    const { id, edits, negatives } = req.body || {};
+    const ds = loadDataset(id);
+    if (!ds) throw new Error("Dataset không tồn tại");
+    const rows = buildUpdateRows(ds.header, ds.byKey, edits, negatives);
+    if (!rows.length) throw new Error("Không có thay đổi nào để xuất");
+
+    const ws = XLSX.utils.json_to_sheet(rows, { header: ds.header });
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Sponsored Products Campaigns");
+    const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
+
+    // Audit log: ai/khi nào/old→new (spec: mọi thay đổi ghi log)
+    fs.mkdirSync(ADJUST_DIR, { recursive: true });
+    const audit = { at: new Date().toISOString(), dataset: id,
+      edits: (edits || []).length, negatives: (negatives || []).length,
+      detail: { edits, negatives } };
+    fs.appendFileSync(`${ADJUST_DIR}/audit.jsonl`, JSON.stringify(audit) + "\n");
+
+    res.setHeader("Content-Disposition",
+      `attachment; filename="bulk-update-${id}-${new Date().toISOString().slice(0, 10)}.xlsx"`);
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("X-Adjust-Info", JSON.stringify({ rows: rows.length }));
+    res.send(buf);
+  } catch (e) {
+    res.status(400).json({ ok: false, message: e.message });
+  }
 });
 
 /* ===== Import file bulk daily → chỉ số ads theo ASIN (Spent, Sales ads, ACoS...) ===== */

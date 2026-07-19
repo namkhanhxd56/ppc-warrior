@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<title>PPC Warrior — Adjust</title>
+<style>
+  :root { --b:#2455e6; --ok:#1a9e50; --bad:#e04545; --mut:#667; }
+  * { box-sizing:border-box; }
+  body { font-family:-apple-system,Segoe UI,Arial,sans-serif; margin:0; background:#f4f6fa; color:#1b2330; }
+  header { background:#101828; color:#fff; padding:14px 24px; display:flex; align-items:center; gap:14px; }
+  header h1 { font-size:17px; margin:0; }
+  header nav { display:flex; gap:4px; margin-left:10px; }
+  header nav a { color:#9fb0c8; text-decoration:none; font-size:13px; padding:6px 14px; border-radius:8px; }
+  header nav a.active { background:var(--b); color:#fff; font-weight:600; }
+  header nav a:hover:not(.active) { background:#1d2739; }
+  main { max-width:1380px; margin:20px auto; padding:0 16px; }
+  .card { background:#fff; border:1px solid #e3e8f0; border-radius:12px; padding:18px 20px; margin-bottom:16px; }
+  .card > h2 { font-size:14px; margin:0 0 4px; }
+  .card .sub { font-size:12px; color:var(--mut); margin:0 0 12px; }
+  label { font-size:11.5px; color:var(--mut); display:block; margin:8px 0 4px; font-weight:600; }
+  input, select { padding:7px 9px; border:1px solid #ccd3e0; border-radius:7px; font-size:13px; font-family:inherit; background:#fff; }
+  input:focus, select:focus { outline:2px solid #c7d5ff; border-color:var(--b); }
+  button { padding:8px 16px; border:none; border-radius:7px; cursor:pointer; font-size:13px; font-weight:600; }
+  .btn-primary { background:var(--b); color:#fff; }
+  .btn-ok { background:var(--ok); color:#fff; }
+  .btn-sm { padding:5px 12px; font-size:12px; background:#eef1f7; }
+  table { border-collapse:collapse; width:100%; font-size:12px; }
+  th, td { border:1px solid #e3e8f0; padding:4px 7px; text-align:left; white-space:nowrap; }
+  th { background:#f0f3f9; position:sticky; top:0; z-index:2; cursor:pointer; user-select:none; }
+  td input, td select { padding:3px 6px; font-size:12px; border-radius:5px; }
+  .scroll { overflow:auto; max-height:520px; border-radius:8px; }
+  .statgrid { display:flex; gap:12px; flex-wrap:wrap; margin:8px 0; }
+  .stat { background:#f0f4ff; border:1px solid #d8e2ff; border-radius:10px; padding:8px 16px; text-align:center; min-width:96px; }
+  .stat b { display:block; font-size:17px; color:var(--b); }
+  .stat span { font-size:11px; color:var(--mut); }
+  .bulkbar { display:flex; gap:6px; align-items:center; flex-wrap:wrap; background:#f6f8fc; border:1px solid #e3e8f0; border-radius:9px; padding:8px 12px; margin:10px 0; }
+  .tabs { display:flex; gap:8px; margin:10px 0 6px; }
+  .tabs button.active { background:var(--b); color:#fff; }
+  .msg { font-size:12.5px; } .msg.ok { color:var(--ok); } .msg.err { color:var(--bad); }
+  .edited { background:#fff6d9 !important; } /* ô đã sửa */
+  .paused-row td { opacity:.55; }
+  .chgPanel { position:fixed; right:16px; bottom:16px; background:#101828; color:#e8edf6; border-radius:12px;
+    padding:12px 16px; font-size:12px; max-width:420px; max-height:45vh; overflow:auto; box-shadow:0 8px 30px rgba(0,0,0,.35); z-index:50; }
+  .chgPanel h3 { margin:0 0 8px; font-size:13px; }
+  .chgPanel .it { display:flex; gap:8px; align-items:center; padding:3px 0; border-bottom:1px solid #2a3448; }
+  .chgPanel .undo { cursor:pointer; color:#ff9c9c; font-weight:700; }
+  .hint { font-size:11px; color:#8a94a8; }
+  .pgn { display:flex; gap:6px; align-items:center; margin-top:8px; font-size:12.5px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>⚔️ PPC Warrior</h1>
+  <nav>
+    <a href="/">📊 Check Ranking</a>
+    <a href="/launching.html">🚀 Tạo Campaign</a>
+    <a href="/adjust.html" class="active">⚙️ Adjust</a>
+  </nav>
+</header>
+<main>
+
+  <!-- ===== 1. Import ===== -->
+  <div class="card">
+    <h2>1️⃣ Import file bulk (Adjust snapshot)</h2>
+    <p class="sub">Tải file bulk từ Amazon Ads (nên chọn giai đoạn 14–60 ngày + tick Search Term Report khi tải). File lớn (30-40MB) xử lý mất ~10-30 giây. Số liệu 1 ngày quá nhiễu để quyết định bid/budget — dùng file tổng giai đoạn.</p>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <input type="file" id="bulkFile" accept=".xlsx" style="flex:0 0 auto">
+      <button class="btn-primary" id="btnImport">📥 Import</button>
+      <span style="border-left:1px solid #ccd3e0;height:24px"></span>
+      <label style="margin:0">Dataset:</label>
+      <select id="dsSelect" style="min-width:280px"></select>
+      <span class="msg" id="importMsg"></span>
+    </div>
+    <div class="statgrid" id="dsStats"></div>
+  </div>
+
+  <!-- ===== 2. Bảng làm việc ===== -->
+  <div class="card">
+    <h2>2️⃣ Điều chỉnh — sửa xong bấm Xuất file Update để upload ngược lại Amazon</h2>
+    <div class="tabs">
+      <button id="tabTargets" class="active btn-sm" style="padding:7px 18px">🎯 Campaigns & Targets</button>
+      <button id="tabTerms" class="btn-sm" style="padding:7px 18px">🔍 Search Terms → Negative / Thăng cấp</button>
+    </div>
+
+    <div class="bulkbar">
+      <b style="font-size:12px">🔎</b>
+      <input type="text" id="fQ" placeholder="Tên campaign / keyword / ASIN / term" style="width:230px">
+      <select id="fEntity" style="max-width:150px">
+        <option value="">Mọi Entity</option>
+        <option>Campaign</option><option>Keyword</option>
+        <option>Product Targeting</option><option>Bidding Adjustment</option>
+      </select>
+      <select id="fState" style="max-width:110px">
+        <option value="">Mọi State</option><option>enabled</option><option>paused</option>
+      </select>
+      <select id="fMetric" style="max-width:110px">
+        <option value="">— Chỉ số —</option>
+        <option value="sp">Spend</option><option value="sa">Sales</option><option value="or">Orders</option>
+        <option value="clk">Clicks</option><option value="imp">Impressions</option>
+        <option value="acos">ACoS</option><option value="ctr">CTR</option><option value="cr">CR</option>
+      </select>
+      <input type="text" inputmode="decimal" id="fMin" placeholder="từ" style="width:64px">
+      <span class="hint">–</span>
+      <input type="text" inputmode="decimal" id="fMax" placeholder="đến" style="width:64px">
+      <button class="btn-sm" id="btnFilter">Lọc</button>
+      <button class="btn-sm" id="btnClearFilter">✕</button>
+      <span class="hint" id="cntInfo"></span>
+      <span style="margin-left:auto"></span>
+      <span class="hint">Sắp xếp:</span>
+      <select id="sortField" style="max-width:110px">
+        <option value="sp">Spend</option><option value="sa">Sales</option><option value="or">Orders</option>
+        <option value="clk">Clicks</option><option value="acos">ACoS</option><option value="imp">Impressions</option>
+      </select>
+      <select id="sortDir" style="max-width:80px"><option value="desc">↓ giảm</option><option value="asc">↑ tăng</option></select>
+    </div>
+
+    <div class="bulkbar" id="actionBar"></div>
+    <div id="tableArea" class="scroll"></div>
+    <div class="pgn">
+      <button class="btn-sm" id="pgPrev">←</button>
+      <span id="pgInfo"></span>
+      <button class="btn-sm" id="pgNext">→</button>
+      <span style="margin-left:auto"></span>
+      <button class="btn-ok" id="btnExport">📦 Xuất file Update (dòng thay đổi + Negative mới)</button>
+      <span class="msg" id="exportMsg"></span>
+    </div>
+  </div>
+
+</main>
+<div class="chgPanel" id="chgPanel" style="display:none"></div>
+<div id="verWarn" style="display:none;background:#e02020;color:#fff;text-align:center;padding:10px;font-size:13px;font-weight:600;position:sticky;bottom:0"></div>
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const pct = (v) => v === null || v === undefined ? '∞' : (v * 100).toFixed(1) + '%';
+const money = (v) => '$' + Number(v || 0).toFixed(2);
+
+const UI_VERSION = '0.19.1';
+(async () => {
+  try {
+    const v = (await (await fetch('/api/version')).json()).version;
+    if (v !== UI_VERSION) throw new Error(v);
+  } catch (e) {
+    $('verWarn').style.display = 'block';
+    $('verWarn').textContent = `⚠️ Server đang chạy phiên bản cũ (${e.message}) — hãy restart (npm start).`;
+  }
+})();
+
+let dsId = '';
+let tab = 'targets';
+let page = 1;
+let edits = [];      // {k, field, old, value, label}
+let negatives = [];  // {cid, agid, term, mt, name}
+let lastRows = [];
+let sel = new Set(); // key (targets) hoặc index term đang tick
+
+/* ===== Datasets ===== */
+async function loadDatasets(pickId) {
+  const list = await (await fetch('/api/adjust/datasets')).json();
+  $('dsSelect').innerHTML = list.map(d =>
+    `<option value="${d.id}">${d.windowStart || '?'}–${d.windowEnd || '?'} · ${d.kept} dòng · $${(d.spend||0).toFixed(0)} spend</option>`).join('')
+    || '<option value="">— chưa có, hãy import —</option>';
+  if (pickId) $('dsSelect').value = pickId;
+  dsId = $('dsSelect').value;
+  if (dsId) refresh();
+}
+$('dsSelect').onchange = () => { dsId = $('dsSelect').value; page = 1; edits = []; negatives = []; sel.clear(); renderChanges(); refresh(); };
+
+$('btnImport').onclick = async () => {
+  const f = $('bulkFile').files[0];
+  if (!f) { $('importMsg').textContent = 'Chưa chọn file'; return; }
+  const fd = new FormData(); fd.append('file', f);
+  $('importMsg').className = 'msg'; $('importMsg').textContent = '⏳ Đang ETL (file lớn ~10-30s)...';
+  const r = await (await fetch('/api/adjust/import', { method: 'POST', body: fd })).json();
+  if (!r.ok) { $('importMsg').className = 'msg err'; $('importMsg').textContent = '❌ ' + r.message; return; }
+  $('importMsg').className = 'msg ok';
+  $('importMsg').textContent = `✅ ${r.meta.kept} dòng làm việc / ${r.meta.totalRows} dòng gốc · ${r.meta.termCount} search term`;
+  await loadDatasets(r.id);
+};
+
+/* ===== Query + render ===== */
+function filters() {
+  const ranges = {};
+  if ($('fMetric').value && ($('fMin').value !== '' || $('fMax').value !== '')) {
+    let mn = $('fMin').value.replace(',', '.'), mx = $('fMax').value.replace(',', '.');
+    // ACoS/CTR/CR nhập theo %, đổi về tỷ lệ
+    if (['acos','ctr','cr'].includes($('fMetric').value)) {
+      mn = mn === '' ? '' : Number(mn) / 100;
+      mx = mx === '' ? '' : Number(mx) / 100;
+    }
+    ranges[$('fMetric').value] = [mn, mx];
+  }
+  return { q: $('fQ').value.trim(), entity: $('fEntity').value, state: $('fState').value, ranges };
+}
+
+async function refresh() {
+  if (!dsId) { $('tableArea').innerHTML = '<span class="hint">Import hoặc chọn dataset trước.</span>'; return; }
+  const body = { id: dsId, tab, filters: filters(), sort: $('sortField').value, dir: $('sortDir').value, page, pageSize: 100 };
+  const r = await (await fetch('/api/adjust/query', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })).json();
+  if (!r.ok) { $('tableArea').innerHTML = `<span class="msg err">❌ ${esc(r.message)}</span>`; return; }
+  lastRows = r.rows;
+  $('cntInfo').textContent = `${r.total} dòng khớp`;
+  $('pgInfo').textContent = `Trang ${r.page} / ${Math.max(1, Math.ceil(r.total / r.pageSize))}`;
+  $('dsStats').innerHTML = `
+    <div class="stat"><b>${money(r.agg.sp)}</b><span>Spend (tập lọc)</span></div>
+    <div class="stat"><b>${money(r.agg.sa)}</b><span>Sales</span></div>
+    <div class="stat"><b>${r.agg.or}</b><span>Orders</span></div>
+    <div class="stat"><b>${r.agg.clk}</b><span>Clicks</span></div>
+    <div class="stat"><b>${pct(r.agg.acos)}</b><span>ACoS</span></div>
+    <div class="stat"><b>${r.meta.windowStart}–${r.meta.windowEnd}</b><span>Window</span></div>`;
+  tab === 'targets' ? renderTargets(r) : renderTerms(r);
+}
+
+const editedVal = (k, field, orig) => {
+  const e = edits.find(x => x.k === k && x.field === field);
+  return e ? e.value : orig;
+};
+const editedCls = (k, field) => edits.some(x => x.k === k && x.field === field) ? 'edited' : '';
+
+function renderTargets(r) {
+  $('actionBar').innerHTML = `
+    <b style="font-size:12px">Bulk (dòng đã tick):</b>
+    <select id="bkField" style="max-width:130px">
+      <option value="bid">Bid</option><option value="bud">Budget</option>
+      <option value="pct">Placement %</option><option value="st">State</option>
+    </select>
+    <select id="bkMode" style="max-width:110px">
+      <option value="set">= set</option><option value="pctUp">+%</option><option value="pctDown">−%</option>
+      <option value="addUp">+$</option><option value="addDown">−$</option>
+    </select>
+    <input type="text" inputmode="decimal" id="bkVal" placeholder="giá trị" style="width:80px">
+    <button class="btn-sm" onclick="applyBulkAdjust()">Áp dụng</button>
+    <span class="hint">VD: Bid −% 15 = giảm bid 15% các dòng tick · State set paused = tắt</span>`;
+  const rows = r.rows.map(x => {
+    const stNow = editedVal(x.k, 'st', x.st);
+    const cells = [`<td><input type="checkbox" ${sel.has(x.k) ? 'checked' : ''} onchange="tick('${x.k}', this.checked)"></td>`,
+      `<td style="max-width:330px;overflow:hidden;text-overflow:ellipsis" title="${esc(x.name)}">${esc(x.name)}</td>`,
+      `<td>${x.e === 'Bidding Adjustment' ? 'Placement' : x.e}</td>`,
+      `<td style="max-width:170px;overflow:hidden;text-overflow:ellipsis" title="${esc(x.kw || x.ex || x.pl)}">${esc(x.kw || x.ex || x.pl || '')} ${x.mt ? '<span class="hint">' + esc(x.mt) + '</span>' : ''}</td>`];
+    // Cột chỉnh được theo entity
+    if (x.e === 'Campaign') {
+      cells.push(`<td class="${editedCls(x.k,'st')}"><select onchange="edit('${x.k}','st',this.value,'${esc(x.name).slice(0,40)}','${x.st}')">
+        <option ${stNow==='enabled'?'selected':''}>enabled</option><option ${stNow==='paused'?'selected':''}>paused</option></select></td>`);
+      cells.push(`<td class="${editedCls(x.k,'bud')}"><input type="text" inputmode="decimal" style="width:64px" value="${editedVal(x.k,'bud',x.bud)}" onchange="edit('${x.k}','bud',this.value,'${esc(x.name).slice(0,40)}','${x.bud}')"></td>`);
+      cells.push(`<td>—</td>`);
+    } else if (x.e === 'Bidding Adjustment') {
+      cells.push(`<td>${esc(x.cst)}</td>`);
+      cells.push(`<td>—</td>`);
+      cells.push(`<td class="${editedCls(x.k,'pct')}"><input type="text" inputmode="decimal" style="width:56px" value="${editedVal(x.k,'pct',x.pct)}" onchange="edit('${x.k}','pct',this.value,'${esc(x.name).slice(0,40)} · ${x.pl}','${x.pct}')"></td>`);
+    } else {
+      cells.push(`<td class="${editedCls(x.k,'st')}"><select onchange="edit('${x.k}','st',this.value,'${esc(x.kw||x.ex).slice(0,40)}','${x.st}')">
+        <option ${stNow==='enabled'?'selected':''}>enabled</option><option ${stNow==='paused'?'selected':''}>paused</option></select></td>`);
+      cells.push(`<td>—</td>`);
+      cells.push(`<td class="${editedCls(x.k,'bid')}"><input type="text" inputmode="decimal" style="width:56px" value="${editedVal(x.k,'bid',x.bid)}" onchange="edit('${x.k}','bid',this.value,'${esc(x.kw||x.ex).slice(0,40)}','${x.bid}')"></td>`);
+    }
+    cells.push(`<td>${x.imp}</td><td>${x.clk}</td><td>${money(x.sp)}</td><td>${money(x.sa)}</td><td>${x.or}</td>
+      <td>${pct(x.acos)}</td><td>${pct(x.ctr)}</td><td>${pct(x.cr)}</td><td>${money(x.cpc)}</td>`);
+    return `<tr class="${stNow === 'paused' ? 'paused-row' : ''}">${cells.join('')}</tr>`;
+  }).join('');
+  $('tableArea').innerHTML = `<table><thead><tr>
+    <th style="width:28px"><input type="checkbox" onchange="tickAll(this.checked)"></th>
+    <th>Campaign</th><th>Entity</th><th>Target</th><th>State</th><th>Budget</th><th>Bid / %</th>
+    <th>Impr</th><th>Clicks</th><th>Spend</th><th>Sales</th><th>Orders</th><th>ACoS</th><th>CTR</th><th>CR</th><th>CPC</th>
+    </tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+function renderTerms(r) {
+  $('actionBar').innerHTML = `
+    <b style="font-size:12px">Search term đã tick:</b>
+    <button class="btn-sm" style="background:#fde8e8;color:#c0392b" onclick="addNegatives('negativeExact')">🚫 Negative Exact</button>
+    <button class="btn-sm" style="background:#fde8e8;color:#c0392b" onclick="addNegatives('negativePhrase')">🚫 Negative Phrase</button>
+    <button class="btn-sm" style="background:#e8f5ec;color:#157a3d" onclick="promoteTerms()">⤴ Thăng cấp Exact (→ Tạo Campaign)</button>
+    <span class="hint">Negative áp vào ĐÚNG campaign/ad group của dòng đó (ID thật) · Thăng cấp: term ra đơn → tạo campaign Exact riêng, nhớ negative term ở campaign nguồn</span>`;
+  const rows = r.rows.map((x, i) => `
+    <tr>
+      <td><input type="checkbox" ${sel.has('t' + i) ? 'checked' : ''} onchange="tick('t${i}', this.checked)"></td>
+      <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis"><b>${esc(x.term)}</b></td>
+      <td style="max-width:280px;overflow:hidden;text-overflow:ellipsis" title="${esc(x.name)}">${esc(x.name)}</td>
+      <td>${esc(x.targeting)} <span class="hint">${esc(x.mt)}</span></td>
+      <td>${x.imp}</td><td>${x.clk}</td><td>${money(x.sp)}</td><td>${money(x.sa)}</td><td>${x.or}</td>
+      <td>${pct(x.acos)}</td><td>${pct(x.cr)}</td>
+    </tr>`).join('');
+  $('tableArea').innerHTML = `<table><thead><tr>
+    <th style="width:28px"><input type="checkbox" onchange="tickAll(this.checked)"></th>
+    <th>Customer Search Term</th><th>Campaign</th><th>Targeting</th>
+    <th>Impr</th><th>Clicks</th><th>Spend</th><th>Sales</th><th>Orders</th><th>ACoS</th><th>CR</th>
+    </tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+/* ===== Tick / edit / bulk ===== */
+window.tick = (key, on) => { on ? sel.add(key) : sel.delete(key); };
+window.tickAll = (on) => {
+  sel.clear();
+  if (on) (tab === 'targets' ? lastRows.map(x => x.k) : lastRows.map((_, i) => 't' + i)).forEach(k => sel.add(k));
+  refresh();
+};
+window.edit = (k, field, value, label, old) => {
+  value = field === 'st' ? value : (parseFloat(String(value).replace(',', '.')) || 0);
+  edits = edits.filter(e => !(e.k === k && e.field === field));
+  if (String(value) !== String(old)) edits.push({ k, field, old, value, label });
+  renderChanges();
+};
+window.applyBulkAdjust = () => {
+  const field = $('bkField').value, mode = $('bkMode').value;
+  const raw = parseFloat($('bkVal').value.replace(',', '.'));
+  const targets = lastRows.filter(x => sel.has(x.k));
+  if (!targets.length) { alert('Chưa tick dòng nào'); return; }
+  for (const x of targets) {
+    let old, applicable;
+    if (field === 'bid') { old = x.bid; applicable = x.e === 'Keyword' || x.e === 'Product Targeting'; }
+    else if (field === 'bud') { old = x.bud; applicable = x.e === 'Campaign'; }
+    else if (field === 'pct') { old = x.pct; applicable = x.e === 'Bidding Adjustment'; }
+    else { old = x.st; applicable = x.e !== 'Bidding Adjustment'; }
+    if (!applicable) continue;
+    let value;
+    if (field === 'st') value = $('bkVal').value.trim() === 'enabled' ? 'enabled' : 'paused';
+    else if (mode === 'set') value = raw;
+    else if (mode === 'pctUp') value = Math.round(old * (1 + raw / 100) * 100) / 100;
+    else if (mode === 'pctDown') value = Math.round(old * (1 - raw / 100) * 100) / 100;
+    else if (mode === 'addUp') value = Math.round((old + raw) * 100) / 100;
+    else value = Math.round((old - raw) * 100) / 100;
+    window.edit(x.k, field, value, (x.name || '').slice(0, 40), old);
+  }
+  refresh();
+};
+window.addNegatives = (mt) => {
+  const picked = lastRows.filter((_, i) => sel.has('t' + i));
+  if (!picked.length) { alert('Chưa tick search term nào'); return; }
+  for (const x of picked) {
+    if (negatives.some(n => n.cid === x.cid && n.agid === x.agid && n.term === x.term)) continue;
+    negatives.push({ cid: x.cid, agid: x.agid, term: x.term, mt, name: x.name });
+  }
+  sel.clear(); renderChanges(); refresh();
+};
+window.promoteTerms = () => {
+  const picked = lastRows.filter((_, i) => sel.has('t' + i));
+  if (!picked.length) { alert('Chưa tick search term nào'); return; }
+  const terms = [...new Set(picked.map(x => x.term))];
+  localStorage.setItem('ppcw_promote_keywords', JSON.stringify(terms));
+  // Gợi ý negative term đó ở campaign nguồn (chống tự cạnh tranh)
+  if (confirm(`Đưa ${terms.length} term sang trang Tạo Campaign?\n\nĐồng thời thêm negativeExact các term này vào campaign NGUỒN (chống 2 campaign tự cạnh tranh)?`)) {
+    for (const x of picked) {
+      if (!negatives.some(n => n.cid === x.cid && n.agid === x.agid && n.term === x.term)) {
+        negatives.push({ cid: x.cid, agid: x.agid, term: x.term, mt: 'negativeExact', name: x.name });
+      }
+    }
+  }
+  renderChanges();
+  window.open('/launching.html', '_blank');
+};
+
+/* ===== Panel thay đổi + export ===== */
+function renderChanges() {
+  const n = edits.length + negatives.length;
+  if (!n) { $('chgPanel').style.display = 'none'; return; }
+  $('chgPanel').style.display = 'block';
+  const FIELD_LB = { bid: 'Bid', bud: 'Budget', pct: 'Placement %', st: 'State' };
+  $('chgPanel').innerHTML = `<h3>📋 Thay đổi (${n}) — chưa áp dụng cho tới khi xuất file & upload</h3>` +
+    edits.map((e, i) => `<div class="it"><span class="undo" onclick="undoEdit(${i})">✕</span>
+      <span>${FIELD_LB[e.field]}: <b>${e.old}</b> → <b style="color:#7ef0a8">${e.value}</b> · ${esc(e.label)}</span></div>`).join('') +
+    negatives.map((g, i) => `<div class="it"><span class="undo" onclick="undoNeg(${i})">✕</span>
+      <span>🚫 ${g.mt === 'negativePhrase' ? 'Phrase' : 'Exact'}: <b>${esc(g.term)}</b> · ${esc((g.name || '').slice(0, 38))}</span></div>`).join('');
+}
+window.undoEdit = (i) => { edits.splice(i, 1); renderChanges(); refresh(); };
+window.undoNeg = (i) => { negatives.splice(i, 1); renderChanges(); };
+
+$('btnExport').onclick = async () => {
+  if (!edits.length && !negatives.length) { $('exportMsg').className = 'msg err'; $('exportMsg').textContent = '❌ Chưa có thay đổi nào'; return; }
+  $('exportMsg').className = 'msg'; $('exportMsg').textContent = '⏳...';
+  const res = await fetch('/api/adjust/export', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id: dsId, edits, negatives }) });
+  if (!res.ok) {
+    const e = await res.json().catch(() => ({}));
+    $('exportMsg').className = 'msg err'; $('exportMsg').textContent = '❌ ' + (e.message || res.status);
+    return;
+  }
+  const info = JSON.parse(res.headers.get('X-Adjust-Info') || '{}');
+  const blob = await res.blob();
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = (res.headers.get('Content-Disposition') || '').match(/filename="(.+)"/)?.[1] || 'bulk-update.xlsx';
+  a.click();
+  $('exportMsg').className = 'msg ok';
+  $('exportMsg').textContent = `✅ ${info.rows} dòng Update — upload file này vào Amazon Ads (Bulk operations)`;
+};
+
+/* ===== Tab / filter / phân trang ===== */
+$('tabTargets').onclick = () => { tab = 'targets'; page = 1; sel.clear(); $('tabTargets').classList.add('active'); $('tabTerms').classList.remove('active'); refresh(); };
+$('tabTerms').onclick = () => { tab = 'terms'; page = 1; sel.clear(); $('tabTerms').classList.add('active'); $('tabTargets').classList.remove('active'); refresh(); };
+$('btnFilter').onclick = () => { page = 1; refresh(); };
+$('btnClearFilter').onclick = () => { $('fQ').value = ''; $('fEntity').value = ''; $('fState').value = ''; $('fMetric').value = ''; $('fMin').value = ''; $('fMax').value = ''; page = 1; refresh(); };
+$('fQ').addEventListener('keydown', (e) => { if (e.key === 'Enter') { page = 1; refresh(); } });
+$('sortField').onchange = $('sortDir').onchange = () => { page = 1; refresh(); };
+$('pgPrev').onclick = () => { if (page > 1) { page--; refresh(); } };
+$('pgNext').onclick = () => { page++; refresh(); };
+
+loadDatasets();
+</script>
+</body>
+</html>
