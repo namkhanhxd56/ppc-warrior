@@ -13,7 +13,7 @@ import { etlBulk, queryRows, buildUpdateRows, rowKey } from "./src/adjust/bulk-e
 import * as store from "./src/db/file-store.js";
 
 dotenv.config();
-export const APP_VERSION = "0.20.2"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
+export const APP_VERSION = "0.21.0"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
 
 // RUN_MODE:
 // - "local" (mặc định): bấm Kiểm tra là scrape NGAY trên máy này (dùng 1 người, chạy local)
@@ -233,22 +233,28 @@ app.post("/api/schedule", (req, res) => {
 /* Vòng lặp scheduler: mỗi 30s so giờ máy; mỗi ngày chạy 1 lần đúng giờ đã đặt */
 setInterval(async () => {
   const s = store.getSchedule();
-  if (!s.enabled || running || !s.jobs?.length) return;
+  if (!s.enabled || running) return;
   const now = new Date();
   const hhmm = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
   const today = now.toISOString().slice(0, 10);
   if (hhmm !== s.time || s.lastRunDate === today) return;
 
+  // Job daily lấy từ BẢNG THEO DÕI: ASIN bật ⏰ — duyệt TUẦN TỰ TỪ TRÊN XUỐNG.
+  // ASIN không set ⏰ thì bỏ qua. (jobs cũ trong schedule.json chỉ là fallback.)
+  const jobs = store.trackingDailyJobs();
+  const list = jobs.length ? jobs : (s.jobs || []);
+  if (!list.length) return;
+
   store.saveSchedule({ ...s, lastRunDate: today });
-  console.log(`⏰ [Scheduler] ${s.time} — ${RUN_MODE === "queue" ? "xếp" : "chạy"} ${s.jobs.length} job daily`);
-  for (const job of s.jobs) {
+  console.log(`⏰ [Scheduler] ${s.time} — ${RUN_MODE === "queue" ? "xếp" : "chạy"} ${list.length} ASIN daily (⏰)`);
+  for (const job of list) {
     try {
       if (RUN_MODE === "queue") {
         // Xếp job cho agent — agent offline thì job chờ sẵn, mở máy là chạy bù
         const q = store.enqueueJob(buildJobPayload(job));
         console.log(`⏰ [Scheduler] đã xếp job ${q.id} (${job.asin})`);
       } else {
-        const runId = await executeCheck(job, (m) => console.log(`⏰ ${m}`));
+        const runId = await executeCheck({ ...job, dateKey: today }, (m) => console.log(`⏰ ${m}`));
         console.log(`⏰ [Scheduler] xong ${job.asin} → ${runId}`);
       }
     } catch (e) {

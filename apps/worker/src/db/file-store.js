@@ -190,7 +190,7 @@ export function trackingPatchAsin(asin, patch) {
     return t;
   }
   t.asins[key] = t.asins[key] || { enabled: true, loai: "", image: null, trackParent: false, saveCompetitor: false, keywords: {}, addedAt: new Date().toISOString() };
-  for (const f of ["enabled", "loai", "trackParent", "saveCompetitor", "image", "adsScan"]) {
+  for (const f of ["enabled", "loai", "trackParent", "saveCompetitor", "image", "adsScan", "daily"]) {
     if (patch[f] !== undefined) t.asins[key][f] = patch[f];
   }
   writeTracking(t);
@@ -288,6 +288,7 @@ export function getTrackingTable() {
     trackParent: !!a.trackParent,
     saveCompetitor: !!a.saveCompetitor,
     adsScan: a.adsScan !== false,
+    daily: !!a.daily,
     metrics: met[asin] || {},           // { dateKey: {custom: {...}, spent...} }
     keywords: Object.entries(a.keywords).map(([kw, kcfg]) => ({
       kw,
@@ -299,6 +300,21 @@ export function getTrackingTable() {
     }))
   }));
   return { asins: rows, sessions: t.sessions, config: t.config };
+}
+
+/** Job daily từ bảng theo dõi: ASIN có ⏰ daily=true (và đang bật theo dõi), tuần tự từ trên xuống. */
+export function trackingDailyJobs() {
+  const t = getTracking();
+  const out = [];
+  for (const [asin, a] of Object.entries(t.asins)) {
+    if (!a.daily || a.enabled === false) continue;
+    const kws = Object.entries(a.keywords).filter(([, k]) => k.enabled !== false).map(([kw]) => kw);
+    if (!kws.length) continue;
+    out.push({ asin, keywords: kws.join("\n"), maxPages: 3,
+      checkVariants: !!a.trackParent, saveSnapshot: !!a.saveCompetitor,
+      adsScan: a.adsScan !== false });
+  }
+  return out;
 }
 
 /* ===== Xếp hạng COMPETITOR theo phiên quét =====
