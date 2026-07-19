@@ -171,7 +171,7 @@
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;');
 
-const UI_VERSION = '0.21.1'; // PHẢI khớp APP_VERSION server.js
+const UI_VERSION = '0.21.2'; // PHẢI khớp APP_VERSION server.js
 (async () => {
   try {
     const v = (await (await fetch('/api/version')).json()).version;
@@ -695,6 +695,9 @@ async function streamCheck(payload) {
 async function runTargets(targets, dateKey) {
   stopped = false;
   $('logs').textContent = '';
+  // Kết quả được server GHI TỪNG KEYWORD ngay khi quét xong → bảng tự refresh 8s/lần trong lúc chạy
+  const live = setInterval(loadTracking, 8000);
+  try {
   for (let i = 0; i < targets.length; i++) {
     if (stopped) break;
     const t = targets[i];
@@ -709,6 +712,8 @@ async function runTargets(targets, dateKey) {
     });
     await loadTracking();
   }
+  } finally { clearInterval(live); }
+  await loadTracking();
   $('status').textContent = 'Idle';
 }
 $('btnRun').onclick = () => {

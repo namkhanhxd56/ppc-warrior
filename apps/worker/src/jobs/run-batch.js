@@ -52,6 +52,17 @@ export async function runBatch({ page, asin, keywords, opts, log, shouldStop }) 
 
   /* ===== 2. Check từng keyword tuần tự ===== */
   const results = [];
+  // GHI NGAY từng keyword xong (không đợi hết ASIN): đứt giữa chừng không mất dữ liệu,
+  // Continue chính xác đến từng keyword, bảng theo dõi cập nhật trực tiếp trong lúc chạy
+  const persistOne = (res) => {
+    if (!res || res.error) return;
+    const now = new Date().toISOString();
+    if (opts.competitorMode) {
+      store.saveCompetitorAgg(asin, opts.dateKey || now.slice(0, 10), [res]);
+    } else {
+      store.saveDailyRanks(asin, now, [res], opts.dateKey); // tự đăng ký tracking + gộp competitor nếu có snapshot
+    }
+  };
   let asinImage = null; // hình sản phẩm — lấy từ tile SERP đầu tiên khớp nhóm ASIN
   const groupAsins = new Set([asin, ...siblings]);
   for (let i = 0; i < keywords.length; i++) {
@@ -91,6 +102,7 @@ export async function runBatch({ page, asin, keywords, opts, log, shouldStop }) 
         pagesScanned: record.pagesScanned,
         snapshot: opts.saveSnapshot ? record.competitorSnapshot : undefined
       });
+      persistOne(results[results.length - 1]); // điền kết quả vào bảng NGAY
 
       /* ===== Giải phóng bộ nhớ trước keyword kế ===== */
       pagesSlots.length = 0;
@@ -131,6 +143,7 @@ export async function runBatch({ page, asin, keywords, opts, log, shouldStop }) 
             pagesScanned: record.pagesScanned,
             snapshot: opts.saveSnapshot ? record.competitorSnapshot : undefined
           };
+          persistOne(results[idx]); // ghi đè kết quả mới (cùng keyword + cùng phiên → lần cuối thắng)
           log(`   ✅ "${r.keyword}" → ${fmt(record, true)} (quét bù thành công)`);
           record.competitorSnapshot = null;
           record = null;
@@ -156,15 +169,9 @@ export async function runBatch({ page, asin, keywords, opts, log, shouldStop }) 
     opts: { maxPages, checkVariants: !!opts.checkVariants },
     results
   });
-  // Ghi chuỗi thời gian daily theo NHÃN PHIÊN (Run = nhãn mới, Continue = nhãn cũ)
-  // Chế độ competitor: chỉ gộp bảng competitor, KHÔNG ghi đè chuỗi rank daily
-  if (opts.competitorMode) {
-    store.saveCompetitorAgg(asin, opts.dateKey || String(checkedAt).slice(0, 10), results);
-  } else {
-    store.saveDailyRanks(asin, checkedAt, results, opts.dateKey);
-  }
+  // Chuỗi daily/competitor ĐÃ GHI TỪNG KEYWORD ngay trong lúc chạy (persistOne) — không ghi gộp lại
   if (asinImage) store.trackingSetImage(asin, asinImage);
-  log(`💾 Đã lưu kết quả: ${runId} (${results.length} keyword) + chuỗi daily`);
+  log(`💾 Đã lưu kết quả: ${runId} (${results.length} keyword) — chuỗi daily đã điền trực tiếp từng keyword`);
   return runId;
 }
 
