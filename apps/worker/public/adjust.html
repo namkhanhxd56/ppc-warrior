@@ -135,7 +135,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&l
 const pct = (v) => v === null || v === undefined ? '∞' : (v * 100).toFixed(1) + '%';
 const money = (v) => '$' + Number(v || 0).toFixed(2);
 
-const UI_VERSION = '0.21.2';
+const UI_VERSION = '0.21.3';
 (async () => {
   try {
     const v = (await (await fetch('/api/version')).json()).version;

@@ -238,6 +238,7 @@ export function trackingSetConfig(cfg) {
   if (Array.isArray(cfg.metrics)) t.config.metrics = cfg.metrics.slice(0, 3);
   if (Array.isArray(cfg.kwFields)) t.config.kwFields = cfg.kwFields.slice(0, 2);
   if (Array.isArray(cfg.tags)) t.config.tags = [...new Set(cfg.tags.map((x) => String(x).trim()).filter(Boolean))];
+  if (Array.isArray(cfg.accTags)) t.config.accTags = [...new Set(cfg.accTags.map((x) => String(x).trim()).filter(Boolean))];
   writeTracking(t);
   return t.config;
 }
@@ -329,22 +330,26 @@ export function saveCompetitorAgg(asin, dateKey, results) {
   for (const x of results || []) {
     if (x.error || !Array.isArray(x.snapshot)) continue;
     const seen = new Set();
-    for (const s of x.snapshot) {
-      const a = String(s.asin || "").toUpperCase();
-      if (!/^[A-Z0-9]{10}$/.test(a) || a === key) continue;
-      const sponsored = s.type && s.type !== "ORGANIC";
-      const orgTop10 = s.organicRank != null && s.organicRank <= 10;
-      if (!sponsored && !orgTop10) continue; // competitor chỉ tính: ads + organic top 10
+    const hit = (a, orgRank) => {
+      if (!/^[A-Z0-9]{10}$/.test(a) || a === key) return;
       has = true;
-      if (seen.has(a)) { // đã đếm keyword này — chỉ cập nhật bestRank
-        if (s.organicRank != null) agg[a].bestRank = Math.min(agg[a].bestRank ?? 999, s.organicRank);
-        continue;
+      if (!seen.has(a)) {
+        seen.add(a);
+        agg[a] = agg[a] || { n: 0, bestRank: null, kws: [] };
+        agg[a].n++;
+        agg[a].kws.push(x.keyword);
       }
-      seen.add(a);
-      agg[a] = agg[a] || { n: 0, bestRank: null, kws: [] };
-      agg[a].n++;
-      agg[a].kws.push(x.keyword);
-      if (s.organicRank != null) agg[a].bestRank = Math.min(agg[a].bestRank ?? 999, s.organicRank);
+      if (orgRank != null) agg[a].bestRank = Math.min(agg[a].bestRank ?? 999, orgRank);
+    };
+    for (const sl of x.snapshot) {
+      // Shape thật từ serp-parser: {page, positionType: "ToS"|"RoS"|"ORGANIC"|..., positionIndex, asin, asins?}
+      const pt = String(sl.positionType || "");
+      const sponsored = pt && pt !== "ORGANIC";
+      const orgTop10 = pt === "ORGANIC" && sl.positionIndex != null && sl.positionIndex <= 10;
+      if (!sponsored && !orgTop10) continue; // competitor chỉ tính: ads + organic top 10
+      const orgRank = pt === "ORGANIC" ? sl.positionIndex : null;
+      if (sl.asin) hit(String(sl.asin).toUpperCase(), orgRank);
+      for (const a2 of sl.asins || []) hit(String(a2).toUpperCase(), null); // tile nhiều ASIN (SB/video)
     }
   }
   if (!has) return;
@@ -354,7 +359,8 @@ export function saveCompetitorAgg(asin, dateKey, results) {
   for (const [a, v] of Object.entries(agg)) {
     const c = cur[a] || { n: 0, bestRank: null, kws: [] };
     const kws = [...new Set([...c.kws, ...v.kws])];
-    cur[a] = { n: kws.length, bestRank: Math.min(c.bestRank ?? 999, v.bestRank ?? 999) === 999 ? null : Math.min(c.bestRank ?? 999, v.bestRank ?? 999), kws };
+    const best = Math.min(c.bestRank ?? 999, v.bestRank ?? 999);
+    cur[a] = { n: kws.length, bestRank: best === 999 ? null : best, kws };
   }
   all[key][dateKey] = cur;
   fs.writeFileSync(COMPRANK_FILE, JSON.stringify(all));

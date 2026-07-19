@@ -171,7 +171,7 @@
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;');
 
-const UI_VERSION = '0.21.2'; // PHẢI khớp APP_VERSION server.js
+const UI_VERSION = '0.21.3'; // PHẢI khớp APP_VERSION server.js
 (async () => {
   try {
     const v = (await (await fetch('/api/version')).json()).version;
@@ -233,11 +233,41 @@ window.setKwTag = async (asin, kw, sel) => {
   await patchKw(asin, kw, { tag: v });
   renderTable();
 };
-window.editAccTag = async (asin) => {
+const accTagsOf = (a) => Array.isArray(a.loai) ? a.loai : (a.loai ? [a.loai] : []);
+function allAccTags() {
+  const set = new Set(T.config.accTags || []);
+  for (const a of T.asins) accTagsOf(a).forEach((t) => set.add(t));
+  return [...set];
+}
+window.editAccTag = (asin) => {
   const a = T.asins.find((x) => x.asin === asin);
-  const v = prompt('Tag phân loại tài khoản (để trống = xoá):', a?.loai || '');
-  if (v === null) return;
-  await patchAsin(asin, { loai: v.trim() });
+  const cur = accTagsOf(a);
+  const opts = allAccTags();
+  modal(`🏷 Tag tài khoản — ${asin} (tối đa 2)`, `
+    <div id="accTagList">
+      ${opts.map((t) => `<label class="chk" style="margin:5px 0"><input type="checkbox" class="acctag-cb" value="${esc(t)}" ${cur.includes(t) ? 'checked' : ''}> ${esc(t)}</label>`).join('') || '<div class="hint" style="color:var(--mut);font-size:12px">Chưa có tag nào — tạo mới bên dưới.</div>'}
+    </div>
+    <div class="row" style="margin-top:8px">
+      <input type="text" id="newAccTag" placeholder="tag mới (VD: ACC-1)" style="width:150px">
+      <button class="btn-sm" onclick="addAccTag()">➕ Tạo tag</button>
+    </div>
+    <button class="btn-sm" style="background:var(--b);color:#fff;margin-top:10px" onclick="saveAccTags('${asin}')">💾 Lưu (chọn tối đa 2)</button>`);
+};
+window.addAccTag = async () => {
+  const v = ($('newAccTag').value || '').trim();
+  if (!v) return;
+  const accTags = [...new Set([...allAccTags(), v])];
+  T.config.accTags = accTags;
+  await fetch('/api/tracking/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accTags }) });
+  const list = document.getElementById('accTagList');
+  list.insertAdjacentHTML('beforeend', `<label class="chk" style="margin:5px 0"><input type="checkbox" class="acctag-cb" value="${esc(v)}" checked> ${esc(v)}</label>`);
+  $('newAccTag').value = '';
+};
+window.saveAccTags = async (asin) => {
+  const picked = [...document.querySelectorAll('.acctag-cb:checked')].map((x) => x.value);
+  if (picked.length > 2) return alert('Mỗi ASIN tối đa 2 tag — bỏ bớt rồi lưu lại');
+  await patchAsin(asin, { loai: picked });
+  document.getElementById('mmodal').remove();
   renderTable();
 };
 
@@ -246,8 +276,7 @@ function orgChip(c, prevR) {
   if (!c) return '<span style="color:#c3c9d6">—</span>';
   const r = c.r;
   if (r == null) {
-    const va = c.va ? ` <span title="Biến thể ${esc(c.va.asin)} rank #${c.va.r}" style="color:#e08a00;cursor:help">●</span>` : '';
-    return `<span class="org org-out" title="Không thấy trong phạm vi quét">Ngoài 150</span>${va}`;
+    return `<span class="org org-out" title="Không thấy trong phạm vi quét">Ngoài 150</span>`;
   }
   const label = ui.orgFmt === 'rank' ? `${r}` : `Page ${c.page} No ${c.n}`;
   let cls = 'org-flat', delta = '';
@@ -363,7 +392,8 @@ function renderTable() {
     if (f.tag === '__blank') kws = kws.filter((k) => !k.tag);
     else if (f.tag) kws = kws.filter((k) => k.tag === f.tag);
     if (f.loai) {
-      const aMatch = (a.loai || '').toLowerCase().includes(f.loai);
+      const accTags = (Array.isArray(a.loai) ? a.loai : (a.loai ? [a.loai] : [])).join(' ').toLowerCase();
+      const aMatch = accTags.includes(f.loai);
       if (!aMatch) kws = kws.filter((k) => (k.loai || '').toLowerCase().includes(f.loai));
     }
     if (!kws.length && f.q && !a.asin.toLowerCase().includes(f.q)) continue;
@@ -385,7 +415,7 @@ function renderTable() {
         <span class="tg ${a.trackParent ? 'on' : ''}" style="padding:5px 11px;font-size:15px;border-radius:7px" title="🧬 Track parent/child: ${a.trackParent ? 'ĐANG BẬT' : 'đang tắt'} — bật/tắt trong ⚙️">🧬</span>
         <span class="tg ${a.daily ? 'on' : ''}" style="padding:5px 11px;font-size:15px;border-radius:7px" title="⏰ Set daily: ${a.daily ? 'ĐANG BẬT' : 'đang tắt'} — bật/tắt trong ⚙️">⏰</span>
       </div>
-      <span class="acc-tag ${a.loai ? '' : 'empty'}" title="Tag phân loại tài khoản — bấm để sửa/tạo" onclick="editAccTag('${a.asin}')">${a.loai ? esc(a.loai) : '+ tag'}</span>
+      ${(Array.isArray(a.loai) ? a.loai : (a.loai ? [a.loai] : [])).map((t) => `<span class="acc-tag" title="Tag tài khoản — bấm để sửa" onclick="editAccTag('${a.asin}')">${esc(t)}</span>`).join(' ') || `<span class="acc-tag empty" title="Chọn/tạo tag tài khoản (tối đa 2)" onclick="editAccTag('${a.asin}')">+ tag</span>`}
       ${a.enabled === false ? '<div style="font-size:9.5px;color:#c0392b;margin-top:2px">TẮT theo dõi</div>' : ''}
     </div></td>`;
 
@@ -426,8 +456,13 @@ function renderTable() {
           if (pc && pc.r != null) { prevR = pc.r; break; }
         }
         if (!c) return '<td class="dcell"><span style="color:#c3c9d6">—</span></td>';
+        // Badge Amazon (Overall Pick, Best Seller...) — 🏷 cạnh kết quả, hover xem đủ
+        const bdg = (c.bdg || []).length
+          ? ` <span title="Badge Amazon: ${c.bdg.map(esc).join(', ')}" style="cursor:help">🏷</span>` : '';
+        // Biến thể rank thay (ASIN chính vắng) — hiện rõ dòng riêng
+        const va = c.va ? `<span class="ln" style="color:#b06a00" title="ASIN chính vắng — biến thể cùng parent đang rank thay">↳ ${esc(c.va.asin)} #${c.va.r}</span>` : '';
         const lines = kwFields.map((fd) => kwFieldLine(fd, c)).filter(Boolean).join('');
-        return `<td class="dcell">${orgChip(c, prevR)}${lines ? '<br>' + lines : ''}</td>`;
+        return `<td class="dcell">${orgChip(c, prevR)}${bdg}${va}${lines ? (va ? '' : '<br>') + lines : ''}</td>`;
       }).join('');
       body += `<tr class="${kOff}">
         <td style="${stick('kw', 2)}"><div class="kwrap">
@@ -584,10 +619,7 @@ $('btnSettings').onclick = () => {
       <label class="chk"><input type="checkbox" id="cfgFmt" ${ui.orgFmt === 'rank' ? 'checked' : ''}> Organic hiện số gọn (5) thay vì "Page 1 No 5"</label>
     </div>
     <button class="btn-sm" style="background:var(--b);color:#fff" onclick="saveCfg()">💾 Lưu cấu hình</button>
-    <hr style="border:none;border-top:1px solid #edf0f5;margin:12px 0">
-    <b style="font-size:12px">📈 Nạp Volume (txt/csv/xlsx — 2 cột keyword|volume, header có/không đều được)</b>
-    <div class="row" style="margin:6px 0"><input type="file" id="volFile" accept=".txt,.csv,.xlsx,.xls">
-      <button class="btn-sm" onclick="uploadVol()">⬆ Nạp</button><span id="volMsg" style="font-size:11.5px;color:var(--mut)"></span></div>
+
     <hr style="border:none;border-top:1px solid #edf0f5;margin:12px 0">
     <b style="font-size:12px">🗑 Xoá ngày khỏi data</b>
     <div class="row" style="margin:6px 0">
@@ -604,14 +636,6 @@ window.saveCfg = async () => {
   await fetch('/api/tracking/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ metrics, kwFields }) });
   document.getElementById('mmodal').remove();
   loadTracking();
-};
-window.uploadVol = async () => {
-  const f = $('volFile').files[0];
-  if (!f) { $('volMsg').textContent = 'Chọn file trước'; return; }
-  const fd = new FormData(); fd.append('file', f);
-  const r = await (await fetch('/api/tracking/volumes', { method: 'POST', body: fd })).json();
-  $('volMsg').textContent = r.ok ? `✅ ${r.rows} dòng — áp ${r.applied} keyword` : '❌ ' + r.error;
-  if (r.ok) loadTracking();
 };
 
 /* ===== Nhập/sửa 3 chỉ số chính ===== */
