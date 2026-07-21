@@ -151,6 +151,7 @@
       <button id="tabTrack" class="active">📋 Bảng theo dõi</button>
       <button id="tabDetail">Kết quả lần chạy</button>
       <button id="tabDaily">ASIN Daily (quyết định)</button>
+      <button id="tabLib">📚 Competitor Library</button>
       <span id="trackTools" style="margin-left:auto;display:flex;gap:6px;align-items:center">
         <button class="btn-sm" id="btnVolUp" title="Nạp file Volume (txt/csv/xlsx — 2 cột keyword|volume)">⬆ Nạp Volume</button>
         <input type="file" id="volFileTop" accept=".txt,.csv,.xlsx,.xls" style="display:none">
@@ -176,6 +177,17 @@
       <div class="twrap" id="tableWrap"><div style="padding:20px;color:var(--mut)">Đang tải...</div></div>
     </div>
     <div class="rscroll" id="resultArea" style="display:none">Chưa có dữ liệu — chạy kiểm tra hoặc chọn lần chạy cũ.</div>
+    <div id="libPane" style="display:none">
+      <div class="row" style="align-items:center;margin-bottom:8px">
+        <input type="text" id="libAdd" placeholder="thêm ASIN (cách nhau bằng dấu cách/phẩy/xuống dòng)" style="flex:1;min-width:240px">
+        <button class="btn-sm" onclick="libAddAsins()">➕ Thêm</button>
+        <button class="btn-sm" style="background:var(--b);color:#fff" onclick="libScan()">🔍 Quét đã chọn</button>
+        <label class="chk"><input type="checkbox" id="libSelAll" onchange="libSelAll(this.checked)"> chọn tất cả</label>
+        <span id="libMsg" style="font-size:11.5px;color:var(--mut)"></span>
+      </div>
+      <div class="hint" style="font-size:11px;color:var(--mut);margin-bottom:6px">Ảnh/title quét 1 lần · Sale "bought in past month" lưu theo ngày mỗi lần quét · bỏ tick Theo dõi = loại khỏi Get Competitor · thêm nhanh: bảng 🏆 → ➕ Vào Library</div>
+      <div id="libTable"></div>
+    </div>
   </div>
 
   <!-- ===== Logs ===== -->
@@ -204,7 +216,7 @@
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;');
 
-const UI_VERSION = '0.22.0'; // PHẢI khớp APP_VERSION server.js
+const UI_VERSION = '0.22.1'; // PHẢI khớp APP_VERSION server.js
 (async () => {
   try {
     const v = (await (await fetch('/api/version')).json()).version;
@@ -744,7 +756,8 @@ window.addCompsToLib = async () => {
   const resp = await (await fetch('/api/competitor-library/add', { method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ asins: r.list.map((x) => x.asin).join(' ') }) })).json();
   alert(`✅ Đã thêm ${resp.added} competitor mới vào Library`);
-  loadCompLib();
+  document.getElementById('mmodal')?.remove();
+  currentTab = 'lib'; setRTab(); loadCompLib();
 };
 window.showCompRankDate = async (asin, d) => {
   document.getElementById('mmodal').remove();
@@ -957,18 +970,22 @@ $('runSelect').onchange = () => showRun($('runSelect').value);
 $('tabTrack').onclick = () => { currentTab='track'; setRTab(); };
 $('tabDetail').onclick = () => { currentTab='detail'; setRTab(); renderRuns(); };
 $('tabDaily').onclick = () => { currentTab='daily'; setRTab(); renderRuns(); };
+$('tabLib').onclick = () => { currentTab='lib'; setRTab(); loadCompLib(); };
 function setRTab(){
   const track = currentTab === 'track';
+  const lib = currentTab === 'lib';
+  const runs = currentTab === 'detail' || currentTab === 'daily';
   $('tabTrack').classList.toggle('active', track);
   $('tabDetail').classList.toggle('active', currentTab==='detail');
   $('tabDaily').classList.toggle('active', currentTab==='daily');
-  // Bảng theo dõi ↔ khu kết quả: đổi vùng hiển thị + bộ nút góc phải
+  $('tabLib').classList.toggle('active', lib);
   document.getElementById('trackPane').style.display = track ? '' : 'none';
   document.querySelector('.bulkbar2').style.display = track ? '' : 'none';
   document.getElementById('filterBar').style.display = track ? '' : 'none';
-  document.getElementById('resultArea').style.display = track ? 'none' : '';
+  document.getElementById('resultArea').style.display = runs ? '' : 'none';
+  document.getElementById('libPane').style.display = lib ? '' : 'none';
   document.getElementById('trackTools').style.display = track ? 'flex' : 'none';
-  document.getElementById('runTools').style.display = track ? 'none' : 'flex';
+  document.getElementById('runTools').style.display = runs ? 'flex' : 'none';
 }
 async function showRun(id) {
   currentRun = await (await fetch('/api/results/' + id)).json();
