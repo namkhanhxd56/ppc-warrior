@@ -179,13 +179,15 @@
     <div class="rscroll" id="resultArea" style="display:none">Chưa có dữ liệu — chạy kiểm tra hoặc chọn lần chạy cũ.</div>
     <div id="libPane" style="display:none">
       <div class="row" style="align-items:center;margin-bottom:8px">
-        <input type="text" id="libAdd" placeholder="thêm ASIN (cách nhau bằng dấu cách/phẩy/xuống dòng)" style="flex:1;min-width:240px">
+        <select id="libMain" style="min-width:140px" title="ASIN chính — competitor thêm vào sẽ thuộc nhóm này"></select>
+        <input type="text" id="libAdd" placeholder="thêm competitor ASIN (cách nhau bằng dấu cách/phẩy)" style="flex:1;min-width:220px">
         <button class="btn-sm" onclick="libAddAsins()">➕ Thêm</button>
-        <button class="btn-sm" style="background:var(--b);color:#fff" onclick="libScan()">🔍 Quét đã chọn</button>
+        <button class="btn-sm" style="background:var(--b);color:#fff" onclick="libScan()" title="Ảnh + title lần đầu, Sale mỗi lần">🔍 Quét đã chọn</button>
+        <button class="btn-sm" style="background:#e7f3ec;color:#1d7a4f" onclick="libScan()" title="Quét lại Sale 'bought in past month' cho competitor đã tick (ảnh/title đã có thì giữ nguyên)">💰 Quét Sale</button>
         <label class="chk"><input type="checkbox" id="libSelAll" onchange="libSelAll(this.checked)"> chọn tất cả</label>
         <span id="libMsg" style="font-size:11.5px;color:var(--mut)"></span>
       </div>
-      <div class="hint" style="font-size:11px;color:var(--mut);margin-bottom:6px">Ảnh/title quét 1 lần · Sale "bought in past month" lưu theo ngày mỗi lần quét · bỏ tick Theo dõi = loại khỏi Get Competitor · thêm nhanh: bảng 🏆 → ➕ Vào Library</div>
+      <div class="hint" style="font-size:11px;color:var(--mut);margin-bottom:6px">Số keyword + Best Organic tự cập nhật theo PHIÊN CHẠY MỚI NHẤT của ASIN chính · bỏ tick Theo dõi = loại khỏi Get Competitor · thêm nhanh: bảng 🏆 → ➕ Vào Library</div>
       <div id="libTable"></div>
     </div>
   </div>
@@ -216,7 +218,7 @@
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;');
 
-const UI_VERSION = '0.22.1'; // PHẢI khớp APP_VERSION server.js
+const UI_VERSION = '0.23.0'; // PHẢI khớp APP_VERSION server.js
 (async () => {
   try {
     const v = (await (await fetch('/api/version')).json()).version;
@@ -754,7 +756,7 @@ window.addCompsToLib = async () => {
   const r = window.__compRank;
   if (!r || !r.list.length) return;
   const resp = await (await fetch('/api/competitor-library/add', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ asins: r.list.map((x) => x.asin).join(' ') }) })).json();
+    body: JSON.stringify({ main: window.__compAsin, asins: r.list.map((x) => x.asin).join(' ') }) })).json();
   alert(`✅ Đã thêm ${resp.added} competitor mới vào Library`);
   document.getElementById('mmodal')?.remove();
   currentTab = 'lib'; setRTab(); loadCompLib();
@@ -1134,55 +1136,71 @@ $('btnCsv').onclick = () => {
 };
 loadRunList();
 
-/* ===== COMPETITOR LIBRARY ===== */
-let LIB = {};
-const libSel = new Set();
+/* ===== COMPETITOR LIBRARY (nhóm theo ASIN chính) ===== */
+let LIB = { groups: {} };
+const libSel = new Set(); // "main|comp"
 async function loadCompLib() {
   LIB = await (await fetch('/api/competitor-library')).json();
+  // select ASIN chính từ bảng theo dõi
+  const mains = (T?.asins || []).map((a) => a.asin);
+  const cur = $('libMain').value;
+  $('libMain').innerHTML = mains.map((a) => `<option ${a === cur ? 'selected' : ''}>${a}</option>`).join('') || '<option disabled>chưa có ASIN theo dõi</option>';
   renderCompLib();
 }
 function renderCompLib() {
-  const entries = Object.entries(LIB);
-  if (!entries.length) { $('libTable').innerHTML = '<div class="hint" style="color:var(--mut);font-size:12px">Chưa có competitor — thêm ASIN ở trên hoặc bấm "➕ Vào Library" trong bảng 🏆.</div>'; return; }
-  const salesDates = [...new Set(entries.flatMap(([, v]) => Object.keys(v.sales || {})))].sort().slice(-4);
-  $('libTable').innerHTML = `<div style="overflow:auto"><table style="border-collapse:collapse;width:100%;font-size:12px">
-    <thead><tr style="background:#f0f3f9">
-      <th style="padding:4px"></th><th>Ảnh</th><th>ASIN</th><th style="min-width:220px">Title</th>
-      ${salesDates.map((d) => `<th title="Sale 'bought in past month' ngày ${esc(d)}">Sale ${esc(d.slice(5))}</th>`).join('')}
-      <th>Theo dõi</th><th></th></tr></thead>
-    <tbody>${entries.map(([a, v]) => `
-      <tr style="${v.enabled === false ? 'opacity:.45' : ''}">
-        <td style="border:1px solid #e9edf4;padding:3px 6px"><input type="checkbox" ${libSel.has(a) ? 'checked' : ''} onchange="this.checked ? libSel.add('${a}') : libSel.delete('${a}')"></td>
+  const groups = Object.entries(LIB.groups || {});
+  if (!groups.length) { $('libTable').innerHTML = '<div class="hint" style="color:var(--mut);font-size:12px">Chưa có competitor — chọn ASIN chính, nhập competitor ASIN rồi ➕ Thêm; hoặc bảng 🏆 → ➕ Vào Library.</div>'; return; }
+  let htmlOut = '<div style="overflow:auto"><table style="border-collapse:collapse;width:100%;font-size:12px"><tbody>';
+  for (const [main, comps] of groups) {
+    const entries = Object.entries(comps);
+    const salesDates = [...new Set(entries.flatMap(([, v]) => Object.keys(v.sales || {})))].sort().slice(-3);
+    htmlOut += `<tr><td colspan="${8 + salesDates.length}" style="background:#101828;color:#fff;padding:6px 10px;font-weight:700;font-size:12.5px">
+      🎯 ${esc(main)} <span style="font-weight:400;color:#9fb0c8">· ${entries.length} competitor</span></td></tr>`;
+    htmlOut += `<tr style="background:#f0f3f9;font-size:11px;font-weight:700">
+      <td style="padding:4px 6px"></td><td>Ảnh</td><td>Competitor</td><td style="min-width:200px">Title</td>
+      <td title="Số keyword đối thủ xuất hiện — theo phiên chạy mới nhất">Số keyword</td>
+      <td title="Hạng organic cao nhất — theo phiên chạy mới nhất">Best Organic</td>
+      ${salesDates.map((d) => `<td>Sale ${esc(d.slice(5))}</td>`).join('')}
+      <td>Theo dõi</td><td></td></tr>`;
+    for (const [comp, v] of entries) {
+      const key = main + '|' + comp;
+      htmlOut += `<tr style="${v.enabled === false ? 'opacity:.45' : ''}">
+        <td style="border:1px solid #e9edf4;padding:3px 6px"><input type="checkbox" ${libSel.has(key) ? 'checked' : ''} onchange="this.checked ? libSel.add('${key}') : libSel.delete('${key}')"></td>
         <td style="border:1px solid #e9edf4;padding:3px 6px">${v.image ? `<img src="${esc(v.image)}" style="width:42px;border-radius:5px">` : '—'}</td>
-        <td style="border:1px solid #e9edf4;padding:3px 6px;font-weight:700">${esc(a)}</td>
-        <td style="border:1px solid #e9edf4;padding:3px 6px;font-size:11px;white-space:normal">${v.title ? esc(v.title.slice(0, 90)) + (v.title.length > 90 ? '…' : '') : '<span style="color:#a3adc0">chưa quét</span>'}</td>
+        <td style="border:1px solid #e9edf4;padding:3px 6px;font-weight:700">${esc(comp)}</td>
+        <td style="border:1px solid #e9edf4;padding:3px 6px;font-size:11px;white-space:normal">${v.title ? esc(v.title.slice(0, 80)) + (v.title.length > 80 ? '…' : '') : '<span style="color:#a3adc0">chưa quét</span>'}</td>
+        <td style="border:1px solid #e9edf4;padding:3px 6px;text-align:center" title="${v.statDate ? 'phiên ' + esc(v.statDate) : 'chưa có phiên chạy'}">${v.n ?? '—'}</td>
+        <td style="border:1px solid #e9edf4;padding:3px 6px;text-align:center">${v.bestRank ?? '—'}</td>
         ${salesDates.map((d) => `<td style="border:1px solid #e9edf4;padding:3px 6px;text-align:center">${(v.sales || {})[d] ?? '_'}</td>`).join('')}
-        <td style="border:1px solid #e9edf4;padding:3px 6px;text-align:center"><input type="checkbox" ${v.enabled !== false ? 'checked' : ''} title="Bỏ tick = ngừng theo dõi (bị loại khi Get Competitor tick loại trừ)" onchange="libPatch('${a}',{enabled:this.checked})"></td>
-        <td style="border:1px solid #e9edf4;padding:3px 6px"><span style="color:#c0392b;cursor:pointer" title="Xoá khỏi Library" onclick="if(confirm('Xoá ${a} khỏi Library?'))libPatch('${a}',{delete:true})">🗑</span></td>
-      </tr>`).join('')}</tbody></table></div>`;
+        <td style="border:1px solid #e9edf4;padding:3px 6px;text-align:center"><input type="checkbox" ${v.enabled !== false ? 'checked' : ''} title="Bỏ tick = ngừng theo dõi (loại khỏi Get Competitor)" onchange="libPatch('${main}','${comp}',{enabled:this.checked})"></td>
+        <td style="border:1px solid #e9edf4;padding:3px 6px"><span style="color:#c0392b;cursor:pointer" title="Xoá khỏi nhóm ${main}" onclick="if(confirm('Xoá ${comp} khỏi nhóm ${main}?'))libPatch('${main}','${comp}',{delete:true})">🗑</span></td>
+      </tr>`;
+    }
+  }
+  $('libTable').innerHTML = htmlOut + '</tbody></table></div>';
 }
 window.libAddAsins = async () => {
   const r = await (await fetch('/api/competitor-library/add', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ asins: $('libAdd').value }) })).json();
-  $('libMsg').textContent = `✅ thêm ${r.added} ASIN`;
-  $('libAdd').value = '';
-  loadCompLib();
+    body: JSON.stringify({ main: $('libMain').value, asins: $('libAdd').value }) })).json();
+  $('libMsg').textContent = r.error ? '❌ ' + r.error : `✅ thêm ${r.added} competitor vào nhóm ${$('libMain').value}`;
+  if (!r.error) { $('libAdd').value = ''; loadCompLib(); }
 };
-window.libPatch = async (asin, patch) => {
+window.libPatch = async (main, comp, patch) => {
   await fetch('/api/competitor-library/patch', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ asin, ...patch }) });
+    body: JSON.stringify({ main, comp, ...patch }) });
   loadCompLib();
 };
 window.libSelAll = (on) => {
   libSel.clear();
-  if (on) Object.keys(LIB).forEach((a) => libSel.add(a));
+  if (on) for (const [main, comps] of Object.entries(LIB.groups || {})) for (const c of Object.keys(comps)) libSel.add(main + '|' + c);
   renderCompLib();
 };
 window.libScan = async () => {
   if (!libSel.size) return alert('Tick competitor cần quét trước');
-  $('libMsg').textContent = '⏳ đang quét ' + libSel.size + ' ASIN...';
+  const comps = [...new Set([...libSel].map((k) => k.split('|')[1]))]; // quét theo comp — cập nhật mọi nhóm chứa nó
+  $('libMsg').textContent = '⏳ đang quét ' + comps.length + ' ASIN...';
   const res = await fetch('/api/competitor-library/scan', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ asins: [...libSel] }) });
+    body: JSON.stringify({ asins: comps }) });
   const reader = res.body.getReader(); const dec = new TextDecoder();
   while (true) {
     const { done, value } = await reader.read();

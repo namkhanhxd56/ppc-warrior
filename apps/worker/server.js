@@ -18,7 +18,7 @@ import { evaluateAsin } from "./src/data/evaluate.js";
 import * as store from "./src/db/file-store.js";
 
 dotenv.config();
-export const APP_VERSION = "0.22.1"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
+export const APP_VERSION = "0.23.0"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
 
 // RUN_MODE:
 // - "local" (mặc định): bấm Kiểm tra là scrape NGAY trên máy này (dùng 1 người, chạy local)
@@ -853,14 +853,23 @@ app.post("/api/competitor-pick", (req, res) => {
 app.get("/api/competitor-library", (req, res) => res.json(store.getCompetitorLibrary()));
 
 app.post("/api/competitor-library/add", (req, res) => {
+  const main = String(req.body?.main || "").trim().toUpperCase();
+  if (!/^[A-Z0-9]{10}$/.test(main)) return res.status(400).json({ error: "Chọn ASIN chính trước" });
   const asins = String(req.body?.asins || "").split(/[\s,;]+/).filter(Boolean);
-  res.json({ ok: true, added: store.compLibAdd(asins) });
+  res.json({ ok: true, added: store.compLibAdd(main, asins) });
 });
 
 app.post("/api/competitor-library/patch", (req, res) => {
-  const { asin, ...patch } = req.body || {};
-  store.compLibPatch(asin, patch);
+  const { main, comp, ...patch } = req.body || {};
+  store.compLibPatch(main, comp, patch);
   res.json({ ok: true });
+});
+
+// Get Competitor (Tạo Campaign): CHỈ từ Library — khoảng keyword optional
+app.post("/api/competitor-pick-lib", (req, res) => {
+  const { asin, minKw, maxKw } = req.body || {};
+  if (!/^[A-Z0-9]{10}$/i.test(String(asin || ""))) return res.status(400).json({ error: "ASIN không hợp lệ" });
+  res.json({ list: store.getCompetitorPickLib(String(asin).toUpperCase(), minKw, maxKw) });
 });
 
 // Quét Library: ảnh + title (chỉ lần đầu) + Sale "bought in past month" (mỗi lần) — stream log

@@ -421,6 +421,7 @@ export function saveCompetitorAgg(asin, dateKey, results) {
   }
   all[key][dateKey] = cur;
   fs.writeFileSync(COMPRANK_FILE, JSON.stringify(all));
+  compLibUpdateStats(key, dateKey); // Số keyword + Best Organic trong Library update theo phiên này
 }
 
 export function getCompetitorRank(asin, dateKey) {
@@ -433,49 +434,102 @@ export function getCompetitorRank(asin, dateKey) {
   return { date: d || null, dates, list };
 }
 
-/* ===== COMPETITOR LIBRARY =====
-   competitor-library.json: { ASIN: { enabled, image, title, addedAt, scannedAt,
-                                      sales: { "YYYY-MM-DD": "50+"|"100+"|null } } }
-   - image + title: quét 1 LẦN (lần đầu); Sale ("bought in past month"): mỗi lần quét
-   - enabled=false: ngừng theo dõi (loại khỏi Get Competitor khi tick loại trừ) */
+/* ===== COMPETITOR LIBRARY (v2 — PHÂN NHÓM THEO ASIN CHÍNH) =====
+   competitor-library.json: { _v: 2, groups: { MAIN_ASIN: { COMP_ASIN: {
+       enabled, image, title, sales: {"YYYY-MM-DD": "50+"|null},
+       n, bestRank, statDate,          // Số keyword + Best Organic — update theo PHIÊN CHẠY MỚI NHẤT (không duyệt lịch sử)
+       addedAt, scannedAt } } } }
+   - ảnh + title: quét 1 LẦN; Sale: mỗi lần quét
+   - legacy v1 (phẳng, chưa phân nhóm): backup .v1.bak rồi làm mới — user tự add lại */
 const COMPLIB_FILE = path.join(DATA_DIR, "competitor-library.json");
 
 export function getCompetitorLibrary() {
-  return readJson(COMPLIB_FILE, {});
+  const raw = readJson(COMPLIB_FILE, { _v: 2, groups: {} });
+  if (raw._v !== 2) { // legacy phẳng → backup + reset
+    try { fs.writeFileSync(COMPLIB_FILE + ".v1.bak", JSON.stringify(raw)); } catch {}
+    const fresh = { _v: 2, groups: {} };
+    writeCompLib(fresh);
+    return fresh;
+  }
+  raw.groups = raw.groups || {};
+  return raw;
 }
 function writeCompLib(lib) {
   ensureDirs();
   fs.writeFileSync(COMPLIB_FILE, JSON.stringify(lib, null, 1));
 }
-export function compLibAdd(asins) {
+export function compLibAdd(mainAsin, asins) {
   const lib = getCompetitorLibrary();
+  const main = String(mainAsin).trim().toUpperCase();
+  if (!/^[A-Z0-9]{10}$/.test(main)) return 0;
+  lib.groups[main] = lib.groups[main] || {};
   let added = 0;
   for (const a of asins || []) {
     const key = String(a).trim().toUpperCase();
-    if (!/^[A-Z0-9]{10}$/.test(key) || lib[key]) continue;
-    lib[key] = { enabled: true, image: null, title: null, sales: {}, addedAt: new Date().toISOString() };
+    if (!/^[A-Z0-9]{10}$/.test(key) || key === main || lib.groups[main][key]) continue;
+    lib.groups[main][key] = { enabled: true, image: null, title: null, sales: {}, n: null, bestRank: null, statDate: null, addedAt: new Date().toISOString() };
     added++;
   }
   writeCompLib(lib);
   return added;
 }
-export function compLibPatch(asin, patch) {
+export function compLibPatch(mainAsin, compAsin, patch) {
   const lib = getCompetitorLibrary();
-  const key = String(asin).toUpperCase();
-  if (patch.delete) { delete lib[key]; writeCompLib(lib); return; }
-  if (!lib[key]) return;
-  for (const f of ["enabled"]) if (patch[f] !== undefined) lib[key][f] = patch[f];
+  const main = String(mainAsin).toUpperCase();
+  const comp = String(compAsin).toUpperCase();
+  if (!lib.groups[main]) return;
+  if (patch.delete) {
+    delete lib.groups[main][comp];
+    if (!Object.keys(lib.groups[main]).length) delete lib.groups[main]; // nhóm rỗng thì xoá header
+    writeCompLib(lib);
+    return;
+  }
+  if (!lib.groups[main][comp]) return;
+  for (const f of ["enabled"]) if (patch[f] !== undefined) lib.groups[main][comp][f] = patch[f];
   writeCompLib(lib);
 }
-export function compLibSaveScan(asin, { title, image, sales, date }) {
+/** Quét trang sản phẩm: cập nhật comp ở MỌI nhóm chứa nó (ảnh/title chỉ điền lần đầu, Sale theo ngày). */
+export function compLibSaveScan(compAsin, { title, image, sales, date }) {
   const lib = getCompetitorLibrary();
-  const key = String(asin).toUpperCase();
-  lib[key] = lib[key] || { enabled: true, image: null, title: null, sales: {}, addedAt: new Date().toISOString() };
-  if (title && !lib[key].title) lib[key].title = title;   // title + ảnh chỉ lấy lần đầu
-  if (image && !lib[key].image) lib[key].image = image;
-  lib[key].sales[date] = sales ?? null;                    // Sale mỗi lần quét ("50+"... hoặc null = "_")
-  lib[key].scannedAt = new Date().toISOString();
-  writeCompLib(lib);
+  const comp = String(compAsin).toUpperCase();
+  let touched = false;
+  for (const g of Object.values(lib.groups)) {
+    if (!g[comp]) continue;
+    if (title && !g[comp].title) g[comp].title = title;
+    if (image && !g[comp].image) g[comp].image = image;
+    g[comp].sales[date] = sales ?? null;
+    g[comp].scannedAt = new Date().toISOString();
+    touched = true;
+  }
+  if (touched) writeCompLib(lib);
+}
+/** Sau MỖI PHIÊN chạy: cập nhật Số keyword + Best Organic cho competitor trong nhóm của ASIN chính. */
+export function compLibUpdateStats(mainAsin, dateKey) {
+  const lib = getCompetitorLibrary();
+  const main = String(mainAsin).toUpperCase();
+  const g = lib.groups[main];
+  if (!g) return;
+  const agg = readJson(COMPRANK_FILE, {})[main]?.[dateKey] || {};
+  let touched = false;
+  for (const [comp, v] of Object.entries(agg)) {
+    if (!g[comp]) continue;
+    g[comp].n = v.n;
+    g[comp].bestRank = v.bestRank ?? null;
+    g[comp].statDate = dateKey;
+    touched = true;
+  }
+  if (touched) writeCompLib(lib);
+}
+/** Get Competitor (Tạo Campaign): CHỈ từ Library — nhóm của ASIN chính, đang theo dõi, khoảng keyword OPTIONAL. */
+export function getCompetitorPickLib(mainAsin, minKw, maxKw) {
+  const g = getCompetitorLibrary().groups[String(mainAsin).toUpperCase()] || {};
+  const lo = minKw ? Number(minKw) : null;
+  const hi = maxKw ? Number(maxKw) : null;
+  return Object.entries(g)
+    .filter(([, v]) => v.enabled !== false)
+    .filter(([, v]) => (lo == null || (v.n ?? 0) >= lo) && (hi == null || (v.n ?? 0) <= hi))
+    .map(([a, v]) => ({ asin: a, n: v.n, bestRank: v.bestRank }))
+    .sort((x, y) => (y.n ?? 0) - (x.n ?? 0) || (x.bestRank ?? 999) - (y.bestRank ?? 999));
 }
 
 /** Get Competitor cho Tạo Campaign: gộp NHIỀU PHIÊN + lọc khoảng số keyword + loại ASIN đã tắt theo dõi. */
