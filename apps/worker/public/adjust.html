@@ -37,8 +37,15 @@
   .tabs { display:flex; gap:8px; margin:10px 0 6px; }
   .tabs button.active { background:var(--b); color:#fff; }
   .msg { font-size:12.5px; } .msg.ok { color:var(--ok); } .msg.err { color:var(--bad); }
-  .edited { background:#fff6d9 !important; } /* ô đã sửa */
+  .edited { background:#fff6d9 !important; outline:2px solid var(--bad); outline-offset:-2px; } /* ô đã sửa: viền đỏ */
   .paused-row td { opacity:.55; }
+  .camp-row { background:#eef4ff; } .camp-row b { color:#1b3a86; }
+  tr.grp-start td { border-top:2px solid #97a9cf; } /* vạch tách campaign */
+  td.mut { color:#aab3c2; }
+  /* Cột tích chọn (đầu) dính khi cuộn ngang */
+  th:first-child, td:first-child { position:sticky; left:0; z-index:1; background:#fff; }
+  th:first-child { z-index:4; }
+  .camp-row td:first-child { background:#eef4ff; }
   .chgPanel { position:fixed; right:16px; bottom:16px; background:#101828; color:#e8edf6; border-radius:12px;
     padding:12px 16px; font-size:12px; max-width:420px; max-height:45vh; overflow:auto; box-shadow:0 8px 30px rgba(0,0,0,.35); z-index:50; }
   .chgPanel h3 { margin:0 0 8px; font-size:13px; }
@@ -46,6 +53,13 @@
   .chgPanel .undo { cursor:pointer; color:#ff9c9c; font-weight:700; }
   .hint { font-size:11px; color:#8a94a8; }
   .pgn { display:flex; gap:6px; align-items:center; margin-top:8px; font-size:12.5px; }
+  .rule-row { display:flex; align-items:center; gap:10px; padding:7px 4px; border-bottom:1px solid #eef1f7; font-size:12.5px; }
+  .rule-row.off { opacity:.5; }
+  .badge { font-size:10.5px; padding:2px 7px; border-radius:10px; background:#eef1f7; color:#556; font-weight:600; }
+  .badge.rank { background:#f3eefb; color:#6b3fa0; } .badge.profit { background:#eef4ff; color:#2455e6; } .badge.all { background:#eefaf0; color:#157a3d; }
+  .diff-old { color:#b12727; } .diff-new { color:#157a3d; font-weight:700; }
+  .subcard { border:1px solid #e3e8f0; border-radius:10px; padding:12px 14px; margin:10px 0; }
+  .subcard h3 { margin:0 0 8px; font-size:13px; }
 </style>
 </head>
 <body>
@@ -55,6 +69,7 @@
     <a href="/">📊 Check Ranking</a>
     <a href="/launching.html">🚀 Tạo Campaign</a>
     <a href="/adjust.html" class="active">⚙️ Adjust</a>
+    <a href="/data.html">📈 Data</a>
   </nav>
 </header>
 <main>
@@ -80,15 +95,16 @@
     <div class="tabs">
       <button id="tabTargets" class="active btn-sm" style="padding:7px 18px">🎯 Campaigns & Targets</button>
       <button id="tabTerms" class="btn-sm" style="padding:7px 18px">🔍 Search Terms → Negative / Thăng cấp</button>
+      <button id="tabRules" class="btn-sm" style="padding:7px 18px">⚙️ Rules / Đề xuất (dry-run)</button>
     </div>
 
-    <div class="bulkbar">
+    <div class="bulkbar" id="filterBar">
       <b style="font-size:12px">🔎</b>
       <input type="text" id="fQ" placeholder="Tên campaign / keyword / ASIN / term" style="width:230px">
       <select id="fEntity" style="max-width:150px">
         <option value="">Mọi Entity</option>
-        <option>Campaign</option><option>Keyword</option>
-        <option>Product Targeting</option><option>Bidding Adjustment</option>
+        <option>Campaign</option><option>Ad Group</option><option>Product Ad</option>
+        <option>Keyword</option><option>Product Targeting</option><option>Bidding Adjustment</option>
       </select>
       <select id="fState" style="max-width:110px">
         <option value="">Mọi State</option><option>enabled</option><option>paused</option>
@@ -107,7 +123,8 @@
       <span class="hint" id="cntInfo"></span>
       <span style="margin-left:auto"></span>
       <span class="hint">Sắp xếp:</span>
-      <select id="sortField" style="max-width:110px">
+      <select id="sortField" style="max-width:140px">
+        <option value="grp" selected>Nhóm campaign</option>
         <option value="sp">Spend</option><option value="sa">Sales</option><option value="or">Orders</option>
         <option value="clk">Clicks</option><option value="acos">ACoS</option><option value="imp">Impressions</option>
       </select>
@@ -116,7 +133,7 @@
 
     <div class="bulkbar" id="actionBar"></div>
     <div id="tableArea" class="scroll"></div>
-    <div class="pgn">
+    <div class="pgn" id="pgnBar">
       <button class="btn-sm" id="pgPrev">←</button>
       <span id="pgInfo"></span>
       <button class="btn-sm" id="pgNext">→</button>
@@ -135,7 +152,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&l
 const pct = (v) => v === null || v === undefined ? '∞' : (v * 100).toFixed(1) + '%';
 const money = (v) => '$' + Number(v || 0).toFixed(2);
 
-const UI_VERSION = '0.21.5';
+const UI_VERSION = '0.22.0';
 (async () => {
   try {
     const v = (await (await fetch('/api/version')).json()).version;
@@ -153,6 +170,8 @@ let edits = [];      // {k, field, old, value, label}
 let negatives = [];  // {cid, agid, term, mt, name}
 let lastRows = [];
 let sel = new Set(); // key (targets) hoặc index term đang tick
+let bulkUndo = []; // stack snapshot edits trước mỗi lần bulk (để Undo)
+let loadingMore = false, totalPages = 1, lastCid = null; // infinite scroll
 
 /* ===== Datasets ===== */
 async function loadDatasets(pickId) {
@@ -162,9 +181,9 @@ async function loadDatasets(pickId) {
     || '<option value="">— chưa có, hãy import —</option>';
   if (pickId) $('dsSelect').value = pickId;
   dsId = $('dsSelect').value;
-  if (dsId) refresh();
+  if (dsId) { restoreLedger(); renderChanges(); refresh(); }
 }
-$('dsSelect').onchange = () => { dsId = $('dsSelect').value; page = 1; edits = []; negatives = []; sel.clear(); renderChanges(); refresh(); };
+$('dsSelect').onchange = () => { dsId = $('dsSelect').value; page = 1; sel.clear(); restoreLedger(); renderChanges(); refresh(); };
 
 $('btnImport').onclick = async () => {
   const f = $('bulkFile').files[0];
@@ -193,22 +212,66 @@ function filters() {
   return { q: $('fQ').value.trim(), entity: $('fEntity').value, state: $('fState').value, ranges };
 }
 
-async function refresh() {
-  if (!dsId) { $('tableArea').innerHTML = '<span class="hint">Import hoặc chọn dataset trước.</span>'; return; }
-  const body = { id: dsId, tab, filters: filters(), sort: $('sortField').value, dir: $('sortDir').value, page, pageSize: 100 };
+const PAGE_SIZE = 500;
+async function queryPage(p) {
+  const body = { id: dsId, tab, filters: filters(), sort: $('sortField').value, dir: $('sortDir').value, page: p, pageSize: PAGE_SIZE };
   const r = await (await fetch('/api/adjust/query', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })).json();
-  if (!r.ok) { $('tableArea').innerHTML = `<span class="msg err">❌ ${esc(r.message)}</span>`; return; }
-  lastRows = r.rows;
+  if (!r.ok) { $('tableArea').innerHTML = `<span class="msg err">❌ ${esc(r.message)}</span>`; return null; }
+  return r;
+}
+function updateLoadInfo(total) {
+  const done = page >= totalPages;
+  $('pgInfo').textContent = `Đã tải ${lastRows.length} / ${total} dòng${done ? ' — hết' : ' · cuộn để tải thêm'}`;
+}
+
+// Nạp lại từ đầu (đổi dataset/tab/filter/sort) — cuộn vô cực sẽ tải tiếp
+async function refresh() {
+  const rulesMode = tab === 'rules';
+  $('filterBar').style.display = rulesMode ? 'none' : '';
+  $('actionBar').style.display = rulesMode ? 'none' : '';
+  $('pgnBar').style.display = rulesMode ? 'none' : '';
+  $('tableArea').style.maxHeight = rulesMode ? 'none' : '';
+  if (rulesMode) return renderRulesTab();
+  if (!dsId) { $('tableArea').innerHTML = '<span class="hint">Import hoặc chọn dataset trước.</span>'; return; }
+  page = 1; lastRows = []; lastCid = null;
+  $('tableArea').scrollTop = 0;
+  const r = await queryPage(1);
+  if (!r) return;
+  totalPages = Math.max(1, Math.ceil(r.total / r.pageSize));
   $('cntInfo').textContent = `${r.total} dòng khớp`;
-  $('pgInfo').textContent = `Trang ${r.page} / ${Math.max(1, Math.ceil(r.total / r.pageSize))}`;
+  const aggLbl = r.agg.level === 'campaign' ? 'tổng campaign' : 'tập lọc';
   $('dsStats').innerHTML = `
-    <div class="stat"><b>${money(r.agg.sp)}</b><span>Spend (tập lọc)</span></div>
-    <div class="stat"><b>${money(r.agg.sa)}</b><span>Sales</span></div>
+    <div class="stat"><b>${money(r.agg.sp)}</b><span>Spend (${aggLbl})</span></div>
+    <div class="stat"><b>${money(r.agg.sa)}</b><span>Sales (${aggLbl})</span></div>
     <div class="stat"><b>${r.agg.or}</b><span>Orders</span></div>
     <div class="stat"><b>${r.agg.clk}</b><span>Clicks</span></div>
     <div class="stat"><b>${pct(r.agg.acos)}</b><span>ACoS</span></div>
     <div class="stat"><b>${r.meta.windowStart}–${r.meta.windowEnd}</b><span>Window</span></div>`;
-  tab === 'targets' ? renderTargets(r) : renderTerms(r);
+  if (tab === 'targets') renderTargetsInit(); else renderTermsInit();
+  (tab === 'targets' ? appendTargetRows : appendTermRows)(r.rows);
+  lastRows.push(...r.rows);
+  updateLoadInfo(r.total);
+  // Nếu trang đầu chưa lấp đầy khung → tự tải tiếp
+  maybeLoadMore(r.total);
+}
+
+// Cuộn gần đáy → tải thêm (infinite scroll)
+async function loadMore() {
+  if (loadingMore || page >= totalPages || tab === 'rules' || !dsId) return;
+  loadingMore = true;
+  page++;
+  const r = await queryPage(page);
+  if (r) {
+    (tab === 'targets' ? appendTargetRows : appendTermRows)(r.rows);
+    lastRows.push(...r.rows);
+    updateLoadInfo(r.total);
+  } else { page--; }
+  loadingMore = false;
+  maybeLoadMore(r ? r.total : 0);
+}
+function maybeLoadMore(total) {
+  const el = $('tableArea');
+  if (el && el.scrollHeight <= el.clientHeight + 40 && page < totalPages) loadMore();
 }
 
 const editedVal = (k, field, orig) => {
@@ -217,74 +280,99 @@ const editedVal = (k, field, orig) => {
 };
 const editedCls = (k, field) => edits.some(x => x.k === k && x.field === field) ? 'edited' : '';
 
-function renderTargets(r) {
+function renderTargetsInit() {
   $('actionBar').innerHTML = `
     <b style="font-size:12px">Bulk (dòng đã tick):</b>
-    <select id="bkField" style="max-width:130px">
-      <option value="bid">Bid</option><option value="bud">Budget</option>
+    <select id="bkField" style="max-width:120px">
+      <option value="bid">Bid ($)</option><option value="bud">Budget ($)</option>
       <option value="pct">Placement %</option><option value="st">State</option>
     </select>
-    <select id="bkMode" style="max-width:110px">
-      <option value="set">= set</option><option value="pctUp">+%</option><option value="pctDown">−%</option>
-      <option value="addUp">+$</option><option value="addDown">−$</option>
+    <select id="bkMode" style="max-width:150px">
+      <option value="set">Đặt (=)</option>
+      <option value="addUp">Tăng (+$)</option><option value="addDown">Giảm (−$)</option>
+      <option value="pctUp">Tăng (+%)</option><option value="pctDown">Giảm (−%)</option>
     </select>
     <input type="text" inputmode="decimal" id="bkVal" placeholder="giá trị" style="width:80px">
     <button class="btn-sm" onclick="applyBulkAdjust()">Áp dụng</button>
-    <span class="hint">VD: Bid −% 15 = giảm bid 15% các dòng tick · State set paused = tắt</span>`;
-  const rows = r.rows.map(x => {
-    const stNow = editedVal(x.k, 'st', x.st);
-    const cells = [`<td><input type="checkbox" ${sel.has(x.k) ? 'checked' : ''} onchange="tick('${x.k}', this.checked)"></td>`,
-      `<td style="max-width:330px;overflow:hidden;text-overflow:ellipsis" title="${esc(x.name)}">${esc(x.name)}</td>`,
-      `<td>${x.e === 'Bidding Adjustment' ? 'Placement' : x.e}</td>`,
-      `<td style="max-width:170px;overflow:hidden;text-overflow:ellipsis" title="${esc(x.kw || x.ex || x.pl)}">${esc(x.kw || x.ex || x.pl || '')} ${x.mt ? '<span class="hint">' + esc(x.mt) + '</span>' : ''}</td>`];
-    // Cột chỉnh được theo entity
-    if (x.e === 'Campaign') {
-      cells.push(`<td class="${editedCls(x.k,'st')}"><select onchange="edit('${x.k}','st',this.value,'${esc(x.name).slice(0,40)}','${x.st}')">
-        <option ${stNow==='enabled'?'selected':''}>enabled</option><option ${stNow==='paused'?'selected':''}>paused</option></select></td>`);
-      cells.push(`<td class="${editedCls(x.k,'bud')}"><input type="text" inputmode="decimal" style="width:64px" value="${editedVal(x.k,'bud',x.bud)}" onchange="edit('${x.k}','bud',this.value,'${esc(x.name).slice(0,40)}','${x.bud}')"></td>`);
-      cells.push(`<td>—</td>`);
-    } else if (x.e === 'Bidding Adjustment') {
-      cells.push(`<td>${esc(x.cst)}</td>`);
-      cells.push(`<td>—</td>`);
-      cells.push(`<td class="${editedCls(x.k,'pct')}"><input type="text" inputmode="decimal" style="width:56px" value="${editedVal(x.k,'pct',x.pct)}" onchange="edit('${x.k}','pct',this.value,'${esc(x.name).slice(0,40)} · ${x.pl}','${x.pct}')"></td>`);
-    } else {
-      cells.push(`<td class="${editedCls(x.k,'st')}"><select onchange="edit('${x.k}','st',this.value,'${esc(x.kw||x.ex).slice(0,40)}','${x.st}')">
-        <option ${stNow==='enabled'?'selected':''}>enabled</option><option ${stNow==='paused'?'selected':''}>paused</option></select></td>`);
-      cells.push(`<td>—</td>`);
-      cells.push(`<td class="${editedCls(x.k,'bid')}"><input type="text" inputmode="decimal" style="width:56px" value="${editedVal(x.k,'bid',x.bid)}" onchange="edit('${x.k}','bid',this.value,'${esc(x.kw||x.ex).slice(0,40)}','${x.bid}')"></td>`);
-    }
-    cells.push(`<td>${x.imp}</td><td>${x.clk}</td><td>${money(x.sp)}</td><td>${money(x.sa)}</td><td>${x.or}</td>
-      <td>${pct(x.acos)}</td><td>${pct(x.ctr)}</td><td>${pct(x.cr)}</td><td>${money(x.cpc)}</td>`);
-    return `<tr class="${stNow === 'paused' ? 'paused-row' : ''}">${cells.join('')}</tr>`;
-  }).join('');
+    <button class="btn-sm" id="bkUndo" onclick="undoBulk()" ${bulkUndo.length ? '' : 'disabled'} title="Hoàn tác lần bulk gần nhất">↩ Undo</button>
+    <span class="hint">Bid/Budget: Đặt / ±$ / ±% · State: gõ enabled|paused rồi Đặt · áp cho các dòng đã tick</span>`;
   $('tableArea').innerHTML = `<table><thead><tr>
     <th style="width:28px"><input type="checkbox" onchange="tickAll(this.checked)"></th>
-    <th>Campaign</th><th>Entity</th><th>Target</th><th>State</th><th>Budget</th><th>Bid / %</th>
+    <th class="l">Name</th><th>Entity</th><th class="l">Targeting</th><th>SKU</th><th>Start</th><th>End</th>
+    <th>State</th><th>Budget</th><th>Bid</th><th>%</th>
     <th>Impr</th><th>Clicks</th><th>Spend</th><th>Sales</th><th>Orders</th><th>ACoS</th><th>CTR</th><th>CR</th><th>CPC</th>
-    </tr></thead><tbody>${rows}</tbody></table>`;
+    </tr></thead><tbody id="tbMain"></tbody></table>`;
+  lastCid = null;
+}
+function appendTargetRows(rows) {
+  const tb = $('tbMain'); if (!tb) return;
+  tb.insertAdjacentHTML('beforeend', rows.map(buildTargetRow).join(''));
+}
+function buildTargetRow(x) {
+  const DASH = '<td class="mut">—</td>', EMPTY = '<td></td>';
+  const groupStart = x.cid !== lastCid; lastCid = x.cid;
+  const stNow = editedVal(x.k, 'st', x.st);
+  const rowLabel = x.name || x.kw || x.ex || x.agname || x.sku || x.pl || '';
+  const da = (field, old) => `data-k="${x.k}" data-field="${field}" data-old="${esc(old)}" data-label="${esc(rowLabel)}"`;
+  const stSel = () => `<td class="${editedCls(x.k,'st')}"><select ${da('st',x.st)} onchange="editEl(this)"><option ${stNow==='enabled'?'selected':''}>enabled</option><option ${stNow==='paused'?'selected':''}>paused</option></select></td>`;
+  const numCell = (field, val) => `<td class="${editedCls(x.k,field)}"><input type="text" inputmode="decimal" style="width:60px" value="${editedVal(x.k,field,val)}" ${da(field,val)} onchange="editEl(this)"></td>`;
+  const pctCell = (val) => `<td class="${editedCls(x.k,'pct')}"><input type="text" inputmode="decimal" style="width:60px" value="${Number(editedVal(x.k,'pct',val) || 0).toFixed(2)}" ${da('pct',val)} onchange="editEl(this)"></td>`;
+  const txtCell = (field, val, w) => `<td class="${editedCls(x.k,field)}"><input type="text" style="width:${w}px" value="${esc(editedVal(x.k,field,val))}" ${da(field,val)} onchange="editEl(this)"></td>`;
+  let nameCell;
+  if (x.e === 'Campaign') nameCell = txtCell('name', x.name, 230);
+  else if (x.e === 'Ad Group') nameCell = txtCell('agname', x.agname, 200);
+  else if (x.e === 'Product Ad') { const asin = x.asin || ((x.name || '').match(/B0[A-Z0-9]{8}/) || [''])[0]; nameCell = `<td class="mut" title="${esc(x.name)}">${esc(asin) || '—'}</td>`; }
+  else nameCell = EMPTY;
+  let targeting = '', tTitle = '';
+  if (x.e === 'Campaign') { targeting = x.tt ? `<span class="hint">${esc(x.tt)}</span>` : ''; tTitle = x.tt || ''; }
+  else if (x.e === 'Bidding Adjustment') { targeting = esc(x.pl); tTitle = x.pl || ''; }
+  else if (x.e === 'Keyword') { targeting = `${esc(x.kw)} ${x.mt ? '<span class="hint">' + esc(x.mt) + '</span>' : ''}`; tTitle = x.kw || ''; }
+  else if (x.e === 'Product Targeting') { targeting = esc(x.ex); tTitle = x.ex || ''; }
+  const cells = [
+    `<td><input type="checkbox" ${sel.has(x.k) ? 'checked' : ''} onchange="tick('${x.k}', this.checked)"></td>`,
+    nameCell,
+    `<td>${x.e === 'Bidding Adjustment' ? 'Placement' : esc(x.e)}</td>`,
+    `<td class="l" style="max-width:220px;overflow:hidden;text-overflow:ellipsis" title="${esc(tTitle)}">${targeting}</td>`,
+    `<td class="mut">${esc(x.sku || '')}</td>`,
+    `<td class="mut">${esc(x.sd || '')}</td>`,
+    `<td class="mut">${esc(x.ed || '')}</td>`
+  ];
+  if (x.e === 'Campaign') cells.push(stSel(), numCell('bud', x.bud), DASH, DASH);
+  else if (x.e === 'Bidding Adjustment') cells.push(`<td class="mut">${esc(x.cst)}</td>`, DASH, DASH, pctCell(x.pct));
+  else if (x.e === 'Ad Group') cells.push(stSel(), DASH, numCell('agbid', x.agbid), DASH);
+  else if (x.e === 'Product Ad') cells.push(stSel(), DASH, DASH, DASH);
+  else cells.push(stSel(), DASH, numCell('bid', x.bid), DASH);
+  cells.push(`<td>${x.imp}</td><td>${x.clk}</td><td>${money(x.sp)}</td><td>${money(x.sa)}</td><td>${x.or}</td>
+    <td>${pct(x.acos)}</td><td>${pct(x.ctr)}</td><td>${pct(x.cr)}</td><td>${money(x.cpc)}</td>`);
+  const cls = [groupStart ? 'grp-start' : '', x.e === 'Campaign' ? 'camp-row' : '', stNow === 'paused' ? 'paused-row' : ''].filter(Boolean).join(' ');
+  return `<tr class="${cls}">${cells.join('')}</tr>`;
 }
 
-function renderTerms(r) {
+function renderTermsInit() {
   $('actionBar').innerHTML = `
     <b style="font-size:12px">Search term đã tick:</b>
     <button class="btn-sm" style="background:#fde8e8;color:#c0392b" onclick="addNegatives('negativeExact')">🚫 Negative Exact</button>
     <button class="btn-sm" style="background:#fde8e8;color:#c0392b" onclick="addNegatives('negativePhrase')">🚫 Negative Phrase</button>
     <button class="btn-sm" style="background:#e8f5ec;color:#157a3d" onclick="promoteTerms()">⤴ Thăng cấp Exact (→ Tạo Campaign)</button>
     <span class="hint">Negative áp vào ĐÚNG campaign/ad group của dòng đó (ID thật) · Thăng cấp: term ra đơn → tạo campaign Exact riêng, nhớ negative term ở campaign nguồn</span>`;
-  const rows = r.rows.map((x, i) => `
-    <tr>
-      <td><input type="checkbox" ${sel.has('t' + i) ? 'checked' : ''} onchange="tick('t${i}', this.checked)"></td>
-      <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis"><b>${esc(x.term)}</b></td>
-      <td style="max-width:280px;overflow:hidden;text-overflow:ellipsis" title="${esc(x.name)}">${esc(x.name)}</td>
-      <td>${esc(x.targeting)} <span class="hint">${esc(x.mt)}</span></td>
-      <td>${x.imp}</td><td>${x.clk}</td><td>${money(x.sp)}</td><td>${money(x.sa)}</td><td>${x.or}</td>
-      <td>${pct(x.acos)}</td><td>${pct(x.cr)}</td>
-    </tr>`).join('');
   $('tableArea').innerHTML = `<table><thead><tr>
     <th style="width:28px"><input type="checkbox" onchange="tickAll(this.checked)"></th>
-    <th>Customer Search Term</th><th>Campaign</th><th>Targeting</th>
+    <th class="l">Customer Search Term</th><th class="l">Campaign</th><th class="l">Targeting</th>
     <th>Impr</th><th>Clicks</th><th>Spend</th><th>Sales</th><th>Orders</th><th>ACoS</th><th>CR</th>
-    </tr></thead><tbody>${rows}</tbody></table>`;
+    </tr></thead><tbody id="tbMain"></tbody></table>`;
+}
+function appendTermRows(rows) {
+  const tb = $('tbMain'); if (!tb) return;
+  const start = lastRows.length; // index toàn cục (tick 't'+i khớp lastRows)
+  tb.insertAdjacentHTML('beforeend', rows.map((x, j) => `
+    <tr>
+      <td><input type="checkbox" ${sel.has('t' + (start + j)) ? 'checked' : ''} onchange="tick('t${start + j}', this.checked)"></td>
+      <td class="l" style="max-width:220px;overflow:hidden;text-overflow:ellipsis"><b>${esc(x.term)}</b></td>
+      <td class="l" style="max-width:280px;overflow:hidden;text-overflow:ellipsis" title="${esc(x.name)}">${esc(x.name)}</td>
+      <td class="l">${esc(x.targeting)} <span class="hint">${esc(x.mt)}</span></td>
+      <td>${x.imp}</td><td>${x.clk}</td><td>${money(x.sp)}</td><td>${money(x.sa)}</td><td>${x.or}</td>
+      <td>${pct(x.acos)}</td><td>${pct(x.cr)}</td>
+    </tr>`).join(''));
 }
 
 /* ===== Tick / edit / bulk ===== */
@@ -292,19 +380,39 @@ window.tick = (key, on) => { on ? sel.add(key) : sel.delete(key); };
 window.tickAll = (on) => {
   sel.clear();
   if (on) (tab === 'targets' ? lastRows.map(x => x.k) : lastRows.map((_, i) => 't' + i)).forEach(k => sel.add(k));
-  refresh();
+  // Cập nhật checkbox đang hiển thị (không reload — giữ nguyên các dòng đã cuộn tải)
+  document.querySelectorAll('#tbMain input[type=checkbox]').forEach(cb => { cb.checked = on; });
 };
+// Guardrail: giá trị ngoài ngưỡng an toàn → trả cảnh báo (không chặn, chỉ báo)
+function validateEdit(field, value) {
+  if (STR_FIELDS.includes(field)) return '';
+  const v = Number(value);
+  if (field === 'bid' || field === 'agbid') { if (v <= 0) return 'bid ≤ 0'; if (v > 20) return 'bid > $20?'; }
+  if (field === 'bud') { if (v <= 0) return 'budget ≤ 0'; if (v > 10000) return 'budget quá lớn?'; }
+  if (field === 'pct') { if (v < 0) return '% < 0'; if (v > 900) return '% > 900 (trần)'; }
+  return '';
+}
+const STR_FIELDS = ['st', 'name', 'agname'];
 window.edit = (k, field, value, label, old) => {
-  value = field === 'st' ? value : (parseFloat(String(value).replace(',', '.')) || 0);
+  value = STR_FIELDS.includes(field) ? value : (parseFloat(String(value).replace(',', '.')) || 0);
   edits = edits.filter(e => !(e.k === k && e.field === field));
-  if (String(value) !== String(old)) edits.push({ k, field, old, value, label });
+  if (String(value) !== String(old)) edits.push({ k, field, old, value, label, warn: validateEdit(field, value) });
   renderChanges();
 };
+// Handler chung cho input/select (đọc data-* → tránh lỗi dấu nháy trong tên campaign)
+window.editEl = (el) => {
+  const d = el.dataset;
+  window.edit(d.k, d.field, el.value, d.label || '', d.old);
+  const td = el.closest('td'); // tô viền đỏ ô ngay (không cần render lại cả bảng)
+  if (td) td.classList.toggle('edited', edits.some(e => e.k === d.k && e.field === d.field));
+};
+window.undoBulk = () => { if (!bulkUndo.length) return; edits = bulkUndo.pop(); renderChanges(); refresh(); };
 window.applyBulkAdjust = () => {
   const field = $('bkField').value, mode = $('bkMode').value;
   const raw = parseFloat($('bkVal').value.replace(',', '.'));
   const targets = lastRows.filter(x => sel.has(x.k));
   if (!targets.length) { alert('Chưa tick dòng nào'); return; }
+  bulkUndo.push(JSON.parse(JSON.stringify(edits))); // snapshot để Undo
   for (const x of targets) {
     let old, applicable;
     if (field === 'bid') { old = x.bid; applicable = x.e === 'Keyword' || x.e === 'Product Targeting'; }
@@ -350,22 +458,37 @@ window.promoteTerms = () => {
 };
 
 /* ===== Panel thay đổi + export ===== */
+function saveLedger() { if (dsId) localStorage.setItem('ppcw_adj_' + dsId, JSON.stringify({ edits, negatives })); }
+function restoreLedger() {
+  try { const p = JSON.parse(localStorage.getItem('ppcw_adj_' + dsId)); edits = p.edits || []; negatives = p.negatives || []; }
+  catch { edits = []; negatives = []; }
+}
 function renderChanges() {
+  saveLedger();
   const n = edits.length + negatives.length;
   if (!n) { $('chgPanel').style.display = 'none'; return; }
   $('chgPanel').style.display = 'block';
-  const FIELD_LB = { bid: 'Bid', bud: 'Budget', pct: 'Placement %', st: 'State' };
-  $('chgPanel').innerHTML = `<h3>📋 Thay đổi (${n}) — chưa áp dụng cho tới khi xuất file & upload</h3>` +
+  const FIELD_LB = { bid: 'Bid', bud: 'Budget', pct: 'Placement %', st: 'State', agbid: 'Ad Group Bid', name: 'Tên Campaign' };
+  const warns = edits.filter(e => e.warn).length;
+  $('chgPanel').innerHTML = `<h3>📋 Thay đổi (${n})${warns ? ` · <span style="color:#ffb3b3">⚠️ ${warns} cảnh báo</span>` : ''} — chưa áp dụng cho tới khi xuất file & upload</h3>` +
     edits.map((e, i) => `<div class="it"><span class="undo" onclick="undoEdit(${i})">✕</span>
-      <span>${FIELD_LB[e.field]}: <b>${e.old}</b> → <b style="color:#7ef0a8">${e.value}</b> · ${esc(e.label)}</span></div>`).join('') +
+      <span>${FIELD_LB[e.field] || e.field}: <b>${esc(e.old)}</b> → <b style="color:#7ef0a8">${esc(e.value)}</b> · ${esc(e.label)}${e.warn ? ` <span style="color:#ffb3b3" title="${esc(e.warn)}">⚠️</span>` : ''}</span></div>`).join('') +
     negatives.map((g, i) => `<div class="it"><span class="undo" onclick="undoNeg(${i})">✕</span>
       <span>🚫 ${g.mt === 'negativePhrase' ? 'Phrase' : 'Exact'}: <b>${esc(g.term)}</b> · ${esc((g.name || '').slice(0, 38))}</span></div>`).join('');
 }
-window.undoEdit = (i) => { edits.splice(i, 1); renderChanges(); refresh(); };
+window.undoEdit = (i) => {
+  const e = edits[i]; edits.splice(i, 1); renderChanges();
+  if (e) document.querySelectorAll(`#tbMain [data-k="${CSS.escape(e.k)}"][data-field="${e.field}"]`).forEach(el => {
+    const td = el.closest('td'); if (td) td.classList.remove('edited');
+    el.value = e.field === 'pct' ? Number(e.old || 0).toFixed(2) : e.old; // khôi phục giá trị hiển thị
+  });
+};
 window.undoNeg = (i) => { negatives.splice(i, 1); renderChanges(); };
 
 $('btnExport').onclick = async () => {
   if (!edits.length && !negatives.length) { $('exportMsg').className = 'msg err'; $('exportMsg').textContent = '❌ Chưa có thay đổi nào'; return; }
+  const warns = edits.filter(e => e.warn).length;
+  if (warns && !confirm(`Có ${warns} giá trị ngoài ngưỡng an toàn (⚠️). Vẫn xuất file?`)) return;
   $('exportMsg').className = 'msg'; $('exportMsg').textContent = '⏳...';
   const res = await fetch('/api/adjust/export', { method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ id: dsId, edits, negatives }) });
@@ -384,15 +507,164 @@ $('btnExport').onclick = async () => {
   $('exportMsg').textContent = `✅ ${info.rows} dòng Update — upload file này vào Amazon Ads (Bulk operations)`;
 };
 
+/* ===== Tab Rules / Đề xuất (dry-run) ===== */
+let rulesCache = [];
+let lastProposals = [];
+
+async function renderRulesTab() {
+  const area = $('tableArea');
+  const [rr, pr] = await Promise.all([
+    fetch('/api/adjust/rules').then(r => r.json()),
+    fetch('/api/adjust/products').then(r => r.json())
+  ]);
+  rulesCache = rr.rules || [];
+  const products = pr.products || {};
+  const prodLine = Object.keys(products).length
+    ? Object.entries(products).map(([a, p]) => `${a}: <b>${p.target_acos ?? '—'}%</b>`).join(' · ')
+    : 'Chưa có ASIN nào — rule P3/P4 sẽ bỏ qua ASIN thiếu target.';
+  area.innerHTML = `
+    <div class="subcard">
+      <h3>🎯 Target ACoS theo ASIN <span class="hint">(rule P3/P4 cần — nhập từ biên lợi nhuận)</span></h3>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <input id="tgtAsin" placeholder="ASIN (B0...)" style="width:130px">
+        <input id="tgtVal" inputmode="decimal" placeholder="target %" style="width:90px">
+        <button class="btn-sm" onclick="saveTarget()">Lưu</button>
+        <span id="tgtMsg" class="hint"></span>
+      </div>
+      <div class="hint" style="margin-top:6px">${prodLine}</div>
+    </div>
+    <div class="subcard">
+      <h3>⚙️ Rule Set v1 <button class="btn-sm" style="margin-left:8px" onclick="resetRules()">↺ Reset mặc định</button></h3>
+      <div id="ruleList"></div>
+    </div>
+    <div class="subcard">
+      <h3>▶ Chạy đề xuất (dry-run) — KHÔNG sửa gì, chỉ gợi ý để bạn duyệt rồi mới xuất file</h3>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <button class="btn-primary" onclick="runRules()" ${dsId ? '' : 'disabled'}>▶ Chạy rule trên dataset đang chọn</button>
+        <span id="runMsg" class="hint">${dsId ? '' : 'Chọn dataset ở tab Campaigns & Targets trước.'}</span>
+      </div>
+      <div id="propArea" style="margin-top:10px"></div>
+    </div>`;
+  renderRuleList();
+}
+
+function renderRuleList() {
+  $('ruleList').innerHTML = rulesCache.slice().sort((a, b) => (a.priority ?? 100) - (b.priority ?? 100)).map(r => {
+    const obj = (r.objective_scope || 'ALL').toLowerCase();
+    return `<div class="rule-row ${r.enabled ? '' : 'off'}">
+      <input type="checkbox" ${r.enabled ? 'checked' : ''} onchange="toggleRule('${r.id}',this.checked)">
+      <span class="badge ${obj}">${esc(r.objective_scope || 'ALL')}</span>
+      <span class="badge">${esc(r.entity_scope || '')}</span>
+      <b style="min-width:220px">${esc(r.name)}</b>
+      <span class="hint" style="flex:1">${esc(r.description || '')}</span>
+      <span class="hint">ưu tiên ${r.priority ?? 100}</span>
+      <span style="cursor:pointer;color:#c0392b;font-weight:700" onclick="deleteRule('${r.id}')">✕</span>
+    </div>`;
+  }).join('');
+}
+
+window.toggleRule = async (id, on) => {
+  await fetch('/api/adjust/rules/' + id, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: on }) });
+  const r = rulesCache.find(x => x.id === id); if (r) r.enabled = on; renderRuleList();
+};
+window.deleteRule = async (id) => {
+  if (!confirm('Xóa rule này?')) return;
+  await fetch('/api/adjust/rules/' + id, { method: 'DELETE' });
+  rulesCache = rulesCache.filter(x => x.id !== id); renderRuleList();
+};
+window.resetRules = async () => {
+  if (!confirm('Khôi phục Rule Set v1 mặc định (mất chỉnh sửa rule)?')) return;
+  const r = await (await fetch('/api/adjust/rules/reset', { method: 'POST' })).json();
+  rulesCache = r.rules; renderRuleList();
+};
+window.saveTarget = async () => {
+  const asin = $('tgtAsin').value.trim().toUpperCase();
+  const v = $('tgtVal').value.replace(',', '.');
+  const r = await (await fetch('/api/adjust/products', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ asin, target_acos: v }) })).json();
+  $('tgtMsg').textContent = r.ok ? `✅ ${asin} = ${v}%` : '❌ ' + r.message;
+  if (r.ok) renderRulesTab();
+};
+window.runRules = async () => {
+  if (!dsId) { $('runMsg').textContent = 'Chưa chọn dataset'; return; }
+  $('runMsg').textContent = '⏳ Đang đánh giá...';
+  const r = await (await fetch('/api/adjust/run-rules', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: dsId }) })).json();
+  if (!r.ok) { $('runMsg').textContent = '❌ ' + r.message; return; }
+  lastProposals = r.proposals || [];
+  $('runMsg').innerHTML = `✅ ${r.count} đề xuất` + (r.missingTargetAcos && r.missingTargetAcos.length ? ` · ⚠️ ${r.missingTargetAcos.length} ASIN thiếu target ACoS (P3/P4 bỏ qua)` : '');
+  renderProposals();
+};
+
+function renderProposals() {
+  if (!lastProposals.length) { $('propArea').innerHTML = '<span class="hint">Không có đề xuất nào (thiếu dữ liệu, hoặc mọi thứ trong ngưỡng).</span>'; return; }
+  const FIELD_LB = { bid: 'Bid', bud: 'Budget', pct: 'Placement %', st: 'State' };
+  const rows = lastProposals.map((p, i) => `<tr>
+    <td><input type="checkbox" class="propck" data-i="${i}" checked></td>
+    <td>${esc(p.rule_name.split(' · ')[0])}</td>
+    <td class="l" style="max-width:280px;overflow:hidden;text-overflow:ellipsis" title="${esc(p.campaign)}">${esc(p.campaign || '')}</td>
+    <td>${esc(p.entity)}</td>
+    <td class="l" style="max-width:150px;overflow:hidden;text-overflow:ellipsis" title="${esc(p.entity_name)}">${esc(p.entity_name || '')}</td>
+    <td>${FIELD_LB[p.field] || p.field}</td>
+    <td><span class="diff-old">${esc(p.old_value)}</span> → <span class="diff-new">${esc(p.new_value)}</span></td>
+    <td class="l hint" style="max-width:300px;white-space:normal">${esc(p.reason)}</td>
+  </tr>`).join('');
+  $('propArea').innerHTML = `
+    <div class="bulkbar">
+      <button class="btn-sm" onclick="approveProps(false)">✓ Duyệt dòng chọn</button>
+      <button class="btn-sm" onclick="approveProps(true)">✓✓ Duyệt tất cả</button>
+      <button class="btn-sm" style="background:#fde8e8;color:#c0392b" onclick="rejectProps()">✕ Bỏ dòng chọn</button>
+      <span style="margin-left:auto"></span>
+      <button class="btn-ok" onclick="exportProps()">📦 Xuất file Update (đã duyệt)</button>
+      <span id="propMsg" class="msg"></span>
+    </div>
+    <div class="scroll" style="max-height:420px"><table><thead><tr>
+      <th style="width:28px"><input type="checkbox" checked onchange="document.querySelectorAll('.propck').forEach(c=>c.checked=this.checked)"></th>
+      <th>Rule</th><th class="l">Campaign</th><th>Entity</th><th class="l">Target</th><th>Field</th><th>Đổi</th><th class="l">Lý do</th>
+    </tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+
+const selectedPropIds = () => [...document.querySelectorAll('.propck')].filter(c => c.checked).map(c => lastProposals[+c.dataset.i].id);
+window.approveProps = async (all) => {
+  const body = all ? { all: true, datasetId: dsId } : { ids: selectedPropIds() };
+  const r = await (await fetch('/api/adjust/proposals/approve', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })).json();
+  $('propMsg').className = 'msg ok'; $('propMsg').textContent = `✅ Đã duyệt ${r.updated} — bấm Xuất file`;
+};
+window.rejectProps = async () => {
+  const r = await (await fetch('/api/adjust/proposals/reject', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: selectedPropIds() }) })).json();
+  $('propMsg').className = 'msg'; $('propMsg').textContent = `Đã bỏ ${r.updated}`;
+};
+window.exportProps = async () => {
+  $('propMsg').className = 'msg'; $('propMsg').textContent = '⏳...';
+  const res = await fetch('/api/adjust/proposals/export', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: dsId }) });
+  if (!res.ok) { const e = await res.json().catch(() => ({})); $('propMsg').className = 'msg err'; $('propMsg').textContent = '❌ ' + (e.message || res.status); return; }
+  const info = JSON.parse(res.headers.get('X-Adjust-Info') || '{}');
+  const blob = await res.blob();
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+  a.download = (res.headers.get('Content-Disposition') || '').match(/filename="(.+)"/)?.[1] || 'bulk-update.xlsx'; a.click();
+  $('propMsg').className = 'msg ok'; $('propMsg').textContent = `✅ ${info.rows} dòng Update — upload vào Amazon Ads (Bulk operations)`;
+};
+
 /* ===== Tab / filter / phân trang ===== */
-$('tabTargets').onclick = () => { tab = 'targets'; page = 1; sel.clear(); $('tabTargets').classList.add('active'); $('tabTerms').classList.remove('active'); refresh(); };
-$('tabTerms').onclick = () => { tab = 'terms'; page = 1; sel.clear(); $('tabTerms').classList.add('active'); $('tabTargets').classList.remove('active'); refresh(); };
+function setTab(t) {
+  tab = t; page = 1; sel.clear();
+  for (const [id, name] of [['tabTargets', 'targets'], ['tabTerms', 'terms'], ['tabRules', 'rules']]) {
+    $(id).classList.toggle('active', name === t);
+  }
+  refresh();
+}
+$('tabTargets').onclick = () => setTab('targets');
+$('tabTerms').onclick = () => setTab('terms');
+$('tabRules').onclick = () => setTab('rules');
 $('btnFilter').onclick = () => { page = 1; refresh(); };
 $('btnClearFilter').onclick = () => { $('fQ').value = ''; $('fEntity').value = ''; $('fState').value = ''; $('fMetric').value = ''; $('fMin').value = ''; $('fMax').value = ''; page = 1; refresh(); };
 $('fQ').addEventListener('keydown', (e) => { if (e.key === 'Enter') { page = 1; refresh(); } });
-$('sortField').onchange = $('sortDir').onchange = () => { page = 1; refresh(); };
-$('pgPrev').onclick = () => { if (page > 1) { page--; refresh(); } };
-$('pgNext').onclick = () => { page++; refresh(); };
+$('sortField').onchange = $('sortDir').onchange = () => { refresh(); };
+// Infinite scroll: cuộn gần đáy khung bảng → tải thêm
+$('pgPrev').style.display = 'none';
+$('pgNext').style.display = 'none';
+$('tableArea').addEventListener('scroll', () => {
+  const el = $('tableArea');
+  if (el.scrollTop + el.clientHeight >= el.scrollHeight - 400) loadMore();
+});
 
 loadDatasets();
 </script>

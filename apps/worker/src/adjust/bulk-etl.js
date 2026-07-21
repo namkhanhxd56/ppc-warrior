@@ -10,19 +10,21 @@
 
 import * as XLSX from "xlsx";
 
-const num = (v) => {
+export const num = (v) => {
   if (v === "" || v === null || v === undefined) return 0;
   const n = parseFloat(String(v).replace(",", "."));
   return isNaN(n) ? 0 : n;
 };
-const r2 = (n) => Math.round(n * 100) / 100;
-const r4 = (n) => Math.round(n * 10000) / 10000;
+export const r2 = (n) => Math.round(n * 100) / 100;
+export const r4 = (n) => Math.round(n * 10000) / 10000;
 
-const KEEP_ENTITIES = new Set(["Campaign", "Keyword", "Product Targeting", "Bidding Adjustment"]);
+// 6 entity chỉnh sửa được (user dùng bật/tắt cả Ad Group + Product Ad — không chỉ 4 như trước).
+const KEEP_ENTITIES = new Set(["Campaign", "Ad Group", "Product Ad", "Keyword", "Product Targeting", "Bidding Adjustment"]);
 
-/** Khóa duy nhất của 1 dòng entity (ID số là string — 15 chữ số, không để mất chính xác). */
+/** Khóa duy nhất của 1 dòng entity (ID số là string — 15 chữ số, không để mất chính xác).
+    Có adid để phân biệt nhiều Product Ad trong cùng Ad Group (camp multi-SKU). */
 export function rowKey(e) {
-  return [e.e, e.cid, e.agid, e.kid, e.tid, e.pl].join("|");
+  return [e.e, e.cid, e.agid, e.kid, e.tid, e.adid, e.pl].join("|");
 }
 
 /**
@@ -39,7 +41,7 @@ export function etlBulk(buffer, filename) {
   const c = (name) => H.findIndex((h) => h === name);
   const ix = {
     entity: c("Entity"), cid: c("Campaign ID"), agid: c("Ad Group ID"),
-    kid: c("Keyword ID"), tid: c("Product Targeting ID"),
+    kid: c("Keyword ID"), tid: c("Product Targeting ID"), adid: c("Ad ID"), sku: c("SKU"),
     name: c("Campaign Name (Informational only)"), agname: c("Ad Group Name (Informational only)"),
     pfname: c("Portfolio Name (Informational only)"), asin: c("ASIN (Informational only)"),
     state: c("State"), cstate: c("Campaign State (Informational only)"),
@@ -47,7 +49,7 @@ export function etlBulk(buffer, filename) {
     sd: c("Start Date"),
     kw: c("Keyword Text"), mt: c("Match Type"), tt: c("Targeting Type"),
     bs: c("Bidding Strategy"), pl: c("Placement"), pct: c("Percentage"),
-    ex: c("Product Targeting Expression"),
+    ex: c("Product Targeting Expression"), ed: c("End Date"),
     imp: c("Impressions"), clk: c("Clicks"), sp: c("Spend"), sa: c("Sales"),
     or: c("Orders"), un: c("Units")
   };
@@ -65,11 +67,13 @@ export function etlBulk(buffer, filename) {
       e: entity,
       cid: String(r[ix.cid] || ""), agid: String(r[ix.agid] || ""),
       kid: String(r[ix.kid] || ""), tid: String(r[ix.tid] || ""),
+      adid: String(r[ix.adid] || ""), sku: entity === "Product Ad" ? String(r[ix.sku] || "") : "",
       name: String(r[ix.name] || ""), agname: String(r[ix.agname] || ""),
       pfname: String(r[ix.pfname] || ""), asin: String(r[ix.asin] || ""),
       st: String(r[ix.state] || ""), cst: String(r[ix.cstate] || ""),
       bud: entity === "Campaign" ? num(r[ix.bud]) : null,
       sd: entity === "Campaign" ? String(r[ix.sd] || "") : "",
+      ed: entity === "Campaign" ? String(r[ix.ed] || "") : "",
       agbid: num(r[ix.agbid]) || null,
       bid: (entity === "Keyword" || entity === "Product Targeting") ? num(r[ix.bid]) : null,
       kw: String(r[ix.kw] || ""), mt: String(r[ix.mt] || ""),
@@ -156,6 +160,9 @@ export function queryRows(list, q = {}) {
       (r.ex && r.ex.toLowerCase().includes(s)) ||
       (r.term && r.term.toLowerCase().includes(s)) ||
       (r.asin && r.asin.toLowerCase().includes(s)) ||
+      (r.agname && r.agname.toLowerCase().includes(s)) ||
+      (r.sku && r.sku.toLowerCase().includes(s)) ||
+      (r.tt && r.tt.toLowerCase().includes(s)) ||
       (r.targeting && r.targeting.toLowerCase().includes(s)));
   }
   if (f.entity) out = out.filter((r) => r.e === f.entity);
@@ -174,21 +181,42 @@ export function queryRows(list, q = {}) {
   }
 
   const total = out.length;
-  // Tổng hợp trên TẬP ĐÃ LỌC
-  const agg = out.reduce((a, r) => {
+  // Tổng hợp KHÔNG cộng dồn trùng cấp: chỉ cộng dòng Campaign (đã là tổng campaign).
+  // Nếu tập lọc không có dòng Campaign (vd lọc riêng Keyword) → cộng chính tập đó (cùng cấp).
+  const campRows = out.filter((r) => r.e === "Campaign");
+  const aggBase = campRows.length ? campRows : out;
+  const agg = aggBase.reduce((a, r) => {
     a.sp += r.sp; a.sa += r.sa; a.or += r.or; a.clk += r.clk; a.imp += r.imp;
     return a;
   }, { sp: 0, sa: 0, or: 0, clk: 0, imp: 0 });
   agg.sp = r2(agg.sp); agg.sa = r2(agg.sa);
   agg.acos = agg.sa > 0 ? r4(agg.sp / agg.sa) : null;
+  agg.level = campRows.length ? "campaign" : "filtered"; // nhãn: tổng theo campaign hay theo tập lọc
 
-  const sortF = q.sort || "sp";
+  const sortF = q.sort || "grp";
   const dir = q.dir === "asc" ? 1 : -1;
-  out = out.slice().sort((a, b) => {
-    const av = a[sortF] === null ? -Infinity : a[sortF];
-    const bv = b[sortF] === null ? -Infinity : b[sortF];
-    return av < bv ? -dir : av > bv ? dir : 0;
-  });
+  if (sortF === "grp") {
+    // Nhóm theo campaign, thứ tự entity như file: Campaign → Bidding Adjustment → Ad Group → Product Ad → Keyword → Product Targeting
+    const ER = { "Campaign": 0, "Bidding Adjustment": 1, "Ad Group": 2, "Product Ad": 3, "Keyword": 4, "Product Targeting": 5 };
+    const campSpend = {};
+    for (const r of out) if (r.e === "Campaign") campSpend[r.cid] = r.sp;
+    out = out.slice().sort((a, b) => {
+      if (a.cid !== b.cid) {
+        const ga = campSpend[a.cid] ?? -1, gb = campSpend[b.cid] ?? -1; // campaign spend cao lên trước
+        if (ga !== gb) return gb - ga;
+        return a.cid < b.cid ? -1 : 1;
+      }
+      const ea = ER[a.e] ?? 9, eb = ER[b.e] ?? 9;
+      if (ea !== eb) return ea - eb;
+      return (b.sp || 0) - (a.sp || 0);
+    });
+  } else {
+    out = out.slice().sort((a, b) => {
+      const av = a[sortF] === null ? -Infinity : a[sortF];
+      const bv = b[sortF] === null ? -Infinity : b[sortF];
+      return av < bv ? -dir : av > bv ? dir : 0;
+    });
+  }
 
   const pageSize = Math.min(500, q.pageSize || 100);
   const page = Math.max(1, q.page || 1);
@@ -200,7 +228,9 @@ export function queryRows(list, q = {}) {
    ============================================================ */
 const FIELD_TO_COL = {
   bud: "Daily Budget", bid: "Bid", st: "State", bs: "Bidding Strategy",
-  pct: "Percentage", agbid: "Ad Group Default Bid"
+  pct: "Percentage", agbid: "Ad Group Default Bid",
+  name: "Campaign Name",   // đổi tên campaign
+  agname: "Ad Group Name"  // đổi tên ad group
 };
 
 export function buildUpdateRows(header, recordsByKey, edits, negatives) {
@@ -225,11 +255,16 @@ export function buildUpdateRows(header, recordsByKey, edits, negatives) {
     if (rec.agid) row["Ad Group ID"] = rec.agid;
     if (rec.kid) row["Keyword ID"] = rec.kid;
     if (rec.tid) row["Product Targeting ID"] = rec.tid;
+    if (rec.adid) row["Ad ID"] = rec.adid;
+    // Placement giữ NGUYÊN chuỗi đầy đủ từ file ("Placement Top"/"Placement Rest Of Search"/
+    // "Placement Product Page"/"Placement Amazon Business") — KHÔNG map camelCase (xác minh Book2.xlsx).
     if (rec.e === "Bidding Adjustment") row["Placement"] = rec.pl;
 
     // ⚠️ REQUIRED HEADERS khi Update (sheet Config trong chính file bulk Amazon, xác minh 18/07/2026):
     // - Campaign: Campaign Id, Campaign Name, Daily Budget, State, Start Date, Bidding Strategy
     //   (PHẢI có đủ dù không đổi — thiếu là Amazon từ chối dòng)
+    // - Ad Group: Ad Group Id, Ad Group Name, Ad Group Default Bid, State
+    // - Product Ad: Campaign Id, Ad Group Id, Ad ID, State (+ SKU)
     // - Keyword / Product Targeting: Id + State (Bid optional)
     // - Bidding Adjustment: Campaign Id + Placement (Percentage optional)
     // → điền giá trị HIỆN TẠI cho trường required, rồi đè bằng giá trị user sửa
@@ -239,6 +274,13 @@ export function buildUpdateRows(header, recordsByKey, edits, negatives) {
       row["State"] = rec.st || "enabled";
       row["Start Date"] = rec.sd || "";
       row["Bidding Strategy"] = rec.bs || "";
+    } else if (rec.e === "Ad Group") {
+      row["Ad Group Name"] = rec.agname || "";
+      row["Ad Group Default Bid"] = rec.agbid ?? "";
+      row["State"] = rec.st || "enabled";
+    } else if (rec.e === "Product Ad") {
+      row["State"] = rec.st || "enabled";
+      if (rec.sku) row["SKU"] = rec.sku;
     } else if (rec.e === "Keyword" || rec.e === "Product Targeting") {
       row["State"] = rec.st || "enabled";
     }

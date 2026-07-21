@@ -10,10 +10,15 @@ import { runBatch } from "./src/jobs/run-batch.js";
 import { planCampaigns, buildRowsFromPlans, buildSdRows, buildSbRows, BULK_HEADER, SD_HEADER, SB_HEADER, DEFAULTS as LAUNCH_DEFAULTS } from "./src/launching/bulk-builder.js";
 import { parseH10 } from "./src/launching/h10-parser.js";
 import { etlBulk, queryRows, buildUpdateRows, rowKey } from "./src/adjust/bulk-etl.js";
+import { evaluate as evaluateRules } from "./src/adjust/rule-engine.js";
+import { DEFAULT_RULES } from "./src/adjust/default-rules.js";
+import { buildMetrics, summarize, cellOf, buildAsinDaily } from "./src/data/consolidate.js";
+import { importAdsBulk, importBusiness, importInventory, preview as previewImport, FIELD_SPECS } from "./src/data/imports.js";
+import { evaluateAsin } from "./src/data/evaluate.js";
 import * as store from "./src/db/file-store.js";
 
 dotenv.config();
-export const APP_VERSION = "0.21.5"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
+export const APP_VERSION = "0.22.0"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
 
 // RUN_MODE:
 // - "local" (mặc định): bấm Kiểm tra là scrape NGAY trên máy này (dùng 1 người, chạy local)
@@ -474,35 +479,141 @@ app.post("/api/adjust/query", (req, res) => {
   res.json({ ok: true, ...out, meta: ds.meta });
 });
 
+/** Dựng workbook Update (dòng thay đổi + Negative) + ghi audit. Trả {buf, rowCount}. */
+function writeUpdateWorkbook(ds, edits, negatives, id, source) {
+  const rows = buildUpdateRows(ds.header, ds.byKey, edits, negatives);
+  if (!rows.length) throw new Error("Không có thay đổi nào để xuất");
+  const ws = XLSX.utils.json_to_sheet(rows, { header: ds.header });
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Sponsored Products Campaigns");
+  const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
+  fs.mkdirSync(ADJUST_DIR, { recursive: true });
+  const audit = { at: new Date().toISOString(), dataset: id, source: source || "manual",
+    edits: (edits || []).length, negatives: (negatives || []).length, detail: { edits, negatives } };
+  fs.appendFileSync(`${ADJUST_DIR}/audit.jsonl`, JSON.stringify(audit) + "\n");
+  return { buf, rowCount: rows.length };
+}
+
+function sendWorkbook(res, buf, rowCount, id) {
+  res.setHeader("Content-Disposition",
+    `attachment; filename="bulk-update-${id}-${new Date().toISOString().slice(0, 10)}.xlsx"`);
+  res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+  res.setHeader("X-Adjust-Info", JSON.stringify({ rows: rowCount }));
+  res.send(buf);
+}
+
 // Xuất file UPDATE (chỉ dòng thay đổi + Negative mới) + audit log
 app.post("/api/adjust/export", (req, res) => {
   try {
     const { id, edits, negatives } = req.body || {};
     const ds = loadDataset(id);
     if (!ds) throw new Error("Dataset không tồn tại");
-    const rows = buildUpdateRows(ds.header, ds.byKey, edits, negatives);
-    if (!rows.length) throw new Error("Không có thay đổi nào để xuất");
-
-    const ws = XLSX.utils.json_to_sheet(rows, { header: ds.header });
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Sponsored Products Campaigns");
-    const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
-
-    // Audit log: ai/khi nào/old→new (spec: mọi thay đổi ghi log)
-    fs.mkdirSync(ADJUST_DIR, { recursive: true });
-    const audit = { at: new Date().toISOString(), dataset: id,
-      edits: (edits || []).length, negatives: (negatives || []).length,
-      detail: { edits, negatives } };
-    fs.appendFileSync(`${ADJUST_DIR}/audit.jsonl`, JSON.stringify(audit) + "\n");
-
-    res.setHeader("Content-Disposition",
-      `attachment; filename="bulk-update-${id}-${new Date().toISOString().slice(0, 10)}.xlsx"`);
-    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-    res.setHeader("X-Adjust-Info", JSON.stringify({ rows: rows.length }));
-    res.send(buf);
+    const { buf, rowCount } = writeUpdateWorkbook(ds, edits, negatives, id, "manual");
+    sendWorkbook(res, buf, rowCount, id);
   } catch (e) {
     res.status(400).json({ ok: false, message: e.message });
   }
+});
+
+/* ===================== MODULE ADJUST A3: rule engine (dry-run → proposals → export) ===================== */
+
+// Rank ToS theo (ASIN|keyword) từ lịch sử daily (lấy dateKey mới nhất) — cho rule RANK R1
+function buildRankMap(asins) {
+  const map = {};
+  for (const a of asins) {
+    const series = store.getDailySeries(a); // { kw: { date: {tos:"x/y"...} } }
+    for (const [kw, byDate] of Object.entries(series)) {
+      const dates = Object.keys(byDate).sort();
+      const last = byDate[dates[dates.length - 1]];
+      if (!last) continue;
+      let tosPos = null;
+      if (typeof last.tos === "string" && last.tos.includes("/")) {
+        const x = parseInt(last.tos.split("/")[0], 10);
+        tosPos = isNaN(x) ? null : x;
+      }
+      map[`${a}|${kw.toLowerCase()}`] = { tosPos };
+    }
+  }
+  return map;
+}
+
+// Rules CRUD (seed Rule Set v1 nếu rỗng)
+app.get("/api/adjust/rules", (req, res) => {
+  store.seedDefaultRulesIfEmpty(DEFAULT_RULES);
+  res.json({ ok: true, rules: store.listRules() });
+});
+app.post("/api/adjust/rules", (req, res) => res.json({ ok: true, rule: store.createRule(req.body || {}) }));
+app.put("/api/adjust/rules/:id", (req, res) => {
+  const r = store.updateRule(req.params.id, req.body || {});
+  if (!r) return res.status(404).json({ ok: false, message: "Không tìm thấy rule" });
+  res.json({ ok: true, rule: r });
+});
+app.delete("/api/adjust/rules/:id", (req, res) => { store.deleteRule(req.params.id); res.json({ ok: true }); });
+app.post("/api/adjust/rules/reset", (req, res) => { store.resetRules(DEFAULT_RULES); res.json({ ok: true, rules: store.listRules() }); });
+
+// Products: target ACoS theo ASIN (rule P3/P4)
+app.get("/api/adjust/products", (req, res) => res.json({ ok: true, products: store.listProducts() }));
+app.post("/api/adjust/products", (req, res) => {
+  const asin = String(req.body?.asin || "").toUpperCase();
+  if (!/^[A-Z0-9]{10}$/.test(asin)) return res.status(400).json({ ok: false, message: "ASIN không hợp lệ" });
+  const patch = {};
+  if (req.body.target_acos !== undefined && req.body.target_acos !== "") patch.target_acos = Number(req.body.target_acos);
+  res.json({ ok: true, product: store.upsertProduct(asin, patch) });
+});
+
+// Chạy rule (DRY-RUN) → sinh proposals pending (thay thế pending cũ của dataset)
+app.post("/api/adjust/run-rules", (req, res) => {
+  try {
+    const { id, ruleIds } = req.body || {};
+    const ds = loadDataset(id);
+    if (!ds) throw new Error("Dataset không tồn tại — upload/chọn dataset trước");
+    store.seedDefaultRulesIfEmpty(DEFAULT_RULES);
+    let rules = store.listRules();
+    if (Array.isArray(ruleIds) && ruleIds.length) rules = rules.filter((r) => ruleIds.includes(r.id));
+
+    const asinOf = (r) => { const a = String(r.asin || "").toUpperCase(); if (/^B0[A-Z0-9]{8}$/.test(a)) return a; const m = String(r.name || "").toUpperCase().match(/B0[A-Z0-9]{8}/); return m ? m[0] : null; };
+    const asins = [...new Set(ds.records.map(asinOf).filter(Boolean))];
+    const products = store.getProductsMap(asins);
+    const targetAcosByAsin = {};
+    for (const [a, p] of Object.entries(products)) if (p.target_acos != null) targetAcosByAsin[a] = p.target_acos;
+    const rankByAsinKw = buildRankMap(asins);
+
+    const proposals = evaluateRules(rules, ds.records, { targetAcosByAsin, rankByAsinKw });
+    const runId = Date.now().toString(36);
+    store.setProposalStatusByDataset(id, "pending", "superseded"); // dọn dry-run cũ chưa duyệt
+    const inserted = store.insertProposals(proposals.map((p) => ({ ...p, datasetId: id, runId })));
+    const missingTargetAcos = asins.filter((a) => targetAcosByAsin[a] == null);
+    res.json({ ok: true, runId, count: inserted.length, missingTargetAcos, proposals: inserted });
+  } catch (e) { res.status(400).json({ ok: false, message: e.message }); }
+});
+
+app.get("/api/adjust/proposals", (req, res) => {
+  res.json({ ok: true, proposals: store.listProposals({ datasetId: req.query.datasetId, status: req.query.status || null }) });
+});
+app.post("/api/adjust/proposals/approve", (req, res) => {
+  const { ids, all, datasetId } = req.body || {};
+  const n = all ? store.setProposalStatusByDataset(datasetId, "pending", "approved") : store.setProposalStatus(ids, "approved");
+  res.json({ ok: true, updated: n });
+});
+app.post("/api/adjust/proposals/reject", (req, res) => {
+  const { ids, all, datasetId } = req.body || {};
+  const n = all ? store.setProposalStatusByDataset(datasetId, "pending", "rejected") : store.setProposalStatus(ids, "rejected");
+  res.json({ ok: true, updated: n });
+});
+
+// Xuất file Update từ proposals ĐÃ DUYỆT (approved) — tái dùng buildUpdateRows
+app.post("/api/adjust/proposals/export", (req, res) => {
+  try {
+    const { id } = req.body || {};
+    const ds = loadDataset(id);
+    if (!ds) throw new Error("Dataset không tồn tại");
+    const approved = store.listProposals({ datasetId: id, status: "approved" });
+    if (!approved.length) throw new Error("Chưa có đề xuất nào được duyệt");
+    const edits = approved.map((p) => ({ k: p.k, field: p.field, value: p.new_value }));
+    const { buf, rowCount } = writeUpdateWorkbook(ds, edits, [], id, "rules");
+    store.setProposalStatusByDataset(id, "approved", "exported");
+    sendWorkbook(res, buf, rowCount, id);
+  } catch (e) { res.status(400).json({ ok: false, message: e.message }); }
 });
 
 /* ===== Import file bulk daily → chỉ số ads theo ASIN (Spent, Sales ads, ACoS...) ===== */
@@ -512,41 +623,9 @@ const upload = uploadMw;
 app.post("/api/import-bulk", upload.single("file"), (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ ok: false, message: "Chưa chọn file" });
-
-    // Ngày của metrics = start_date trong tên file bulk-{acc}-{start}-{end}-{ts}, hoặc user nhập
-    let date = String(req.body.date || "").trim();
-    const fm = (req.file.originalname || "").match(/-(\d{8})-(\d{8})-/);
-    if (!date && fm) date = `${fm[1].slice(0, 4)}-${fm[1].slice(4, 6)}-${fm[1].slice(6, 8)}`;
-    if (!date) return res.status(400).json({ ok: false, message: "Không xác định được ngày — nhập tay" });
-
-    const wb = XLSX.readFile(req.file.path);
-    const ws = wb.Sheets["Sponsored Products Campaigns"];
-    if (!ws) return res.status(400).json({ ok: false, message: "Thiếu sheet Sponsored Products Campaigns" });
-    const rows = XLSX.utils.sheet_to_json(ws);
-
-    // ETL: dòng Entity=Campaign, trích ASIN từ tên campaign (naming template) → cộng Spend/Sales/Orders
-    const agg = {};
-    for (const r of rows) {
-      if (r["Entity"] !== "Campaign") continue;
-      const name = r["Campaign Name (Informational only)"] || r["Campaign Name"] || "";
-      const am = String(name).match(/B0[A-Z0-9]{8}/i);
-      if (!am) continue;
-      const a = am[0].toUpperCase();
-      agg[a] = agg[a] || { spent: 0, salesAds: 0, ordersAds: 0, impressions: 0, clicks: 0 };
-      agg[a].spent += Number(r["Spend"]) || 0;
-      agg[a].salesAds += Number(r["Sales"]) || 0;
-      agg[a].ordersAds += Number(r["Orders"]) || 0;
-      agg[a].impressions += Number(r["Impressions"]) || 0;
-      agg[a].clicks += Number(r["Clicks"]) || 0;
-    }
-    for (const [a, m] of Object.entries(agg)) {
-      store.saveAsinMetrics(a, date, {
-        spent: round2(m.spent), salesAds: round2(m.salesAds), ordersAds: m.ordersAds,
-        impressions: m.impressions, clicks: m.clicks
-      });
-    }
+    const out = importAdsBulk(fs.readFileSync(req.file.path), req.file.originalname, req.body.date);
     fs.unlinkSync(req.file.path);
-    res.json({ ok: true, date, asinCount: Object.keys(agg).length });
+    res.json({ ok: true, ...out });
   } catch (e) {
     res.status(500).json({ ok: false, message: e.message });
   }
@@ -558,6 +637,69 @@ app.post("/api/metrics", (req, res) => {
   if (!asin || !date) return res.status(400).json({ ok: false });
   store.saveAsinMetrics(String(asin).toUpperCase(), date, { salesTotal: Number(salesTotal) || 0 });
   res.json({ ok: true });
+});
+
+/* ===================== MODULE DATA (import + hợp nhất + đánh giá chỉ số theo ngày) ===================== */
+function parseMapping(v) { try { return v ? JSON.parse(v) : {}; } catch { return {}; } }
+
+// Import 3 nguồn (ads / business / inventory). mapping (JSON) tùy chọn cho business/inventory.
+app.post("/api/data/import/ads", upload.single("file"), (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ ok: false, message: "Chưa chọn file" });
+    const out = importAdsBulk(fs.readFileSync(req.file.path), req.file.originalname, req.body.date);
+    fs.unlinkSync(req.file.path);
+    res.json({ ok: true, ...out });
+  } catch (e) { res.status(400).json({ ok: false, message: e.message }); }
+});
+
+app.post("/api/data/import/business", upload.single("file"), (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ ok: false, message: "Chưa chọn file" });
+    const out = importBusiness(fs.readFileSync(req.file.path), req.file.originalname, req.body.date, parseMapping(req.body.mapping));
+    fs.unlinkSync(req.file.path);
+    res.json({ ok: true, ...out });
+  } catch (e) { res.status(400).json({ ok: false, message: e.message }); }
+});
+
+app.post("/api/data/import/inventory", upload.single("file"), (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ ok: false, message: "Chưa chọn file" });
+    const out = importInventory(fs.readFileSync(req.file.path), req.file.originalname, req.body.date, parseMapping(req.body.mapping));
+    fs.unlinkSync(req.file.path);
+    res.json({ ok: true, ...out });
+  } catch (e) { res.status(400).json({ ok: false, message: e.message }); }
+});
+
+// Preview ánh xạ cột (business/inventory) trước khi commit
+app.post("/api/data/preview-columns", upload.single("file"), (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ ok: false, message: "Chưa chọn file" });
+    const kind = String(req.body.kind || "");
+    const out = previewImport(kind, fs.readFileSync(req.file.path));
+    fs.unlinkSync(req.file.path);
+    res.json({ ok: true, kind, fields: FIELD_SPECS[kind].map((s) => ({ key: s.key, label: s.label })), ...out });
+  } catch (e) { res.status(400).json({ ok: false, message: e.message }); }
+});
+
+app.get("/api/data/asins", (req, res) => res.json({ asins: store.listDataAsins() }));
+app.get("/api/data/imports", (req, res) => res.json({ imports: store.listImports(req.query.kind || null) }));
+
+// Bảng hợp nhất theo ngày cho 1 ASIN
+app.get("/api/data/consolidated/:asin", (req, res) => {
+  const out = buildAsinDaily(req.params.asin, { from: req.query.from || null, to: req.query.to || null });
+  res.json(out);
+});
+
+// Tín hiệu đánh giá cho 1 ASIN (target ACoS lấy từ products, hoặc query override)
+app.get("/api/data/evaluate/:asin", (req, res) => {
+  const asin = String(req.params.asin).toUpperCase();
+  const { days } = buildAsinDaily(asin, { from: req.query.from || null, to: req.query.to || null });
+  let targetAcos = req.query.targetAcos != null && req.query.targetAcos !== "" ? Number(req.query.targetAcos) : null;
+  if (targetAcos == null && store.getProduct) {
+    const p = store.getProduct(asin);
+    if (p && p.target_acos != null) targetAcos = Number(p.target_acos);
+  }
+  res.json({ asin, ...evaluateAsin(days, { targetAcos }) });
 });
 
 function round2(n) { return Math.round(n * 100) / 100; }
@@ -685,6 +827,86 @@ app.get("/api/competitor-rank/:asin", (req, res) => {
   res.json(store.getCompetitorRank(String(req.params.asin).toUpperCase(), req.query.date || null));
 });
 
+// Export bảng competitor ra Excel
+app.get("/api/competitor-rank/:asin/export", (req, res) => {
+  const r = store.getCompetitorRank(String(req.params.asin).toUpperCase(), req.query.date || null);
+  const rows = r.list.map((x, i) => ({
+    "#": i + 1, ASIN: x.asin, "Số keyword": x.n, "Best organic": x.bestRank ?? "",
+    Keywords: (x.kws || []).join(", ")
+  }));
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), "Competitor");
+  const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
+  res.setHeader("Content-Disposition", `attachment; filename="competitor-${req.params.asin}-${(r.date || "all").replace(/[: ]/g, "_")}.xlsx"`);
+  res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+  res.send(buf);
+});
+
+// Get Competitor cho Tạo Campaign: nhiều phiên + khoảng số keyword + loại ASIN tắt theo dõi
+app.post("/api/competitor-pick", (req, res) => {
+  const { asin, dates, minKw, maxKw, excludeUntracked } = req.body || {};
+  if (!/^[A-Z0-9]{10}$/i.test(String(asin || ""))) return res.status(400).json({ error: "ASIN không hợp lệ" });
+  res.json({ list: store.getCompetitorPick(String(asin).toUpperCase(), dates || [], minKw, maxKw, !!excludeUntracked) });
+});
+
+/* ===== COMPETITOR LIBRARY ===== */
+app.get("/api/competitor-library", (req, res) => res.json(store.getCompetitorLibrary()));
+
+app.post("/api/competitor-library/add", (req, res) => {
+  const asins = String(req.body?.asins || "").split(/[\s,;]+/).filter(Boolean);
+  res.json({ ok: true, added: store.compLibAdd(asins) });
+});
+
+app.post("/api/competitor-library/patch", (req, res) => {
+  const { asin, ...patch } = req.body || {};
+  store.compLibPatch(asin, patch);
+  res.json({ ok: true });
+});
+
+// Quét Library: ảnh + title (chỉ lần đầu) + Sale "bought in past month" (mỗi lần) — stream log
+app.post("/api/competitor-library/scan", async (req, res) => {
+  res.setHeader("Content-Type", "text/plain; charset=utf-8");
+  const log = (m) => { try { res.write(m + "\n"); } catch {} };
+  const asins = (req.body?.asins || []).map((a) => String(a).trim().toUpperCase()).filter((a) => /^[A-Z0-9]{10}$/.test(a));
+  if (!asins.length) { log("🚨 Chưa chọn competitor nào"); return res.end(); }
+  if (running) { log("Đang có phiên chạy — bấm Dừng trước."); return res.end(); }
+  running = true; stopFlag = false;
+  let browser = null;
+  const today = new Date().toISOString().slice(0, 10);
+  try {
+    browser = await launchBrowser();
+    const page = await newCleanPage(browser, loadCookies());
+    await ensureZipLocation(page, store.getWorkerConfig().zip, log);
+    for (let i = 0; i < asins.length; i++) {
+      if (stopFlag) { log("⏹ Đã dừng."); break; }
+      const a = asins[i];
+      try {
+        await page.goto(`https://www.amazon.com/dp/${a}`, { waitUntil: "domcontentloaded", timeout: 30000 });
+        await new Promise((r) => setTimeout(r, 1200 + Math.random() * 800));
+        const info = await page.evaluate(() => {
+          const title = document.querySelector("#productTitle")?.textContent.trim() || null;
+          const image = document.querySelector("#landingImage")?.getAttribute("src") || document.querySelector("#imgTagWrapperId img")?.getAttribute("src") || null;
+          // "50+ bought in past month" / "1K+ bought in past month"
+          const m = document.body.innerText.match(/([0-9.,]+[KkMm]?\+?)\s+bought in past month/);
+          return { title, image, sales: m ? m[1] : null };
+        });
+        store.compLibSaveScan(a, { ...info, date: today });
+        log(`🔍 [${i + 1}/${asins.length}] ${a} → ${info.title ? info.title.slice(0, 50) + "…" : "(không đọc được title)"} · Sale: ${info.sales || "_"}`);
+      } catch (e) {
+        log(`⚠️ [${i + 1}/${asins.length}] ${a} lỗi: ${e.message}`);
+      }
+      await new Promise((r) => setTimeout(r, 800 + Math.random() * 700));
+    }
+    log("✅ Xong — ảnh/title lưu lần đầu, Sale lưu theo ngày " + today);
+  } catch (e) {
+    log(`🚨 ${e.message}`);
+  } finally {
+    if (browser) { try { await browser.close(); } catch {} }
+    running = false;
+    res.end();
+  }
+});
+
 /* ===== Kết quả ===== */
 app.get("/api/results", (req, res) => res.json(store.listRunResults()));
 app.get("/api/results/:id", (req, res) => {
@@ -714,82 +936,6 @@ app.get("/api/history/:asin", (req, res) => {
   }));
   res.json({ asin, image, keywords, columns });
 });
-
-/* Chỉ số chính của ASIN theo ngày: Spent, Sales ads, Sale total, ACoS, TACoS
-   Quy ước: không có file import ngày đó → null (#N/A); có file, thiếu salesTotal → '-' */
-function buildMetrics(m) {
-  if (!m) return null; // #N/A — chưa upload file của ngày này
-  const spent = m.spent ?? 0;
-  const salesAds = m.salesAds ?? 0;
-  const salesTotal = m.salesTotal; // có thể chưa nhập (Business Report)
-  return {
-    spent,
-    salesAds,
-    ordersAds: m.ordersAds ?? 0,
-    salesTotal: salesTotal ?? null, // null → hiển thị '-'
-    acos: salesAds > 0 ? Math.round((spent / salesAds) * 1000) / 10 : null,       // %
-    tacos: salesTotal > 0 ? Math.round((spent / salesTotal) * 1000) / 10 : null   // %
-  };
-}
-
-/* Thống kê rank phụ (dòng nhỏ dưới chỉ số chính) */
-function summarize(run) {
-  const rs = run.results || [];
-  let p1 = 0, tos = 0, nf = 0;
-  for (const x of rs) {
-    if (x.error) continue;
-    const p = x.primary || {};
-    const vOrg = (x.variants || []).find((v) => v.organicRank !== null);
-    const page = p.organicPage ?? vOrg?.organicPage ?? null;
-    if (page === 1) p1++;
-    if ((p.tosPosition || 0) > 0 || (x.variants || []).some((v) => v.tosPosition > 0)) tos++;
-    if (x.notFound) nf++;
-  }
-  return { total: rs.length, p1, tos, nf };
-}
-
-/* 1 keyword × 1 lần chạy → 3 tầng: organic / tos / ros */
-function cellOf(x) {
-  if (x.error) return { error: true };
-  const p = x.primary || {};
-  const cell = { organic: null, rank: null, pv: false, variant: null, tos: null, tosPos: 0, ros: null, notFound: !!x.notFound,
-    // true = 0 SP tile cả N trang sau retry → ToS/RoS của lần check này không kết luận được
-    tosUnknown: x.adsTilesServed === false };
-
-  if (p.organicRank !== null) {
-    cell.organic = `Page ${p.organicPage} No ${p.organicPosInPage}`;
-    cell.rank = p.organicRank;
-    cell.pv = !!p.ownPreviouslyViewed;
-  }
-  // Badge Amazon trên tile của chính mình (Overall Pick, Amazon's Choice, Best Seller...)
-  cell.badges = (p.ownBadges || []).length ? p.ownBadges : null;
-
-  // ToS: CHỈ của ASIN chính (biến thể nằm trong float, không trộn vào ô)
-  if ((p.tosTotal || 0) > 0 || (p.tosPosition || 0) > 0) {
-    cell.tos = `${p.tosPosition}/${p.tosTotal}`;
-    cell.tosPos = p.tosPosition || 0;
-  }
-
-  // Chi tiết biến thể — ASIN ĐẦY ĐỦ, hiển thị dạng float khi hover (không chiếm chỗ ô chính)
-  cell.variants = (x.variants || [])
-    .filter((v) => v.organicRank !== null || (v.tosPosition || 0) > 0 || v.rosPresent)
-    .map((v) => ({
-      asin: v.asin,
-      organic: v.organicRank !== null ? `Page ${v.organicPage} No ${v.organicPosInPage}` : null,
-      tos: (v.tosPosition || 0) > 0 ? `${v.tosPosition}/${v.tosTotal}` : null,
-      ros: !!v.rosPresent,
-      badges: (v.ownBadges || []).length ? v.ownBadges : null
-    }));
-  cell.hasVariantRank = cell.variants.some((v) => v.organic);
-
-  // RoS (mọi sponsored ngoài ToS page 1, gồm cả ads đầu trang 2/3)
-  const rosParts = [];
-  if (p.rosPresent) rosParts.push(`✓ p${Object.keys(p.rosDetail || {}).join(",p") || "?"}`);
-  if ((x.variants || []).some((v) => v.rosPresent)) rosParts.push("var ✓");
-  cell.ros = rosParts.join(" · ") || null;
-
-  return cell;
-}
 
 const srv = app.listen(PORT, () =>
   console.log(`🚀 PPC Warrior Worker v${APP_VERSION}: http://localhost:${PORT}`)

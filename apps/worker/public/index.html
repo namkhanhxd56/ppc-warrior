@@ -112,6 +112,7 @@
     <a href="/" style="color:#fff;background:var(--b);text-decoration:none;font-size:13px;padding:6px 14px;border-radius:8px;font-weight:600">📊 Check Ranking</a>
     <a href="/launching.html" style="color:#9fb0c8;text-decoration:none;font-size:13px;padding:6px 14px;border-radius:8px">🚀 Tạo Campaign</a>
     <a href="/adjust.html" style="color:#9fb0c8;text-decoration:none;font-size:13px;padding:6px 14px;border-radius:8px">⚙️ Adjust</a>
+    <a href="/data.html" style="color:#9fb0c8;text-decoration:none;font-size:13px;padding:6px 14px;border-radius:8px">📈 Data</a>
   </nav>
   <span id="status" style="margin-left:auto;font-size:12px;color:#9fb0c8">Idle</span>
 </header>
@@ -203,7 +204,7 @@
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;');
 
-const UI_VERSION = '0.21.5'; // PHẢI khớp APP_VERSION server.js
+const UI_VERSION = '0.22.0'; // PHẢI khớp APP_VERSION server.js
 (async () => {
   try {
     const v = (await (await fetch('/api/version')).json()).version;
@@ -714,24 +715,50 @@ window.showCompRank = async (asin) => {
   const rows = r.list.map((x, i) => `
     <tr><td>${i + 1}</td><td><b>${esc(x.asin)}</b></td><td>${x.n}</td><td>${x.bestRank ?? '—'}</td>
     <td style="font-size:10.5px;color:#667">${x.kws.slice(0, 6).map(esc).join(', ')}${x.kws.length > 6 ? '…' : ''}</td></tr>`).join('');
+  window.__compRank = r; window.__compAsin = asin;
   modal(`🏆 Competitor xuất hiện nhiều nhất — ${asin}`, `
     <div class="row" style="margin-bottom:8px;align-items:center">
       <span style="font-size:12px">Phiên:</span>
       <select onchange="showCompRankDate('${asin}',this.value)">${r.dates.map((d) => `<option ${d === r.date ? 'selected' : ''}>${esc(d)}</option>`).join('')}</select>
-      <span class="hint" style="font-size:11px;color:var(--mut)">đếm số keyword (của mình) mà đối thủ xuất hiện — ads hoặc organic top 10</span>
+      <a class="btn-sm" style="text-decoration:none" href="/api/competitor-rank/${asin}/export?date=${encodeURIComponent(r.date)}">⬇ Excel</a>
+      <button class="btn-sm" onclick="copyCompRank()">📋 Copy</button>
+      <button class="btn-sm" onclick="addCompsToLib()">➕ Vào Library</button>
     </div>
+    <div class="hint" style="font-size:11px;color:var(--mut);margin-bottom:6px">Số keyword = đối thủ xuất hiện trong bao nhiêu keyword của mình (ads hoặc organic top 10) ·
+      <b>Best organic</b> = hạng organic CAO NHẤT đối thủ đạt được trong nhóm keyword đó ("—" = chỉ thấy qua ads)</div>
     <table style="width:100%;border-collapse:collapse;font-size:12px">
-      <thead><tr style="background:#f0f3f9"><th style="padding:4px">#</th><th>ASIN</th><th>Số keyword</th><th>Best organic</th><th>Keywords</th></tr></thead>
+      <thead><tr style="background:#f0f3f9"><th style="padding:4px">#</th><th>ASIN</th><th>Số keyword</th><th title="Hạng organic cao nhất trong nhóm keyword — thấp = mạnh">Best organic</th><th>Keywords</th></tr></thead>
       <tbody>${rows}</tbody></table>`);
+};
+window.copyCompRank = async () => {
+  const r = window.__compRank;
+  if (!r) return;
+  const text = ['ASIN\tSố keyword\tBest organic\tKeywords',
+    ...r.list.map((x) => `${x.asin}\t${x.n}\t${x.bestRank ?? ''}\t${(x.kws || []).join(', ')}`)].join('\n');
+  try { await navigator.clipboard.writeText(text); alert('✅ Đã copy ' + r.list.length + ' dòng (dán thẳng vào Excel/Sheets)'); }
+  catch { prompt('Copy thủ công:', text); }
+};
+window.addCompsToLib = async () => {
+  const r = window.__compRank;
+  if (!r || !r.list.length) return;
+  const resp = await (await fetch('/api/competitor-library/add', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ asins: r.list.map((x) => x.asin).join(' ') }) })).json();
+  alert(`✅ Đã thêm ${resp.added} competitor mới vào Library`);
+  loadCompLib();
 };
 window.showCompRankDate = async (asin, d) => {
   document.getElementById('mmodal').remove();
   const r = await (await fetch('/api/competitor-rank/' + asin + '?date=' + encodeURIComponent(d))).json();
-  // render lại với date đã chọn
+  window.__compRank = r;
   const rows = r.list.map((x, i) => `
     <tr><td>${i + 1}</td><td><b>${esc(x.asin)}</b></td><td>${x.n}</td><td>${x.bestRank ?? '—'}</td>
     <td style="font-size:10.5px;color:#667">${x.kws.slice(0, 6).map(esc).join(', ')}${x.kws.length > 6 ? '…' : ''}</td></tr>`).join('');
   modal(`🏆 Competitor — ${asin} · ${esc(d)}`, `
+    <div class="row" style="margin-bottom:8px;align-items:center">
+      <a class="btn-sm" style="text-decoration:none" href="/api/competitor-rank/${asin}/export?date=${encodeURIComponent(d)}">⬇ Excel</a>
+      <button class="btn-sm" onclick="copyCompRank()">📋 Copy</button>
+      <button class="btn-sm" onclick="addCompsToLib()">➕ Vào Library</button>
+    </div>
     <table style="width:100%;border-collapse:collapse;font-size:12px">
       <thead><tr style="background:#f0f3f9"><th style="padding:4px">#</th><th>ASIN</th><th>Số keyword</th><th>Best organic</th><th>Keywords</th></tr></thead>
       <tbody>${rows}</tbody></table>`);
@@ -1089,6 +1116,67 @@ $('btnCsv').onclick = () => {
   a.click();
 };
 loadRunList();
+
+/* ===== COMPETITOR LIBRARY ===== */
+let LIB = {};
+const libSel = new Set();
+async function loadCompLib() {
+  LIB = await (await fetch('/api/competitor-library')).json();
+  renderCompLib();
+}
+function renderCompLib() {
+  const entries = Object.entries(LIB);
+  if (!entries.length) { $('libTable').innerHTML = '<div class="hint" style="color:var(--mut);font-size:12px">Chưa có competitor — thêm ASIN ở trên hoặc bấm "➕ Vào Library" trong bảng 🏆.</div>'; return; }
+  const salesDates = [...new Set(entries.flatMap(([, v]) => Object.keys(v.sales || {})))].sort().slice(-4);
+  $('libTable').innerHTML = `<div style="overflow:auto"><table style="border-collapse:collapse;width:100%;font-size:12px">
+    <thead><tr style="background:#f0f3f9">
+      <th style="padding:4px"></th><th>Ảnh</th><th>ASIN</th><th style="min-width:220px">Title</th>
+      ${salesDates.map((d) => `<th title="Sale 'bought in past month' ngày ${esc(d)}">Sale ${esc(d.slice(5))}</th>`).join('')}
+      <th>Theo dõi</th><th></th></tr></thead>
+    <tbody>${entries.map(([a, v]) => `
+      <tr style="${v.enabled === false ? 'opacity:.45' : ''}">
+        <td style="border:1px solid #e9edf4;padding:3px 6px"><input type="checkbox" ${libSel.has(a) ? 'checked' : ''} onchange="this.checked ? libSel.add('${a}') : libSel.delete('${a}')"></td>
+        <td style="border:1px solid #e9edf4;padding:3px 6px">${v.image ? `<img src="${esc(v.image)}" style="width:42px;border-radius:5px">` : '—'}</td>
+        <td style="border:1px solid #e9edf4;padding:3px 6px;font-weight:700">${esc(a)}</td>
+        <td style="border:1px solid #e9edf4;padding:3px 6px;font-size:11px;white-space:normal">${v.title ? esc(v.title.slice(0, 90)) + (v.title.length > 90 ? '…' : '') : '<span style="color:#a3adc0">chưa quét</span>'}</td>
+        ${salesDates.map((d) => `<td style="border:1px solid #e9edf4;padding:3px 6px;text-align:center">${(v.sales || {})[d] ?? '_'}</td>`).join('')}
+        <td style="border:1px solid #e9edf4;padding:3px 6px;text-align:center"><input type="checkbox" ${v.enabled !== false ? 'checked' : ''} title="Bỏ tick = ngừng theo dõi (bị loại khi Get Competitor tick loại trừ)" onchange="libPatch('${a}',{enabled:this.checked})"></td>
+        <td style="border:1px solid #e9edf4;padding:3px 6px"><span style="color:#c0392b;cursor:pointer" title="Xoá khỏi Library" onclick="if(confirm('Xoá ${a} khỏi Library?'))libPatch('${a}',{delete:true})">🗑</span></td>
+      </tr>`).join('')}</tbody></table></div>`;
+}
+window.libAddAsins = async () => {
+  const r = await (await fetch('/api/competitor-library/add', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ asins: $('libAdd').value }) })).json();
+  $('libMsg').textContent = `✅ thêm ${r.added} ASIN`;
+  $('libAdd').value = '';
+  loadCompLib();
+};
+window.libPatch = async (asin, patch) => {
+  await fetch('/api/competitor-library/patch', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ asin, ...patch }) });
+  loadCompLib();
+};
+window.libSelAll = (on) => {
+  libSel.clear();
+  if (on) Object.keys(LIB).forEach((a) => libSel.add(a));
+  renderCompLib();
+};
+window.libScan = async () => {
+  if (!libSel.size) return alert('Tick competitor cần quét trước');
+  $('libMsg').textContent = '⏳ đang quét ' + libSel.size + ' ASIN...';
+  const res = await fetch('/api/competitor-library/scan', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ asins: [...libSel] }) });
+  const reader = res.body.getReader(); const dec = new TextDecoder();
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    $('logs').textContent += dec.decode(value);
+    $('logs').scrollTop = $('logs').scrollHeight;
+  }
+  $('libMsg').textContent = '✅ xong';
+  loadCompLib();
+};
+loadCompLib();
 function csvq(x){ x=String(x??''); return /[",\n]/.test(x) ? '"'+x.replace(/"/g,'""')+'"' : x; }
 
 loadTracking();

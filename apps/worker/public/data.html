@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<title>PPC Warrior — Data</title>
+<style>
+  :root { --b:#2455e6; --ok:#1a9e50; --bad:#e04545; --warn:#d98a00; --mut:#667; }
+  * { box-sizing:border-box; }
+  body { font-family:-apple-system,Segoe UI,Arial,sans-serif; margin:0; background:#f4f6fa; color:#1b2330; }
+  header { background:#101828; color:#fff; padding:14px 24px; display:flex; align-items:center; gap:14px; }
+  header h1 { font-size:17px; margin:0; }
+  header nav { display:flex; gap:4px; margin-left:10px; }
+  header nav a { color:#9fb0c8; text-decoration:none; font-size:13px; padding:6px 14px; border-radius:8px; }
+  header nav a.active { background:var(--b); color:#fff; font-weight:600; }
+  header nav a:hover:not(.active) { background:#1d2739; }
+  main { max-width:1480px; margin:20px auto; padding:0 16px; }
+  .card { background:#fff; border:1px solid #e3e8f0; border-radius:12px; padding:18px 20px; margin-bottom:16px; }
+  .card > h2 { font-size:14px; margin:0 0 4px; }
+  .card .sub { font-size:12px; color:var(--mut); margin:0 0 12px; }
+  label { font-size:11.5px; color:var(--mut); display:block; margin:8px 0 4px; font-weight:600; }
+  input, select { padding:7px 9px; border:1px solid #ccd3e0; border-radius:7px; font-size:13px; font-family:inherit; background:#fff; }
+  input:focus, select:focus { outline:2px solid #c7d5ff; border-color:var(--b); }
+  button { padding:8px 16px; border:none; border-radius:7px; cursor:pointer; font-size:13px; font-weight:600; }
+  .btn-primary { background:var(--b); color:#fff; }
+  .btn-sm { padding:5px 12px; font-size:12px; background:#eef1f7; }
+  table { border-collapse:collapse; width:100%; font-size:12px; }
+  th, td { border:1px solid #e3e8f0; padding:4px 7px; text-align:right; white-space:nowrap; }
+  th { background:#f0f3f9; position:sticky; top:0; z-index:2; user-select:none; }
+  td.l, th.l { text-align:left; }
+  .grp-ads { background:#eef4ff; } .grp-biz { background:#eefaf0; } .grp-inv { background:#fff4e6; } .grp-rk { background:#f3eefb; }
+  .scroll { overflow:auto; max-height:560px; border-radius:8px; }
+  .statgrid { display:flex; gap:12px; flex-wrap:wrap; margin:8px 0; }
+  .stat { background:#f0f4ff; border:1px solid #d8e2ff; border-radius:10px; padding:8px 16px; text-align:center; min-width:96px; }
+  .stat b { display:block; font-size:17px; color:var(--b); }
+  .stat span { font-size:11px; color:var(--mut); }
+  .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  .imp-box { border:1px solid #e3e8f0; border-radius:10px; padding:12px 14px; flex:1 1 300px; min-width:280px; }
+  .imp-box h3 { margin:0 0 8px; font-size:13px; }
+  .msg { font-size:12.5px; } .msg.ok { color:var(--ok); } .msg.err { color:var(--bad); }
+  .na { color:#b7c0cf; } .dash { color:#98a2b3; }
+  .hint { font-size:11px; color:#8a94a8; }
+  .chips { display:flex; gap:8px; flex-wrap:wrap; }
+  .chip { border-radius:20px; padding:6px 13px; font-size:12.5px; font-weight:600; border:1px solid transparent; }
+  .chip.ok { background:#e7f6ec; color:#157a3d; border-color:#bfe6cd; }
+  .chip.warn { background:#fef2dc; color:#9a6400; border-color:#f2dca6; }
+  .chip.crit { background:#fde6e6; color:#b12727; border-color:#f2b6b6; }
+  .mapgrid { display:grid; grid-template-columns:auto 1fr; gap:4px 10px; align-items:center; margin:8px 0; font-size:12px; }
+  .over-warn { color:var(--warn); } .over-crit { color:var(--bad); font-weight:700; }
+  details.imports { margin-top:10px; font-size:12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>⚔️ PPC Warrior</h1>
+  <nav>
+    <a href="/">📊 Check Ranking</a>
+    <a href="/launching.html">🚀 Tạo Campaign</a>
+    <a href="/adjust.html">⚙️ Adjust</a>
+    <a href="/data.html" class="active">📈 Data</a>
+  </nav>
+</header>
+<main>
+
+  <!-- ===== 1. Import ===== -->
+  <div class="card">
+    <h2>1️⃣ Import chỉ số theo ngày</h2>
+    <p class="sub">Nạp file theo ngày: Ads (file bulk Amazon), Business Report (sale thực tế), Tồn kho. Ngày tự lấy từ tên file — có thể nhập tay. Business/Tồn kho: bấm "Xem cột" để xác nhận ánh xạ trước khi import.</p>
+    <div class="row" style="align-items:stretch">
+
+      <div class="imp-box">
+        <h3>📊 Ads (file bulk)</h3>
+        <input type="file" id="adsFile" accept=".xlsx" style="width:100%">
+        <div class="row" style="margin-top:8px">
+          <input type="text" id="adsDate" placeholder="YYYY-MM-DD (tùy chọn)" style="width:160px">
+          <button class="btn-primary" id="btnAds">📥 Import</button>
+        </div>
+        <div class="msg" id="adsMsg" style="margin-top:6px"></div>
+      </div>
+
+      <div class="imp-box">
+        <h3>💰 Business Report</h3>
+        <input type="file" id="bizFile" accept=".xlsx,.csv,.tsv" style="width:100%">
+        <div class="row" style="margin-top:8px">
+          <input type="text" id="bizDate" placeholder="YYYY-MM-DD" style="width:130px">
+          <button class="btn-sm" id="btnBizPreview">🔎 Xem cột</button>
+          <button class="btn-primary" id="btnBiz">📥 Import</button>
+        </div>
+        <div id="bizMap"></div>
+        <div class="msg" id="bizMsg" style="margin-top:6px"></div>
+      </div>
+
+      <div class="imp-box">
+        <h3>📦 Tồn kho (Inventory)</h3>
+        <input type="file" id="invFile" accept=".xlsx,.csv,.tsv" style="width:100%">
+        <div class="row" style="margin-top:8px">
+          <input type="text" id="invDate" placeholder="YYYY-MM-DD" style="width:130px">
+          <button class="btn-sm" id="btnInvPreview">🔎 Xem cột</button>
+          <button class="btn-primary" id="btnInv">📥 Import</button>
+        </div>
+        <div id="invMap"></div>
+        <div class="msg" id="invMsg" style="margin-top:6px"></div>
+      </div>
+
+    </div>
+    <details class="imports"><summary>Lịch sử import gần đây</summary><div id="importList" class="hint">—</div></details>
+  </div>
+
+  <!-- ===== 2. Bảng hợp nhất ===== -->
+  <div class="card">
+    <h2>2️⃣ Bảng hợp nhất theo ngày (1 dòng = 1 ngày)</h2>
+    <div class="row">
+      <label style="margin:0">ASIN</label>
+      <select id="asinPick" style="min-width:160px"></select>
+      <label style="margin:0">Từ</label><input type="date" id="fromDate">
+      <label style="margin:0">Đến</label><input type="date" id="toDate">
+      <label style="margin:0">Target ACoS %</label><input type="text" inputmode="decimal" id="targetAcos" placeholder="vd 40" style="width:70px">
+      <button class="btn-sm" id="btnLoad">Tải</button>
+      <span class="hint">Quy ước: <span class="na">#N/A</span> chưa có file · <span class="dash">-</span> có file thiếu dữ liệu · 0 giá trị thật</span>
+    </div>
+    <div class="statgrid" id="periodStats"></div>
+    <div id="consTable" class="scroll" style="margin-top:8px"></div>
+  </div>
+
+  <!-- ===== 3. Đánh giá ===== -->
+  <div class="card">
+    <h2>3️⃣ Đánh giá kết quả</h2>
+    <p class="sub">Tín hiệu tự động từ dữ liệu đã nạp — giúp quyết định điều chỉnh (chuyển sang Adjust).</p>
+    <div class="chips" id="signals"><span class="hint">Chọn ASIN và bấm Tải.</span></div>
+  </div>
+
+</main>
+<div id="verWarn" style="display:none;background:#e02020;color:#fff;text-align:center;padding:10px;font-size:13px;font-weight:600;position:sticky;bottom:0"></div>
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const money = (v) => '$' + Number(v || 0).toFixed(2);
+const UI_VERSION = '0.22.0';
+(async () => {
+  try { const v = (await (await fetch('/api/version')).json()).version; if (v !== UI_VERSION) throw new Error(v); }
+  catch (e) { $('verWarn').style.display = 'block'; $('verWarn').textContent = `⚠️ Server phiên bản cũ (${e.message}) — hãy restart (npm start).`; }
+})();
+
+/* ===== Ô hiển thị theo quy ước #N/A / - / giá trị ===== */
+function cell(v, has, f) {
+  if (!has) return '<span class="na">#N/A</span>';
+  if (v === null || v === undefined) return '<span class="dash">-</span>';
+  return f ? f(v) : v;
+}
+const pctf = (v) => v + '%';
+
+/* ===== Import: Ads ===== */
+$('btnAds').onclick = async () => {
+  const f = $('adsFile').files[0];
+  if (!f) { $('adsMsg').className = 'msg err'; $('adsMsg').textContent = 'Chưa chọn file'; return; }
+  const fd = new FormData(); fd.append('file', f); if ($('adsDate').value) fd.append('date', $('adsDate').value);
+  $('adsMsg').className = 'msg'; $('adsMsg').textContent = '⏳ Đang import...';
+  const r = await (await fetch('/api/data/import/ads', { method: 'POST', body: fd })).json();
+  $('adsMsg').className = 'msg ' + (r.ok ? 'ok' : 'err');
+  $('adsMsg').textContent = r.ok ? `✅ ${r.date}: ${r.asinCount} ASIN` : '❌ ' + r.message;
+  if (r.ok) { loadAsins(); loadImports(); }
+};
+
+/* ===== Import: Business / Inventory (có preview ánh xạ cột) ===== */
+function mappingUI(boxId, preview) {
+  const opts = (sel) => preview.header.map((h, i) => `<option value="${i}" ${i === sel ? 'selected' : ''}>${esc(h)}</option>`).join('');
+  const rows = preview.detected.map(d =>
+    `<label style="margin:0">${esc(d.label)}</label>
+     <select data-key="${d.key}"><option value="-1">— (bỏ qua) —</option>${opts(d.index)}</select>`).join('');
+  $(boxId).innerHTML = `<div class="mapgrid">${rows}</div>
+    <div class="hint">Mẫu: ${preview.sampleRows.slice(0, 2).map(r => esc(JSON.stringify(r.slice(0, 6)))).join(' · ')}</div>`;
+}
+function readMapping(boxId) {
+  const m = {};
+  $(boxId).querySelectorAll('select[data-key]').forEach(s => { m[s.dataset.key] = Number(s.value); });
+  return m;
+}
+async function doPreview(kind, fileId, boxId, msgId) {
+  const f = $(fileId).files[0];
+  if (!f) { $(msgId).className = 'msg err'; $(msgId).textContent = 'Chưa chọn file'; return; }
+  const fd = new FormData(); fd.append('file', f); fd.append('kind', kind);
+  $(msgId).className = 'msg'; $(msgId).textContent = '⏳...';
+  const r = await (await fetch('/api/data/preview-columns', { method: 'POST', body: fd })).json();
+  if (!r.ok) { $(msgId).className = 'msg err'; $(msgId).textContent = '❌ ' + r.message; return; }
+  $(msgId).textContent = '';
+  mappingUI(boxId, r);
+}
+async function doImport(kind, fileId, dateId, boxId, msgId) {
+  const f = $(fileId).files[0];
+  if (!f) { $(msgId).className = 'msg err'; $(msgId).textContent = 'Chưa chọn file'; return; }
+  const fd = new FormData(); fd.append('file', f);
+  if ($(dateId).value) fd.append('date', $(dateId).value);
+  const mp = $(boxId).querySelector('select[data-key]') ? readMapping(boxId) : null;
+  if (mp) fd.append('mapping', JSON.stringify(mp));
+  $(msgId).className = 'msg'; $(msgId).textContent = '⏳ Đang import...';
+  const r = await (await fetch('/api/data/import/' + kind, { method: 'POST', body: fd })).json();
+  $(msgId).className = 'msg ' + (r.ok ? 'ok' : 'err');
+  $(msgId).textContent = r.ok ? `✅ ${r.date}: ${r.asinCount} ASIN` : '❌ ' + r.message;
+  if (r.ok) { loadAsins(); loadImports(); }
+}
+$('btnBizPreview').onclick = () => doPreview('business', 'bizFile', 'bizMap', 'bizMsg');
+$('btnBiz').onclick = () => doImport('business', 'bizFile', 'bizDate', 'bizMap', 'bizMsg');
+$('btnInvPreview').onclick = () => doPreview('inventory', 'invFile', 'invMap', 'invMsg');
+$('btnInv').onclick = () => doImport('inventory', 'invFile', 'invDate', 'invMap', 'invMsg');
+
+async function loadImports() {
+  const r = await (await fetch('/api/data/imports')).json();
+  $('importList').innerHTML = (r.imports || []).slice(0, 20).map(x =>
+    `${esc(x.importedAt || '').slice(0, 16).replace('T', ' ')} · <b>${esc(x.kind)}</b> · ${esc(x.date)} · ${x.asinCount} ASIN · ${esc(x.filename || '')}`).join('<br>') || '—';
+}
+
+/* ===== ASIN picker ===== */
+async function loadAsins() {
+  const r = await (await fetch('/api/data/asins')).json();
+  const cur = $('asinPick').value;
+  $('asinPick').innerHTML = (r.asins || []).map(a => `<option ${a === cur ? 'selected' : ''}>${a}</option>`).join('')
+    || '<option value="">— chưa có dữ liệu —</option>';
+}
+
+/* ===== Bảng hợp nhất + đánh giá ===== */
+$('btnLoad').onclick = loadConsolidated;
+$('asinPick').onchange = loadConsolidated;
+
+async function loadConsolidated() {
+  const asin = $('asinPick').value;
+  if (!asin) return;
+  const qs = new URLSearchParams();
+  if ($('fromDate').value) qs.set('from', $('fromDate').value);
+  if ($('toDate').value) qs.set('to', $('toDate').value);
+  const r = await (await fetch(`/api/data/consolidated/${asin}?${qs}`)).json();
+  renderTable(r.days || []);
+  // đánh giá
+  if ($('targetAcos').value) qs.set('targetAcos', $('targetAcos').value.replace(',', '.'));
+  const ev = await (await fetch(`/api/data/evaluate/${asin}?${qs}`)).json();
+  renderSignals(ev);
+}
+
+function renderTable(days) {
+  if (!days.length) { $('consTable').innerHTML = '<span class="hint">Chưa có dữ liệu cho ASIN này.</span>'; return; }
+  const tgt = parseFloat($('targetAcos').value.replace(',', '.'));
+  const body = days.map(d => {
+    const a = d.hasAdsFile, b = d.hasBusinessFile, iv = d.hasInventoryFile;
+    const acosCls = (tgt && d.acos != null) ? (d.acos > tgt * 1.5 ? 'over-crit' : d.acos > tgt ? 'over-warn' : '') : '';
+    const rk = d.rank ? `P1 ${d.rank.p1} · ToS ${d.rank.tos}` : '<span class="dash">·</span>';
+    return `<tr>
+      <td class="l">${d.date}</td>
+      <td class="grp-rk">${rk}</td>
+      <td>${cell(d.impressions, a)}</td>
+      <td>${cell(d.clicks, a)}</td>
+      <td>${cell(d.ctr, a, pctf)}</td>
+      <td>${cell(d.cpc, a, money)}</td>
+      <td>${cell(d.spent, a, money)}</td>
+      <td>${cell(d.ordersAds, a)}</td>
+      <td>${cell(d.salesAds, a, money)}</td>
+      <td>${cell(d.cr, a, pctf)}</td>
+      <td class="${acosCls}">${a ? (d.acos == null ? '∞' : d.acos + '%') : '<span class="na">#N/A</span>'}</td>
+      <td>${cell(d.salesTotal, b, money)}</td>
+      <td>${cell(d.units, b)}</td>
+      <td>${cell(d.sessions, b)}</td>
+      <td>${cell(d.tacos, b, pctf)}</td>
+      <td>${cell(d.unitsAvailable, iv)}</td>
+      <td>${cell(d.inbound, iv)}</td>
+      <td>${cell(d.daysOfSupply, iv)}</td>
+    </tr>`;
+  }).join('');
+  $('consTable').innerHTML = `<table>
+    <thead>
+      <tr>
+        <th class="l" rowspan="2">Ngày</th>
+        <th class="grp-rk" rowspan="2">Ranking</th>
+        <th class="grp-ads" colspan="9">Ads</th>
+        <th class="grp-biz" colspan="4">Business</th>
+        <th class="grp-inv" colspan="3">Tồn kho</th>
+      </tr>
+      <tr>
+        <th class="grp-ads">Impr</th><th class="grp-ads">Clicks</th><th class="grp-ads">CTR</th><th class="grp-ads">CPC</th>
+        <th class="grp-ads">Spend</th><th class="grp-ads">Orders</th><th class="grp-ads">Sale ads</th><th class="grp-ads">CR</th><th class="grp-ads">ACoS</th>
+        <th class="grp-biz">Sale total</th><th class="grp-biz">Units</th><th class="grp-biz">Sessions</th><th class="grp-biz">TACoS</th>
+        <th class="grp-inv">Tồn</th><th class="grp-inv">Về</th><th class="grp-inv">Ngày tồn</th>
+      </tr>
+    </thead><tbody>${body}</tbody></table>`;
+}
+
+function renderSignals(ev) {
+  const p = ev.period || {};
+  $('periodStats').innerHTML = `
+    <div class="stat"><b>${money(p.spend)}</b><span>Spend (${p.days || 0} ngày)</span></div>
+    <div class="stat"><b>${money(p.salesAds)}</b><span>Sale ads</span></div>
+    <div class="stat"><b>${p.acosInf ? '∞' : (p.acos != null ? p.acos + '%' : '—')}</b><span>ACoS</span></div>
+    <div class="stat"><b>${money(p.salesTotal)}</b><span>Sale total</span></div>
+    <div class="stat"><b>${p.tacos != null ? p.tacos + '%' : '—'}</b><span>TACoS</span></div>
+    <div class="stat"><b>${p.orders || 0}</b><span>Orders ads</span></div>`;
+  const sg = ev.signals || [];
+  $('signals').innerHTML = sg.length
+    ? sg.map(s => `<span class="chip ${s.level}">${esc(s.message)}</span>`).join('')
+    : '<span class="hint">Không có tín hiệu (thiếu dữ liệu hoặc mọi thứ ổn).</span>';
+}
+
+loadAsins(); loadImports();
+</script>
+</body>
+</html>

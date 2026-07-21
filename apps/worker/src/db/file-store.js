@@ -88,6 +88,63 @@ export function getAsinMetrics(asin) {
   return readJson(METRICS_FILE, {})[asin] || {}; // { "2026-07-13": {spent, salesAds, ordersAds, salesTotal} }
 }
 
+/* ===== MODULE DATA: import chỉ số theo ngày (ads / business / tồn kho) =====
+   Shape "phẳng theo (asin,date)" để sau map thẳng sang Postgres.
+   Dedup re-upload: ghi ĐÈ trọn NHÓM trường của nguồn đó (không sót giá trị cũ). */
+
+/** Chỉ số ads: ghi trọn 5 trường (re-upload đè cả nhóm). Wrapper của saveAsinMetrics. */
+export function saveAdsMetrics(asin, date, { impressions = 0, clicks = 0, spent = 0, salesAds = 0, ordersAds = 0 } = {}) {
+  saveAsinMetrics(String(asin).toUpperCase(), date, { impressions, clicks, spent, salesAds, ordersAds });
+}
+
+/** Business Report: sessions / units / salesTotal — fold chung asin-metrics.json (giữ getAsinMetrics chạy). */
+export function saveBusinessData(asin, date, { sessions = null, units = null, salesTotal = null } = {}) {
+  const m = {};
+  if (sessions !== null) m.sessions = sessions;
+  if (units !== null) m.units = units;
+  if (salesTotal !== null) m.salesTotal = salesTotal;
+  saveAsinMetrics(String(asin).toUpperCase(), date, m);
+}
+
+const INVENTORY_FILE = path.join(DATA_DIR, "inventory-daily.json");
+
+export function saveInventory(asin, date, { unitsAvailable = null, inbound = null, reserved = null, daysOfSupply = null, source = "" } = {}) {
+  ensureDirs();
+  const all = readJson(INVENTORY_FILE, {});
+  const key = String(asin).toUpperCase();
+  all[key] = all[key] || {};
+  all[key][date] = { unitsAvailable, inbound, reserved, daysOfSupply, source, updatedAt: new Date().toISOString() };
+  fs.writeFileSync(INVENTORY_FILE, JSON.stringify(all, null, 1));
+}
+
+export function getInventory(asin) {
+  return readJson(INVENTORY_FILE, {})[String(asin).toUpperCase()] || {}; // { "YYYY-MM-DD": {unitsAvailable, inbound...} }
+}
+
+/** Union ASIN có mặt ở metrics + inventory + daily-rank (dùng cho ASIN picker). */
+export function listDataAsins() {
+  const set = new Set();
+  for (const a of Object.keys(readJson(METRICS_FILE, {}))) set.add(a);
+  for (const a of Object.keys(readJson(INVENTORY_FILE, {}))) set.add(a);
+  for (const a of Object.keys(readJson(DAILY_FILE, {}))) set.add(a);
+  return [...set].sort();
+}
+
+/* Lịch sử import (giống index Adjust) — cho UI hiển thị danh sách file đã nạp. */
+const IMPORTS_FILE = path.join(DATA_DIR, "data-imports.json");
+
+export function recordImport(entry) {
+  ensureDirs();
+  const idx = readJson(IMPORTS_FILE, []);
+  idx.unshift({ id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), ...entry, importedAt: new Date().toISOString() });
+  fs.writeFileSync(IMPORTS_FILE, JSON.stringify(idx.slice(0, 100), null, 1));
+}
+
+export function listImports(kind) {
+  const idx = readJson(IMPORTS_FILE, []);
+  return kind ? idx.filter((x) => x.kind === kind) : idx;
+}
+
 /* ===== CHUỖI THỜI GIAN DAILY (nguồn cho báo cáo tổng hợp / biểu đồ / dự phóng) =====
    Cấu trúc: { asin: { keyword: { "YYYY-MM-DD": {r, p, n, tos, ros, vid, sb, car, pv, va, t} } } }
    - r: organic rank toàn cục | p: page | n: no trong trang | tos: "x/y"
@@ -376,6 +433,72 @@ export function getCompetitorRank(asin, dateKey) {
   return { date: d || null, dates, list };
 }
 
+/* ===== COMPETITOR LIBRARY =====
+   competitor-library.json: { ASIN: { enabled, image, title, addedAt, scannedAt,
+                                      sales: { "YYYY-MM-DD": "50+"|"100+"|null } } }
+   - image + title: quét 1 LẦN (lần đầu); Sale ("bought in past month"): mỗi lần quét
+   - enabled=false: ngừng theo dõi (loại khỏi Get Competitor khi tick loại trừ) */
+const COMPLIB_FILE = path.join(DATA_DIR, "competitor-library.json");
+
+export function getCompetitorLibrary() {
+  return readJson(COMPLIB_FILE, {});
+}
+function writeCompLib(lib) {
+  ensureDirs();
+  fs.writeFileSync(COMPLIB_FILE, JSON.stringify(lib, null, 1));
+}
+export function compLibAdd(asins) {
+  const lib = getCompetitorLibrary();
+  let added = 0;
+  for (const a of asins || []) {
+    const key = String(a).trim().toUpperCase();
+    if (!/^[A-Z0-9]{10}$/.test(key) || lib[key]) continue;
+    lib[key] = { enabled: true, image: null, title: null, sales: {}, addedAt: new Date().toISOString() };
+    added++;
+  }
+  writeCompLib(lib);
+  return added;
+}
+export function compLibPatch(asin, patch) {
+  const lib = getCompetitorLibrary();
+  const key = String(asin).toUpperCase();
+  if (patch.delete) { delete lib[key]; writeCompLib(lib); return; }
+  if (!lib[key]) return;
+  for (const f of ["enabled"]) if (patch[f] !== undefined) lib[key][f] = patch[f];
+  writeCompLib(lib);
+}
+export function compLibSaveScan(asin, { title, image, sales, date }) {
+  const lib = getCompetitorLibrary();
+  const key = String(asin).toUpperCase();
+  lib[key] = lib[key] || { enabled: true, image: null, title: null, sales: {}, addedAt: new Date().toISOString() };
+  if (title && !lib[key].title) lib[key].title = title;   // title + ảnh chỉ lấy lần đầu
+  if (image && !lib[key].image) lib[key].image = image;
+  lib[key].sales[date] = sales ?? null;                    // Sale mỗi lần quét ("50+"... hoặc null = "_")
+  lib[key].scannedAt = new Date().toISOString();
+  writeCompLib(lib);
+}
+
+/** Get Competitor cho Tạo Campaign: gộp NHIỀU PHIÊN + lọc khoảng số keyword + loại ASIN đã tắt theo dõi. */
+export function getCompetitorPick(asin, dates, minKw, maxKw, excludeUntracked) {
+  const all = readJson(COMPRANK_FILE, {})[String(asin).toUpperCase()] || {};
+  const lib = excludeUntracked ? getCompetitorLibrary() : null;
+  const merged = {}; // comp → Set(kws), bestRank
+  for (const d of dates || []) {
+    for (const [comp, v] of Object.entries(all[d] || {})) {
+      merged[comp] = merged[comp] || { kws: new Set(), bestRank: null };
+      (v.kws || []).forEach((k) => merged[comp].kws.add(k));
+      if (v.bestRank != null) merged[comp].bestRank = Math.min(merged[comp].bestRank ?? 999, v.bestRank);
+    }
+  }
+  const lo = Number(minKw) || 1;
+  const hi = Number(maxKw) || 9999;
+  return Object.entries(merged)
+    .map(([a, v]) => ({ asin: a, n: v.kws.size, bestRank: v.bestRank, kws: [...v.kws] }))
+    .filter((x) => x.n >= lo && x.n <= hi)
+    .filter((x) => !lib || lib[x.asin]?.enabled !== false) // loại competitor đã tắt theo dõi trong Library
+    .sort((x, y) => y.n - x.n || (x.bestRank ?? 999) - (y.bestRank ?? 999));
+}
+
 /* ===== Module LAUNCHING: cài đặt + kho keyword + snapshot export ===== */
 const LAUNCH_FILE = path.join(DATA_DIR, "launch-settings.json");
 
@@ -463,6 +586,105 @@ export function saveExportSnapshot(meta, xlsxBuffer) {
 export function listExports() {
   return readJson(path.join(EXPORTS_DIR, "index.json"), []).slice(-30).reverse();
 }
+
+/* ===== MODULE ADJUST A3: rules + proposed_changes + products (target ACoS) =====
+   Map thẳng sang bảng rules / proposed_changes / products khi lên Postgres. */
+const ADJUST_DIR = path.join(DATA_DIR, "adjust");
+const RULES_FILE = path.join(ADJUST_DIR, "rules.json");
+const PROPOSALS_FILE = path.join(ADJUST_DIR, "proposals.json");
+const PRODUCTS_FILE = path.join(DATA_DIR, "products.json");
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+function ensureAdjustDir() { fs.mkdirSync(ADJUST_DIR, { recursive: true }); }
+
+export function listRules() { return readJson(RULES_FILE, []); }
+export function createRule(r) {
+  ensureAdjustDir();
+  const all = listRules();
+  const rule = { id: uid(), enabled: true, priority: 100, ...r, createdAt: new Date().toISOString() };
+  all.push(rule);
+  fs.writeFileSync(RULES_FILE, JSON.stringify(all, null, 1));
+  return rule;
+}
+export function updateRule(id, patch) {
+  const all = listRules();
+  const r = all.find((x) => x.id === id);
+  if (!r) return null;
+  Object.assign(r, patch, { updatedAt: new Date().toISOString() });
+  fs.writeFileSync(RULES_FILE, JSON.stringify(all, null, 1));
+  return r;
+}
+export function deleteRule(id) {
+  ensureAdjustDir();
+  fs.writeFileSync(RULES_FILE, JSON.stringify(listRules().filter((x) => x.id !== id), null, 1));
+}
+/** Seed Rule Set v1 nếu bảng rule rỗng (defaults = mảng object rule). */
+export function seedDefaultRulesIfEmpty(defaults) {
+  if (listRules().length) return false;
+  ensureAdjustDir();
+  const all = (defaults || []).map((r) => ({ id: uid(), createdAt: new Date().toISOString(), ...r }));
+  fs.writeFileSync(RULES_FILE, JSON.stringify(all, null, 1));
+  return true;
+}
+/** Reset về mặc định (xóa hết rồi seed lại). */
+export function resetRules(defaults) {
+  ensureAdjustDir();
+  fs.writeFileSync(RULES_FILE, JSON.stringify([], null, 1));
+  return seedDefaultRulesIfEmpty(defaults);
+}
+
+export function insertProposals(rows) {
+  ensureAdjustDir();
+  const all = readJson(PROPOSALS_FILE, []);
+  const now = new Date().toISOString();
+  const added = (rows || []).map((r) => ({ id: uid(), status: "pending", createdAt: now, ...r }));
+  const merged = [...all, ...added].slice(-5000); // chống phình
+  fs.writeFileSync(PROPOSALS_FILE, JSON.stringify(merged, null, 1));
+  return added;
+}
+export function listProposals({ datasetId, status, runId } = {}) {
+  let out = readJson(PROPOSALS_FILE, []);
+  if (datasetId) out = out.filter((p) => p.datasetId === datasetId);
+  if (runId) out = out.filter((p) => p.runId === runId);
+  if (status) out = out.filter((p) => p.status === status);
+  return out;
+}
+export function setProposalStatus(ids, status) {
+  const set = new Set(ids || []);
+  const all = readJson(PROPOSALS_FILE, []);
+  let n = 0;
+  for (const p of all) if (set.has(p.id)) { p.status = status; p.reviewedAt = new Date().toISOString(); n++; }
+  ensureAdjustDir();
+  fs.writeFileSync(PROPOSALS_FILE, JSON.stringify(all, null, 1));
+  return n;
+}
+/** Đặt status cho TẤT CẢ proposals pending của 1 dataset (approve/reject all). */
+export function setProposalStatusByDataset(datasetId, fromStatus, toStatus) {
+  const all = readJson(PROPOSALS_FILE, []);
+  let n = 0;
+  for (const p of all) if (p.datasetId === datasetId && p.status === fromStatus) { p.status = toStatus; p.reviewedAt = new Date().toISOString(); n++; }
+  ensureAdjustDir();
+  fs.writeFileSync(PROPOSALS_FILE, JSON.stringify(all, null, 1));
+  return n;
+}
+
+/* Products: target ACoS theo ASIN (user nhập từ margin) — rule P3/P4 cần. */
+export function getProduct(asin) { return readJson(PRODUCTS_FILE, {})[String(asin).toUpperCase()] || null; }
+export function upsertProduct(asin, patch) {
+  ensureDirs();
+  const all = readJson(PRODUCTS_FILE, {});
+  const key = String(asin).toUpperCase();
+  all[key] = { ...(all[key] || {}), ...patch, updatedAt: new Date().toISOString() };
+  fs.writeFileSync(PRODUCTS_FILE, JSON.stringify(all, null, 1));
+  return all[key];
+}
+export function getProductsMap(asins) {
+  const all = readJson(PRODUCTS_FILE, {});
+  if (!asins) return all;
+  const out = {};
+  for (const a of asins) { const k = String(a).toUpperCase(); if (all[k]) out[k] = all[k]; }
+  return out;
+}
+export function listProducts() { return readJson(PRODUCTS_FILE, {}); }
 
 /* ===== Job queue (RUN_MODE=queue) =====
    Server trung tâm XẾP job — agent trên máy cá nhân KÉO về chạy (Phương án A, mục 8.6

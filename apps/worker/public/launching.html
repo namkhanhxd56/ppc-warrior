@@ -146,6 +146,7 @@
     <a href="/">📊 Check Ranking</a>
     <a href="/launching.html" class="active">🚀 Tạo Campaign</a>
     <a href="/adjust.html">⚙️ Adjust</a>
+    <a href="/data.html">📈 Data</a>
   </nav>
 </header>
 <main>
@@ -182,27 +183,19 @@
       <div>
         <label>Target ASINs — mỗi dòng 1 ASIN (đối thủ, hoặc chính mình để defend)</label>
         <textarea id="targetAsins" rows="9" placeholder="B0DTQ34TKQ&#10;B0F39TY6P6"></textarea>
-        <div style="margin-top:8px;display:flex;gap:10px;align-items:center">
-          <div style="position:relative;flex:1;max-width:250px">
-            <input type="text" id="snapRange" readonly value="Lifetime" style="cursor:pointer" title="Chọn khoảng thời gian">
-            <input type="hidden" id="snapFrom"><input type="hidden" id="snapTo">
-            <div id="rangePanel" style="display:none;position:absolute;z-index:30;top:100%;left:0;margin-top:4px;
-                 background:#fff;border:1px solid #ccd3e0;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.15);
-                 padding:10px;width:420px">
-              <div style="display:flex;gap:12px">
-                <div id="rangePresets" style="flex:1;max-height:250px;overflow:auto"></div>
-                <div style="flex:1;border-left:1px solid #e3e8f0;padding-left:12px">
-                  <label style="margin-top:0">Custom — Từ ngày</label><input type="date" id="rangeFrom">
-                  <label>Đến ngày</label><input type="date" id="rangeTo">
-                  <button class="btn-sm" id="rangeApply" style="margin-top:10px;background:var(--b);color:#fff">Áp dụng</button>
-                </div>
-              </div>
-            </div>
-          </div>
-          <button class="btn-sm" id="btnSnap" style="flex:0 0 auto">🎯 Get competitor snapshot</button>
+        <div style="margin-top:8px;display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
+          <div style="max-width:150px"><label style="margin:0 0 2px">ASIN của mình</label>
+            <select id="cpAsin" style="width:100%"></select></div>
+          <div style="max-width:190px"><label style="margin:0 0 2px" title="Giữ Ctrl/Cmd để chọn nhiều phiên">Phiên quét (chọn nhiều)</label>
+            <select id="cpDates" multiple size="3" style="width:100%"></select></div>
+          <div style="max-width:135px"><label style="margin:0 0 2px" title="Competitor xuất hiện trong bao nhiêu keyword của mình">Số keyword từ–đến</label>
+            <div style="display:flex;gap:4px"><input type="number" id="cpMin" value="3" min="1" style="width:58px"><input type="number" id="cpMax" value="7" min="1" style="width:58px"></div></div>
+          <label class="chk" style="margin:0 0 6px"><input type="checkbox" id="cpExclude" checked>
+            <span title="Bỏ các ASIN đã tắt theo dõi trong Competitor Library (trang Check Ranking)">loại ASIN đã tắt theo dõi</span></label>
+          <button class="btn-sm" id="btnSnap" style="flex:0 0 auto;background:var(--b);color:#fff">🎯 Get Competitor</button>
         </div>
         <div class="hint" id="snapMsg" style="margin-top:4px"></div>
-        <div class="hint">Lấy ASIN từ competitor snapshot của các lần check ranking trong khoảng thời gian. Cần bật "Lưu competitor snapshot" bên Check Ranking.</div>
+        <div class="hint">Gộp bảng 🏆 competitor của các PHIÊN đã chọn — lọc theo số keyword đối thủ xuất hiện (VD 3–7 = đủ liên quan, không quá rộng) để lấy đúng target cho ASIN của mình.</div>
       </div>
     </div>
   </div>
@@ -550,7 +543,7 @@ const TYPE_LABEL = { SP_KW_EXACT:'Exact', SP_KW_PHRASE:'Phrase', SP_KW_BROAD:'Br
 const STRATEGIES = ['Dynamic bids - down only','Dynamic bids - up and down','Fixed bid'];
 
 /* ===== Cảnh báo server chạy code cũ ===== */
-const UI_VERSION = '0.21.5';
+const UI_VERSION = '0.22.0';
 (async () => {
   try {
     const v = (await (await fetch('/api/version')).json()).version;
@@ -734,65 +727,38 @@ $('btnH10').onclick = async () => {
   persistForm();
 };
 
-/* ===== Date range picker (kiểu Amazon Ads) ===== */
-const fmtD = (d) => d.toISOString().slice(0, 10);
-const RANGE_PRESETS = [
-  ['Today',        () => { const t = new Date(); return [fmtD(t), fmtD(t)]; }],
-  ['Yesterday',    () => { const t = new Date(); t.setDate(t.getDate() - 1); return [fmtD(t), fmtD(t)]; }],
-  ['Last 7 days',  () => { const t = new Date(), f = new Date(); f.setDate(f.getDate() - 6); return [fmtD(f), fmtD(t)]; }],
-  ['This week',    () => { const t = new Date(), f = new Date(); f.setDate(f.getDate() - f.getDay()); return [fmtD(f), fmtD(t)]; }],
-  ['Last week',    () => { const f = new Date(); f.setDate(f.getDate() - f.getDay() - 7); const e = new Date(f); e.setDate(e.getDate() + 6); return [fmtD(f), fmtD(e)]; }],
-  ['Last 30 days', () => { const t = new Date(), f = new Date(); f.setDate(f.getDate() - 29); return [fmtD(f), fmtD(t)]; }],
-  ['This month',   () => { const t = new Date(); return [fmtD(new Date(t.getFullYear(), t.getMonth(), 1)), fmtD(t)]; }],
-  ['Last month',   () => { const t = new Date(); return [fmtD(new Date(t.getFullYear(), t.getMonth() - 1, 1)), fmtD(new Date(t.getFullYear(), t.getMonth(), 0))]; }],
-  ['Year to date', () => { const t = new Date(); return [fmtD(new Date(t.getFullYear(), 0, 1)), fmtD(t)]; }],
-  ['Lifetime',     () => ['', '']]
-];
-$('rangePresets').innerHTML = RANGE_PRESETS.map(([name], i) =>
-  `<div style="padding:7px 10px;border-radius:7px;cursor:pointer;font-size:13px"
-    onmouseover="this.style.background='#eef1f7'" onmouseout="this.style.background=''"
-    onclick="pickRange(${i})">${name}</div>`).join('');
-window.pickRange = (i) => {
-  const [name, fn] = RANGE_PRESETS[i];
-  const [f, t] = fn();
-  $('snapFrom').value = f; $('snapTo').value = t;
-  $('rangeFrom').value = f; $('rangeTo').value = t;
-  $('snapRange').value = name;
-  $('rangePanel').style.display = 'none';
-  persistForm();
-};
-$('rangeApply').onclick = () => {
-  $('snapFrom').value = $('rangeFrom').value;
-  $('snapTo').value = $('rangeTo').value;
-  const p = (s) => s ? s.slice(8,10) + '/' + s.slice(5,7) : '…';
-  $('snapRange').value = ($('rangeFrom').value || $('rangeTo').value)
-    ? `${p($('rangeFrom').value)} – ${p($('rangeTo').value)}` : 'Lifetime';
-  $('rangePanel').style.display = 'none';
-  persistForm();
-};
-$('snapRange').onclick = (e) => { e.stopPropagation(); $('rangePanel').style.display = $('rangePanel').style.display === 'none' ? 'block' : 'none'; };
-$('rangePanel').onclick = (e) => e.stopPropagation();
-document.addEventListener('click', () => { $('rangePanel').style.display = 'none'; });
+/* ===== Get Competitor (theo phiên + khoảng số keyword + loại ASIN tắt theo dõi) ===== */
+async function loadCpAsins() {
+  try {
+    const t = await (await fetch('/api/tracking')).json();
+    const cur = $('cpAsin').value;
+    $('cpAsin').innerHTML = t.asins.map(a => `<option ${a.asin === cur ? 'selected' : ''}>${a.asin}</option>`).join('');
+    if ($('cpAsin').value) loadCpDates();
+  } catch {}
+}
+async function loadCpDates() {
+  const a = $('cpAsin').value;
+  if (!a) return;
+  const r = await (await fetch('/api/competitor-rank/' + a)).json();
+  $('cpDates').innerHTML = r.dates.slice().reverse().map((d, i) => `<option ${i === 0 ? 'selected' : ''}>${d}</option>`).join('')
+    || '<option disabled>chưa có phiên competitor</option>';
+}
+$('cpAsin')?.addEventListener('change', loadCpDates);
+loadCpAsins();
 
-/* ===== Get competitor snapshot ===== */
 $('btnSnap').onclick = async () => {
-  const a = $('asin').value.trim().toUpperCase();
-  if (!/^[A-Z0-9]{10}$/.test(a)) { $('snapMsg').textContent = 'Nhập ASIN ở mục 1 trước'; return; }
-  const q = new URLSearchParams();
-  if ($('snapFrom').value) q.set('from', $('snapFrom').value);
-  if ($('snapTo').value) q.set('to', $('snapTo').value);
+  const asin = $('cpAsin').value;
+  const dates = [...$('cpDates').selectedOptions].map(o => o.value).filter(Boolean);
+  if (!asin) { $('snapMsg').textContent = 'Chưa có ASIN nào trong bảng theo dõi'; return; }
+  if (!dates.length) { $('snapMsg').textContent = 'Chọn ít nhất 1 phiên quét (bật 🕵 bên Check Ranking rồi Run để có dữ liệu)'; return; }
   $('snapMsg').textContent = '⏳ Đang gom...';
-  const r = await (await fetch(`/api/competitor-snapshot/${a}?` + q)).json();
-  if (!r.competitors?.length) {
-    $('snapMsg').textContent = r.runsScanned
-      ? `Không có snapshot trong ${r.runsScanned} lần check (bật "Lưu competitor snapshot" bên Check Ranking rồi chạy lại)`
-      : 'Chưa có lần check nào cho ASIN này trong khoảng ngày';
-    return;
-  }
+  const r = await (await fetch('/api/competitor-pick', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ asin, dates, minKw: +$('cpMin').value || 1, maxKw: +$('cpMax').value || 9999, excludeUntracked: $('cpExclude').checked }) })).json();
+  if (!r.list?.length) { $('snapMsg').textContent = 'Không có competitor nào khớp khoảng ' + $('cpMin').value + '–' + $('cpMax').value + ' keyword trong các phiên đã chọn'; return; }
   const cur = new Set($('targetAsins').value.split('\n').map(s => s.trim()).filter(Boolean));
-  r.competitors.forEach(c => cur.add(c.asin));
+  r.list.forEach(c => cur.add(c.asin));
   $('targetAsins').value = [...cur].join('\n');
-  $('snapMsg').textContent = `✅ +${r.competitors.length} ASIN từ ${r.runsWithSnapshot} lần check (xếp theo tần suất xuất hiện)`;
+  $('snapMsg').textContent = `✅ +${r.list.length} ASIN (${dates.length} phiên · xuất hiện ${$('cpMin').value}–${$('cpMax').value} keyword · xếp theo tần suất)`;
   persistForm();
 };
 
