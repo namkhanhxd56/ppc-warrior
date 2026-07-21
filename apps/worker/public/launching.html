@@ -186,8 +186,10 @@
         <div style="margin-top:8px;display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
           <div style="max-width:150px"><label style="margin:0 0 2px">ASIN của mình</label>
             <select id="cpAsin" style="width:100%"></select></div>
-          <div style="max-width:150px"><label style="margin:0 0 2px" title="OPTIONAL — trống = lấy tất cả competitor đang theo dõi">Số keyword từ–đến (tuỳ chọn)</label>
-            <div style="display:flex;gap:4px"><input type="number" id="cpMin" placeholder="—" min="1" style="width:62px"><input type="number" id="cpMax" placeholder="—" min="1" style="width:62px"></div></div>
+          <div style="max-width:140px"><label style="margin:0 0 2px" title="OPTIONAL — trống = lấy tất cả">Số keyword từ–đến</label>
+            <div style="display:flex;gap:4px"><input type="number" id="cpMin" placeholder="—" min="1" style="width:56px"><input type="number" id="cpMax" placeholder="—" min="1" style="width:56px"></div></div>
+          <label class="chk" style="margin:0 0 7px;white-space:nowrap" title="Mặc định KHÔNG lấy — tick để lấy cả competitor đã tắt theo dõi (🙈) trong Library">
+            <input type="checkbox" id="cpUntracked"> Lấy ASIN không theo dõi</label>
           <button class="btn-sm" id="btnSnap" style="flex:0 0 auto;background:var(--b);color:#fff">🎯 Get Competitor</button>
         </div>
         <div class="hint" id="snapMsg" style="margin-top:4px"></div>
@@ -539,7 +541,7 @@ const TYPE_LABEL = { SP_KW_EXACT:'Exact', SP_KW_PHRASE:'Phrase', SP_KW_BROAD:'Br
 const STRATEGIES = ['Dynamic bids - down only','Dynamic bids - up and down','Fixed bid'];
 
 /* ===== Cảnh báo server chạy code cũ ===== */
-const UI_VERSION = '0.23.0';
+const UI_VERSION = '0.23.1';
 (async () => {
   try {
     const v = (await (await fetch('/api/version')).json()).version;
@@ -740,12 +742,14 @@ $('btnSnap').onclick = async () => {
   if (!asin) { $('snapMsg').textContent = 'Chưa có ASIN nào (thêm competitor vào 📚 Library bên Check Ranking trước)'; return; }
   $('snapMsg').textContent = '⏳ Đang lấy từ Library...';
   const r = await (await fetch('/api/competitor-pick-lib', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ asin, minKw: $('cpMin').value || null, maxKw: $('cpMax').value || null }) })).json();
+    body: JSON.stringify({ asin, minKw: $('cpMin').value || null, maxKw: $('cpMax').value || null, includeUntracked: $('cpUntracked').checked }) })).json();
   if (!r.list?.length) { $('snapMsg').textContent = 'Library chưa có competitor đang theo dõi cho ' + asin + ($('cpMin').value || $('cpMax').value ? ' trong khoảng keyword đã đặt' : '') + ' — thêm ở tab 📚 bên Check Ranking'; return; }
-  const cur = new Set($('targetAsins').value.split('\n').map(s => s.trim()).filter(Boolean));
-  r.list.forEach(c => cur.add(c.asin));
+  // LỌC TRÙNG: chuẩn hoá UPPERCASE — dòng cũ gõ tay thường/lẫn khoảng trắng cũng gộp đúng
+  const cur = new Set($('targetAsins').value.split('\n').map(s => s.trim().toUpperCase()).filter(Boolean));
+  const before = cur.size;
+  r.list.forEach(c => cur.add(String(c.asin).toUpperCase()));
   $('targetAsins').value = [...cur].join('\n');
-  $('snapMsg').textContent = `✅ +${r.list.length} ASIN từ Library` + ($('cpMin').value || $('cpMax').value ? ` (khoảng ${$('cpMin').value || '…'}–${$('cpMax').value || '…'} keyword)` : '');
+  $('snapMsg').textContent = `✅ +${cur.size - before} ASIN mới từ Library (đã lọc trùng)` + ($('cpMin').value || $('cpMax').value ? ` (khoảng ${$('cpMin').value || '…'}–${$('cpMax').value || '…'} keyword)` : '');
   persistForm();
 };
 

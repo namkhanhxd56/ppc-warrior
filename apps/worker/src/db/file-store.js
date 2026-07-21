@@ -382,13 +382,17 @@ const COMPRANK_FILE = path.join(DATA_DIR, "competitor-rank.json");
 
 export function saveCompetitorAgg(asin, dateKey, results) {
   const key = String(asin).toUpperCase();
+  // Loại CHÍNH MÌNH + parent + mọi biến thể cùng nhóm khỏi danh sách competitor (chống "trùng" với sản phẩm của mình)
+  const own = new Set([key]);
+  const vc = readJson(VARIANTS_FILE, {})[key];
+  if (vc) { if (vc.parentAsin) own.add(String(vc.parentAsin).toUpperCase()); for (const c of vc.childAsins || []) own.add(String(c).toUpperCase()); }
   const agg = {};
   let has = false;
   for (const x of results || []) {
     if (x.error || !Array.isArray(x.snapshot)) continue;
     const seen = new Set();
     const hit = (a, orgRank) => {
-      if (!/^[A-Z0-9]{10}$/.test(a) || a === key) return;
+      if (!/^[A-Z0-9]{10}$/.test(a) || own.has(a)) return;
       has = true;
       if (!seen.has(a)) {
         seen.add(a);
@@ -485,7 +489,7 @@ export function compLibPatch(mainAsin, compAsin, patch) {
     return;
   }
   if (!lib.groups[main][comp]) return;
-  for (const f of ["enabled"]) if (patch[f] !== undefined) lib.groups[main][comp][f] = patch[f];
+  for (const f of ["enabled", "favorite"]) if (patch[f] !== undefined) lib.groups[main][comp][f] = patch[f];
   writeCompLib(lib);
 }
 /** Quét trang sản phẩm: cập nhật comp ở MỌI nhóm chứa nó (ảnh/title chỉ điền lần đầu, Sale theo ngày). */
@@ -521,12 +525,12 @@ export function compLibUpdateStats(mainAsin, dateKey) {
   if (touched) writeCompLib(lib);
 }
 /** Get Competitor (Tạo Campaign): CHỈ từ Library — nhóm của ASIN chính, đang theo dõi, khoảng keyword OPTIONAL. */
-export function getCompetitorPickLib(mainAsin, minKw, maxKw) {
+export function getCompetitorPickLib(mainAsin, minKw, maxKw, includeUntracked) {
   const g = getCompetitorLibrary().groups[String(mainAsin).toUpperCase()] || {};
   const lo = minKw ? Number(minKw) : null;
   const hi = maxKw ? Number(maxKw) : null;
   return Object.entries(g)
-    .filter(([, v]) => v.enabled !== false)
+    .filter(([, v]) => includeUntracked || v.enabled !== false)
     .filter(([, v]) => (lo == null || (v.n ?? 0) >= lo) && (hi == null || (v.n ?? 0) <= hi))
     .map(([a, v]) => ({ asin: a, n: v.n, bestRank: v.bestRank }))
     .sort((x, y) => (y.n ?? 0) - (x.n ?? 0) || (x.bestRank ?? 999) - (y.bestRank ?? 999));

@@ -18,7 +18,7 @@ import { evaluateAsin } from "./src/data/evaluate.js";
 import * as store from "./src/db/file-store.js";
 
 dotenv.config();
-export const APP_VERSION = "0.23.0"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
+export const APP_VERSION = "0.23.1"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
 
 // RUN_MODE:
 // - "local" (mặc định): bấm Kiểm tra là scrape NGAY trên máy này (dùng 1 người, chạy local)
@@ -100,8 +100,8 @@ async function executeCheck({ asin, keywords, maxPages, checkVariants, saveSnaps
       log, shouldStop: () => stopFlag
     });
   } finally {
-    if (browser) { try { await browser.close(); } catch {} }
-    running = false;
+    running = false; // nhả cờ trước — browser.close() treo không khoá phiên sau
+    if (browser) { try { await Promise.race([browser.close(), new Promise((r) => setTimeout(r, 5000))]); } catch {} }
   }
 }
 
@@ -215,8 +215,8 @@ app.post("/api/location", async (req, res) => {
   } catch (e) {
     res.status(500).json({ ok: false, message: e.message });
   } finally {
-    if (browser) { try { await browser.close(); } catch {} }
-    running = false;
+    running = false; // nhả cờ trước — browser.close() treo không khoá phiên sau
+    if (browser) { try { await Promise.race([browser.close(), new Promise((r) => setTimeout(r, 5000))]); } catch {} }
   }
 });
 
@@ -867,9 +867,9 @@ app.post("/api/competitor-library/patch", (req, res) => {
 
 // Get Competitor (Tạo Campaign): CHỈ từ Library — khoảng keyword optional
 app.post("/api/competitor-pick-lib", (req, res) => {
-  const { asin, minKw, maxKw } = req.body || {};
+  const { asin, minKw, maxKw, includeUntracked } = req.body || {};
   if (!/^[A-Z0-9]{10}$/i.test(String(asin || ""))) return res.status(400).json({ error: "ASIN không hợp lệ" });
-  res.json({ list: store.getCompetitorPickLib(String(asin).toUpperCase(), minKw, maxKw) });
+  res.json({ list: store.getCompetitorPickLib(String(asin).toUpperCase(), minKw, maxKw, !!includeUntracked) });
 });
 
 // Quét Library: ảnh + title (chỉ lần đầu) + Sale "bought in past month" (mỗi lần) — stream log
@@ -910,8 +910,10 @@ app.post("/api/competitor-library/scan", async (req, res) => {
   } catch (e) {
     log(`🚨 ${e.message}`);
   } finally {
-    if (browser) { try { await browser.close(); } catch {} }
+    // Nhả cờ TRƯỚC khi đóng browser: nếu close() treo (Chrome kẹt sau khi Dừng giữa chừng)
+    // thì lần quét sau vẫn chạy được — không còn kẹt "Đang có phiên chạy"
     running = false;
+    if (browser) { try { await Promise.race([browser.close(), new Promise((r) => setTimeout(r, 5000))]); } catch {} }
     res.end();
   }
 });

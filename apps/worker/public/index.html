@@ -86,6 +86,14 @@
     border-radius:7px; font-size:11.5px; line-height:1.7; white-space:nowrap;
     box-shadow:0 4px 14px rgba(0,0,0,.3); pointer-events:none; }
   #ftip b { color:#8fd1ff; }
+  #ftip img { display:block; width:220px; border-radius:8px; }
+  .lib-title { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; white-space:normal; line-height:1.45; }
+  .lib-star { cursor:pointer; font-size:15px; }
+  .lib-eye { cursor:pointer; font-size:15px; }
+  table.libt { table-layout:fixed; border-collapse:collapse; width:100%; font-size:12px; }
+  .libt td, .libt th { border:1px solid #e9edf4; padding:3px 6px; overflow:hidden; }
+  .libt th { position:relative; background:#f0f3f9; font-size:11px; text-align:left; }
+  .libt .rz2 { position:absolute; right:0; top:0; width:6px; height:100%; cursor:col-resize; }
   /* Tab kết quả lần chạy / ASIN Daily (port từ bản cũ) */
   .tabs { display:flex; gap:8px; margin-bottom:10px; }
   .tabs button.active { background:var(--b); color:#fff; }
@@ -184,6 +192,7 @@
         <button class="btn-sm" onclick="libAddAsins()">➕ Thêm</button>
         <button class="btn-sm" style="background:var(--b);color:#fff" onclick="libScan()" title="Ảnh + title lần đầu, Sale mỗi lần">🔍 Quét đã chọn</button>
         <button class="btn-sm" style="background:#e7f3ec;color:#1d7a4f" onclick="libScan()" title="Quét lại Sale 'bought in past month' cho competitor đã tick (ảnh/title đã có thì giữ nguyên)">💰 Quét Sale</button>
+        <button class="btn-sm" style="background:#fff7d9;color:#a07800" onclick="libScanFav()" title="Quét toàn bộ competitor có dấu ⭐ (đối thủ theo dõi sát sao) — không cần tick">⭐ Quét Favorite</button>
         <label class="chk"><input type="checkbox" id="libSelAll" onchange="libSelAll(this.checked)"> chọn tất cả</label>
         <span id="libMsg" style="font-size:11.5px;color:var(--mut)"></span>
       </div>
@@ -218,7 +227,7 @@
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;');
 
-const UI_VERSION = '0.23.0'; // PHẢI khớp APP_VERSION server.js
+const UI_VERSION = '0.23.1'; // PHẢI khớp APP_VERSION server.js
 (async () => {
   try {
     const v = (await (await fetch('/api/version')).json()).version;
@@ -757,9 +766,8 @@ window.addCompsToLib = async () => {
   if (!r || !r.list.length) return;
   const resp = await (await fetch('/api/competitor-library/add', { method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ main: window.__compAsin, asins: r.list.map((x) => x.asin).join(' ') }) })).json();
-  alert(`✅ Đã thêm ${resp.added} competitor mới vào Library`);
-  document.getElementById('mmodal')?.remove();
-  currentTab = 'lib'; setRTab(); loadCompLib();
+  alert(`✅ Đã thêm ${resp.added} competitor mới vào Library (nhóm ${window.__compAsin})`);
+  loadCompLib(); // cập nhật ngầm — giữ nguyên tab/modal đang mở
 };
 window.showCompRankDate = async (asin, d) => {
   document.getElementById('mmodal').remove();
@@ -1147,37 +1155,55 @@ async function loadCompLib() {
   $('libMain').innerHTML = mains.map((a) => `<option ${a === cur ? 'selected' : ''}>${a}</option>`).join('') || '<option disabled>chưa có ASIN theo dõi</option>';
   renderCompLib();
 }
+ui.libW = ui.libW || { sel: 30, img: 62, comp: 116, title: 260, n: 78, best: 84, sale: 76, eye: 62, star: 44, del: 36 };
 function renderCompLib() {
   const groups = Object.entries(LIB.groups || {});
   if (!groups.length) { $('libTable').innerHTML = '<div class="hint" style="color:var(--mut);font-size:12px">Chưa có competitor — chọn ASIN chính, nhập competitor ASIN rồi ➕ Thêm; hoặc bảng 🏆 → ➕ Vào Library.</div>'; return; }
-  let htmlOut = '<div style="overflow:auto"><table style="border-collapse:collapse;width:100%;font-size:12px"><tbody>';
+  const W = ui.libW;
+  let htmlOut = '';
   for (const [main, comps] of groups) {
     const entries = Object.entries(comps);
     const salesDates = [...new Set(entries.flatMap(([, v]) => Object.keys(v.sales || {})))].sort().slice(-3);
-    htmlOut += `<tr><td colspan="${8 + salesDates.length}" style="background:#101828;color:#fff;padding:6px 10px;font-weight:700;font-size:12.5px">
-      🎯 ${esc(main)} <span style="font-weight:400;color:#9fb0c8">· ${entries.length} competitor</span></td></tr>`;
-    htmlOut += `<tr style="background:#f0f3f9;font-size:11px;font-weight:700">
-      <td style="padding:4px 6px"></td><td>Ảnh</td><td>Competitor</td><td style="min-width:200px">Title</td>
-      <td title="Số keyword đối thủ xuất hiện — theo phiên chạy mới nhất">Số keyword</td>
-      <td title="Hạng organic cao nhất — theo phiên chạy mới nhất">Best Organic</td>
-      ${salesDates.map((d) => `<td>Sale ${esc(d.slice(5))}</td>`).join('')}
-      <td>Theo dõi</td><td></td></tr>`;
-    for (const [comp, v] of entries) {
-      const key = main + '|' + comp;
-      htmlOut += `<tr style="${v.enabled === false ? 'opacity:.45' : ''}">
-        <td style="border:1px solid #e9edf4;padding:3px 6px"><input type="checkbox" ${libSel.has(key) ? 'checked' : ''} onchange="this.checked ? libSel.add('${key}') : libSel.delete('${key}')"></td>
-        <td style="border:1px solid #e9edf4;padding:3px 6px">${v.image ? `<img src="${esc(v.image)}" style="width:42px;border-radius:5px">` : '—'}</td>
-        <td style="border:1px solid #e9edf4;padding:3px 6px;font-weight:700">${esc(comp)}</td>
-        <td style="border:1px solid #e9edf4;padding:3px 6px;font-size:11px;white-space:normal">${v.title ? esc(v.title.slice(0, 80)) + (v.title.length > 80 ? '…' : '') : '<span style="color:#a3adc0">chưa quét</span>'}</td>
-        <td style="border:1px solid #e9edf4;padding:3px 6px;text-align:center" title="${v.statDate ? 'phiên ' + esc(v.statDate) : 'chưa có phiên chạy'}">${v.n ?? '—'}</td>
-        <td style="border:1px solid #e9edf4;padding:3px 6px;text-align:center">${v.bestRank ?? '—'}</td>
-        ${salesDates.map((d) => `<td style="border:1px solid #e9edf4;padding:3px 6px;text-align:center">${(v.sales || {})[d] ?? '_'}</td>`).join('')}
-        <td style="border:1px solid #e9edf4;padding:3px 6px;text-align:center"><input type="checkbox" ${v.enabled !== false ? 'checked' : ''} title="Bỏ tick = ngừng theo dõi (loại khỏi Get Competitor)" onchange="libPatch('${main}','${comp}',{enabled:this.checked})"></td>
-        <td style="border:1px solid #e9edf4;padding:3px 6px"><span style="color:#c0392b;cursor:pointer" title="Xoá khỏi nhóm ${main}" onclick="if(confirm('Xoá ${comp} khỏi nhóm ${main}?'))libPatch('${main}','${comp}',{delete:true})">🗑</span></td>
-      </tr>`;
-    }
+    const cols = `<colgroup><col style="width:${W.sel}px"><col style="width:${W.img}px"><col style="width:${W.comp}px"><col style="width:${W.title}px">
+      <col style="width:${W.n}px"><col style="width:${W.best}px">${salesDates.map(() => `<col style="width:${W.sale}px">`).join('')}
+      <col style="width:${W.eye}px"><col style="width:${W.star}px"><col style="width:${W.del}px"></colgroup>`;
+    htmlOut += `<div style="background:#101828;color:#fff;padding:6px 10px;font-weight:700;font-size:12.5px;border-radius:7px 7px 0 0;margin-top:10px">
+      🎯 ${esc(main)} <span style="font-weight:400;color:#9fb0c8">· ${entries.length} competitor</span></div>
+    <div style="overflow:auto"><table class="libt">${cols}
+      <thead><tr>
+        <th></th><th>Ảnh<span class="rz2" data-c="img"></span></th><th>Competitor<span class="rz2" data-c="comp"></span></th>
+        <th>Title<span class="rz2" data-c="title"></span></th>
+        <th title="Số keyword đối thủ xuất hiện — theo phiên chạy mới nhất">Số keyword<span class="rz2" data-c="n"></span></th>
+        <th title="Hạng organic cao nhất — theo phiên chạy mới nhất">Best Organic<span class="rz2" data-c="best"></span></th>
+        ${salesDates.map((d) => `<th>Sale ${esc(d.slice(5))}<span class="rz2" data-c="sale"></span></th>`).join('')}
+        <th title="👁 đang theo dõi · 🙈 đã tắt">Theo dõi</th><th title="⭐ đối thủ theo dõi sát sao — nút Quét Favorite">⭐</th><th></th></tr></thead>
+      <tbody>${entries.map(([comp, v]) => `
+      <tr style="${v.enabled === false ? 'opacity:.45' : ''}">
+        <td><input type="checkbox" ${libSel.has(main + '|' + comp) ? 'checked' : ''} onchange="this.checked ? libSel.add('${main}|${comp}') : libSel.delete('${main}|${comp}')"></td>
+        <td>${v.image ? `<img src="${esc(v.image)}" style="width:44px;border-radius:5px;cursor:zoom-in" data-tip="<img src='${esc(v.image)}'>">` : '—'}</td>
+        <td style="font-weight:700"><a href="https://www.amazon.com/dp/${esc(comp)}" target="_blank" rel="noopener" style="color:#2455e6;text-decoration:none" title="Mở trang Amazon">${esc(comp)}</a></td>
+        <td><div class="lib-title" style="font-size:11px" title="${esc(v.title || '')}">${v.title ? esc(v.title.slice(0, 200)) : '<span style="color:#a3adc0">chưa quét</span>'}</div></td>
+        <td style="text-align:center" title="${v.statDate ? 'phiên ' + esc(v.statDate) : 'chưa có phiên chạy'}">${v.n ?? '—'}</td>
+        <td style="text-align:center">${v.bestRank ?? '—'}</td>
+        ${salesDates.map((d) => `<td style="text-align:center">${(v.sales || {})[d] ?? '_'}</td>`).join('')}
+        <td style="text-align:center"><span class="lib-eye" title="${v.enabled !== false ? 'Đang theo dõi — bấm để TẮT' : 'Đã tắt theo dõi — bấm để BẬT lại'}" onclick="libPatch('${main}','${comp}',{enabled:${v.enabled === false}})">${v.enabled !== false ? '👁' : '🙈'}</span></td>
+        <td style="text-align:center"><span class="lib-star" title="${v.favorite ? 'Bỏ favorite' : 'Đánh dấu favorite — theo dõi sát sao'}" onclick="libPatch('${main}','${comp}',{favorite:${!v.favorite}})" style="color:${v.favorite ? '#e5a400' : '#c3c9d6'}">${v.favorite ? '★' : '☆'}</span></td>
+        <td><span style="color:#c0392b;cursor:pointer" title="Xoá khỏi nhóm ${main}" onclick="if(confirm('Xoá ${comp} khỏi nhóm ${main}?'))libPatch('${main}','${comp}',{delete:true})">🗑</span></td>
+      </tr>`).join('')}</tbody></table></div>`;
   }
-  $('libTable').innerHTML = htmlOut + '</tbody></table></div>';
+  $('libTable').innerHTML = htmlOut;
+  // Co kéo cột (dùng chung 1 cỡ mỗi loại cột trên mọi nhóm)
+  document.querySelectorAll('.libt .rz2').forEach((rz) => {
+    rz.onmousedown = (e) => {
+      e.preventDefault();
+      const c = rz.dataset.c;
+      const startX = e.clientX, startW = ui.libW[c];
+      const move = (ev) => { ui.libW[c] = Math.max(36, startW + ev.clientX - startX); };
+      const up = () => { document.removeEventListener('mousemove', move); document.removeEventListener('mouseup', up); saveUi(); renderCompLib(); };
+      document.addEventListener('mousemove', move);
+      document.addEventListener('mouseup', up);
+    };
+  });
 }
 window.libAddAsins = async () => {
   const r = await (await fetch('/api/competitor-library/add', { method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -1195,9 +1221,19 @@ window.libSelAll = (on) => {
   if (on) for (const [main, comps] of Object.entries(LIB.groups || {})) for (const c of Object.keys(comps)) libSel.add(main + '|' + c);
   renderCompLib();
 };
+window.libScanFav = () => {
+  const favs = new Set();
+  for (const comps of Object.values(LIB.groups || {}))
+    for (const [c, v] of Object.entries(comps)) if (v.favorite && v.enabled !== false) favs.add(c);
+  if (!favs.size) return alert('Chưa có competitor nào gắn ⭐');
+  runLibScan([...favs]);
+};
 window.libScan = async () => {
   if (!libSel.size) return alert('Tick competitor cần quét trước');
   const comps = [...new Set([...libSel].map((k) => k.split('|')[1]))]; // quét theo comp — cập nhật mọi nhóm chứa nó
+  runLibScan(comps);
+};
+async function runLibScan(comps) {
   $('libMsg').textContent = '⏳ đang quét ' + comps.length + ' ASIN...';
   const res = await fetch('/api/competitor-library/scan', { method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ asins: comps }) });
@@ -1210,7 +1246,7 @@ window.libScan = async () => {
   }
   $('libMsg').textContent = '✅ xong';
   loadCompLib();
-};
+}
 loadCompLib();
 function csvq(x){ x=String(x??''); return /[",\n]/.test(x) ? '"'+x.replace(/"/g,'""')+'"' : x; }
 
