@@ -493,7 +493,7 @@ export function compLibPatch(mainAsin, compAsin, patch) {
   writeCompLib(lib);
 }
 /** Quét trang sản phẩm: cập nhật comp ở MỌI nhóm chứa nó (ảnh/title chỉ điền lần đầu, Sale theo ngày). */
-export function compLibSaveScan(compAsin, { title, image, sales, date }) {
+export function compLibSaveScan(compAsin, { title, image, sales, price, date }) {
   const lib = getCompetitorLibrary();
   const comp = String(compAsin).toUpperCase();
   let touched = false;
@@ -502,6 +502,8 @@ export function compLibSaveScan(compAsin, { title, image, sales, date }) {
     if (title && !g[comp].title) g[comp].title = title;
     if (image && !g[comp].image) g[comp].image = image;
     g[comp].sales[date] = sales ?? null;
+    g[comp].prices = g[comp].prices || {};
+    g[comp].prices[date] = price ?? null; // giá theo ngày — mỗi lần quét (Sale/Favorite) đều cập nhật
     g[comp].scannedAt = new Date().toISOString();
     touched = true;
   }

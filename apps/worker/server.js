@@ -18,7 +18,7 @@ import { evaluateAsin } from "./src/data/evaluate.js";
 import * as store from "./src/db/file-store.js";
 
 dotenv.config();
-export const APP_VERSION = "0.23.1"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
+export const APP_VERSION = "0.23.2"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
 
 // RUN_MODE:
 // - "local" (mặc định): bấm Kiểm tra là scrape NGAY trên máy này (dùng 1 người, chạy local)
@@ -897,10 +897,14 @@ app.post("/api/competitor-library/scan", async (req, res) => {
           const image = document.querySelector("#landingImage")?.getAttribute("src") || document.querySelector("#imgTagWrapperId img")?.getAttribute("src") || null;
           // "50+ bought in past month" / "1K+ bought in past month"
           const m = document.body.innerText.match(/([0-9.,]+[KkMm]?\+?)\s+bought in past month/);
-          return { title, image, sales: m ? m[1] : null };
+          // Giá: khối buybox/core price đầu tiên
+          const price = document.querySelector("#corePriceDisplay_desktop_feature_div .a-price .a-offscreen")?.textContent.trim()
+            || document.querySelector("#apex_desktop .a-price .a-offscreen")?.textContent.trim()
+            || document.querySelector(".a-price .a-offscreen")?.textContent.trim() || null;
+          return { title, image, sales: m ? m[1] : null, price };
         });
         store.compLibSaveScan(a, { ...info, date: today });
-        log(`🔍 [${i + 1}/${asins.length}] ${a} → ${info.title ? info.title.slice(0, 50) + "…" : "(không đọc được title)"} · Sale: ${info.sales || "_"}`);
+        log(`🔍 [${i + 1}/${asins.length}] ${a} → ${info.title ? info.title.slice(0, 50) + "…" : "(không đọc được title)"} · Sale: ${info.sales || "_"} · Giá: ${info.price || "_"}`);
       } catch (e) {
         log(`⚠️ [${i + 1}/${asins.length}] ${a} lỗi: ${e.message}`);
       }

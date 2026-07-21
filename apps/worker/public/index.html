@@ -227,7 +227,7 @@
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;');
 
-const UI_VERSION = '0.23.1'; // PHẢI khớp APP_VERSION server.js
+const UI_VERSION = '0.23.2'; // PHẢI khớp APP_VERSION server.js
 (async () => {
   try {
     const v = (await (await fetch('/api/version')).json()).version;
@@ -1155,7 +1155,8 @@ async function loadCompLib() {
   $('libMain').innerHTML = mains.map((a) => `<option ${a === cur ? 'selected' : ''}>${a}</option>`).join('') || '<option disabled>chưa có ASIN theo dõi</option>';
   renderCompLib();
 }
-ui.libW = ui.libW || { sel: 30, img: 62, comp: 116, title: 260, n: 78, best: 84, sale: 76, eye: 62, star: 44, del: 36 };
+ui.libW = ui.libW || { sel: 30, img: 62, comp: 116, title: 260, n: 78, best: 84, sale: 70, price: 76, eye: 62, star: 74, del: 36 };
+const latestOf = (obj) => { const ks = Object.keys(obj || {}).sort(); return ks.length ? obj[ks[ks.length - 1]] : null; };
 function renderCompLib() {
   const groups = Object.entries(LIB.groups || {});
   if (!groups.length) { $('libTable').innerHTML = '<div class="hint" style="color:var(--mut);font-size:12px">Chưa có competitor — chọn ASIN chính, nhập competitor ASIN rồi ➕ Thêm; hoặc bảng 🏆 → ➕ Vào Library.</div>'; return; }
@@ -1163,9 +1164,8 @@ function renderCompLib() {
   let htmlOut = '';
   for (const [main, comps] of groups) {
     const entries = Object.entries(comps);
-    const salesDates = [...new Set(entries.flatMap(([, v]) => Object.keys(v.sales || {})))].sort().slice(-3);
     const cols = `<colgroup><col style="width:${W.sel}px"><col style="width:${W.img}px"><col style="width:${W.comp}px"><col style="width:${W.title}px">
-      <col style="width:${W.n}px"><col style="width:${W.best}px">${salesDates.map(() => `<col style="width:${W.sale}px">`).join('')}
+      <col style="width:${W.n}px"><col style="width:${W.best}px"><col style="width:${W.sale}px"><col style="width:${W.price}px">
       <col style="width:${W.eye}px"><col style="width:${W.star}px"><col style="width:${W.del}px"></colgroup>`;
     htmlOut += `<div style="background:#101828;color:#fff;padding:6px 10px;font-weight:700;font-size:12.5px;border-radius:7px 7px 0 0;margin-top:10px">
       🎯 ${esc(main)} <span style="font-weight:400;color:#9fb0c8">· ${entries.length} competitor</span></div>
@@ -1175,8 +1175,9 @@ function renderCompLib() {
         <th>Title<span class="rz2" data-c="title"></span></th>
         <th title="Số keyword đối thủ xuất hiện — theo phiên chạy mới nhất">Số keyword<span class="rz2" data-c="n"></span></th>
         <th title="Hạng organic cao nhất — theo phiên chạy mới nhất">Best Organic<span class="rz2" data-c="best"></span></th>
-        ${salesDates.map((d) => `<th>Sale ${esc(d.slice(5))}<span class="rz2" data-c="sale"></span></th>`).join('')}
-        <th title="👁 đang theo dõi · 🙈 đã tắt">Theo dõi</th><th title="⭐ đối thủ theo dõi sát sao — nút Quét Favorite">⭐</th><th></th></tr></thead>
+        <th title="Sale 'bought in past month' — lần quét gần nhất">Sale<span class="rz2" data-c="sale"></span></th>
+        <th title="Giá — lần quét gần nhất">Giá<span class="rz2" data-c="price"></span></th>
+        <th title="👁 đang theo dõi · 🙈 đã tắt">Theo dõi</th><th title="Đối thủ theo dõi sát sao — nút Quét Favorite">Favorite</th><th></th></tr></thead>
       <tbody>${entries.map(([comp, v]) => `
       <tr style="${v.enabled === false ? 'opacity:.45' : ''}">
         <td><input type="checkbox" ${libSel.has(main + '|' + comp) ? 'checked' : ''} onchange="this.checked ? libSel.add('${main}|${comp}') : libSel.delete('${main}|${comp}')"></td>
@@ -1185,9 +1186,11 @@ function renderCompLib() {
         <td><div class="lib-title" style="font-size:11px" title="${esc(v.title || '')}">${v.title ? esc(v.title.slice(0, 200)) : '<span style="color:#a3adc0">chưa quét</span>'}</div></td>
         <td style="text-align:center" title="${v.statDate ? 'phiên ' + esc(v.statDate) : 'chưa có phiên chạy'}">${v.n ?? '—'}</td>
         <td style="text-align:center">${v.bestRank ?? '—'}</td>
-        ${salesDates.map((d) => `<td style="text-align:center">${(v.sales || {})[d] ?? '_'}</td>`).join('')}
+        <td style="text-align:center" title="${esc(Object.keys(v.sales || {}).sort().pop() || '')}">${latestOf(v.sales) ?? '_'}</td>
+        <td style="text-align:center" title="${esc(Object.keys(v.prices || {}).sort().pop() || '')}">${latestOf(v.prices) ?? '_'}</td>
         <td style="text-align:center"><span class="lib-eye" title="${v.enabled !== false ? 'Đang theo dõi — bấm để TẮT' : 'Đã tắt theo dõi — bấm để BẬT lại'}" onclick="libPatch('${main}','${comp}',{enabled:${v.enabled === false}})">${v.enabled !== false ? '👁' : '🙈'}</span></td>
-        <td style="text-align:center"><span class="lib-star" title="${v.favorite ? 'Bỏ favorite' : 'Đánh dấu favorite — theo dõi sát sao'}" onclick="libPatch('${main}','${comp}',{favorite:${!v.favorite}})" style="color:${v.favorite ? '#e5a400' : '#c3c9d6'}">${v.favorite ? '★' : '☆'}</span></td>
+        <td style="text-align:center"><span class="lib-star" title="${v.favorite ? 'Bỏ Favorite' : 'Đánh dấu Favorite — theo dõi sát sao'}" onclick="libPatch('${main}','${comp}',{favorite:${!v.favorite}})"
+          style="font-size:10px;font-weight:700;border-radius:8px;padding:2px 8px;${v.favorite ? 'background:#fff1c9;color:#a07800' : 'background:#f0f2f6;color:#a3adc0'}">Favorite</span></td>
         <td><span style="color:#c0392b;cursor:pointer" title="Xoá khỏi nhóm ${main}" onclick="if(confirm('Xoá ${comp} khỏi nhóm ${main}?'))libPatch('${main}','${comp}',{delete:true})">🗑</span></td>
       </tr>`).join('')}</tbody></table></div>`;
   }
