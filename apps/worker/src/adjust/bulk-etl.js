@@ -43,7 +43,7 @@ export function etlBulk(buffer, filename) {
     entity: c("Entity"), cid: c("Campaign ID"), agid: c("Ad Group ID"),
     kid: c("Keyword ID"), tid: c("Product Targeting ID"), adid: c("Ad ID"), sku: c("SKU"),
     name: c("Campaign Name (Informational only)"), agname: c("Ad Group Name (Informational only)"),
-    pfname: c("Portfolio Name (Informational only)"), asin: c("ASIN (Informational only)"),
+    pfname: c("Portfolio Name (Informational only)"), pfid: c("Portfolio ID"), asin: c("ASIN (Informational only)"),
     state: c("State"), cstate: c("Campaign State (Informational only)"),
     bud: c("Daily Budget"), agbid: c("Ad Group Default Bid"), bid: c("Bid"),
     sd: c("Start Date"),
@@ -69,7 +69,7 @@ export function etlBulk(buffer, filename) {
       kid: String(r[ix.kid] || ""), tid: String(r[ix.tid] || ""),
       adid: String(r[ix.adid] || ""), sku: entity === "Product Ad" ? String(r[ix.sku] || "") : "",
       name: String(r[ix.name] || ""), agname: String(r[ix.agname] || ""),
-      pfname: String(r[ix.pfname] || ""), asin: String(r[ix.asin] || ""),
+      pfname: String(r[ix.pfname] || ""), pfid: String(r[ix.pfid] || ""), asin: String(r[ix.asin] || ""),
       st: String(r[ix.state] || ""), cst: String(r[ix.cstate] || ""),
       bud: entity === "Campaign" ? num(r[ix.bud]) : null,
       sd: entity === "Campaign" ? String(r[ix.sd] || "") : "",
@@ -165,7 +165,20 @@ export function queryRows(list, q = {}) {
       (r.tt && r.tt.toLowerCase().includes(s)) ||
       (r.targeting && r.targeting.toLowerCase().includes(s)));
   }
-  if (f.entity) out = out.filter((r) => r.e === f.entity);
+  if (f.entity) { const ents = Array.isArray(f.entity) ? f.entity : [f.entity]; if (ents.length) out = out.filter((r) => ents.includes(r.e)); }
+  // Portfolio: gộp tên + ID. Portfolio chỉ có ở dòng Campaign → lọc cả cây campaign qua cid.
+  if (f.portfolio) {
+    const s = String(f.portfolio).toLowerCase();
+    const okCids = new Set();
+    const noPf = s === "__none__";
+    for (const r of list) {
+      if (r.e !== "Campaign") continue;
+      const hit = noPf ? (!r.pfid && !r.pfname)
+        : ((r.pfname && r.pfname.toLowerCase().includes(s)) || (r.pfid && String(r.pfid).toLowerCase().includes(s)));
+      if (hit) okCids.add(r.cid);
+    }
+    out = out.filter((r) => okCids.has(r.cid));
+  }
   if (f.matchType) out = out.filter((r) => (r.mt || "").toLowerCase() === f.matchType.toLowerCase());
   if (f.state) out = out.filter((r) => r.st === f.state);
   // Khoảng chỉ số: {metric: [min, max]} — '' = không giới hạn
@@ -221,6 +234,83 @@ export function queryRows(list, q = {}) {
   const pageSize = Math.min(500, q.pageSize || 100);
   const page = Math.max(1, q.page || 1);
   return { total, agg, page, pageSize, rows: out.slice((page - 1) * pageSize, page * pageSize) };
+}
+
+/** Danh sách portfolio (tên + ID) từ dòng Campaign — cho dropdown filter. */
+export function listPortfolios(records) {
+  const map = new Map();
+  let none = 0;
+  for (const r of records || []) {
+    if (r.e !== "Campaign") continue;
+    if (!r.pfid && !r.pfname) { none++; continue; }
+    const key = r.pfid || r.pfname;
+    if (!map.has(key)) map.set(key, { pfid: r.pfid, pfname: r.pfname, count: 0 });
+    map.get(key).count++;
+  }
+  return { portfolios: [...map.values()].sort((a, b) => b.count - a.count), none };
+}
+
+/* ============================================================
+   Search Term GOM NHÓM: theo (ASIN) → search term → occurrences (ad group).
+   Mỗi group: tổng chỉ số của term; children = từng dòng ad group/campaign của term đó.
+   ============================================================ */
+const asinFromName = (name) => { const m = String(name || "").toUpperCase().match(/B0[A-Z0-9]{8}/); return m ? m[0] : ""; };
+
+export function groupTerms(terms, q = {}) {
+  const f = q.filters || {};
+  let list = terms || [];
+  if (f.q) {
+    const s = String(f.q).toLowerCase();
+    list = list.filter((r) =>
+      (r.term && r.term.toLowerCase().includes(s)) ||
+      (r.name && r.name.toLowerCase().includes(s)) ||
+      (r.targeting && r.targeting.toLowerCase().includes(s)));
+  }
+  if (f.asin) { const a = String(f.asin).toUpperCase(); list = list.filter((r) => asinFromName(r.name) === a); }
+
+  // Gom theo (asin | term) — "tổng của keyword đó đối với 1 ASIN"
+  const map = new Map();
+  for (const r of list) {
+    const asin = asinFromName(r.name);
+    const key = asin + "|" + r.term;
+    if (!map.has(key)) map.set(key, { term: r.term, asin, children: [], sp: 0, sa: 0, or: 0, clk: 0, imp: 0 });
+    const g = map.get(key);
+    g.children.push({ ...r, asin, roas: r.sp > 0 ? r2(r.sa / r.sp) : 0 });
+    g.sp += r.sp; g.sa += r.sa; g.or += r.or; g.clk += r.clk; g.imp += r.imp;
+  }
+  let groups = [...map.values()].map((g) => ({
+    term: g.term, asin: g.asin, count: g.children.length,
+    imp: g.imp, clk: g.clk, sp: r2(g.sp), sa: r2(g.sa), or: g.or,
+    ctr: g.imp > 0 ? r4(g.clk / g.imp) : 0, cr: g.clk > 0 ? r4(g.or / g.clk) : 0,
+    acos: g.sa > 0 ? r4(g.sp / g.sa) : null, roas: g.sp > 0 ? r2(g.sa / g.sp) : 0,
+    cpc: g.clk > 0 ? r2(g.sp / g.clk) : 0,
+    children: g.children.sort((a, b) => b.sp - a.sp)
+  }));
+
+  // Tổng theo ASIN (dòng header ASIN đứng đầu mỗi cụm)
+  const at = {};
+  for (const g of groups) { const a = g.asin || ""; at[a] = at[a] || { sp: 0, sa: 0, or: 0, clk: 0, imp: 0, terms: 0 }; const t = at[a]; t.sp += g.sp; t.sa += g.sa; t.or += g.or; t.clk += g.clk; t.imp += g.imp; t.terms++; }
+  const asinTotals = {};
+  for (const [a, t] of Object.entries(at)) asinTotals[a] = { sp: r2(t.sp), sa: r2(t.sa), or: t.or, clk: t.clk, imp: t.imp, terms: t.terms, ctr: t.imp > 0 ? r4(t.clk / t.imp) : 0, cr: t.clk > 0 ? r4(t.or / t.clk) : 0, acos: t.sa > 0 ? r4(t.sp / t.sa) : null, roas: t.sp > 0 ? r2(t.sa / t.sp) : 0, cpc: t.clk > 0 ? r2(t.sp / t.clk) : 0 };
+
+  const agg = groups.reduce((a, g) => { a.sp += g.sp; a.sa += g.sa; a.or += g.or; a.clk += g.clk; a.imp += g.imp; return a; }, { sp: 0, sa: 0, or: 0, clk: 0, imp: 0 });
+  agg.sp = r2(agg.sp); agg.sa = r2(agg.sa); agg.acos = agg.sa > 0 ? r4(agg.sp / agg.sa) : null; agg.level = "filtered";
+
+  const total = groups.length;
+  const VALID = ["sp", "sa", "or", "clk", "imp", "acos", "ctr", "cr", "roas", "cpc"];
+  const sortF = VALID.includes(q.sort) ? q.sort : "sp";
+  const dir = q.dir === "asc" ? 1 : -1;
+  // Cụm theo ASIN (ASIN spend cao lên đầu), trong mỗi ASIN sort theo metric chọn
+  groups.sort((a, b) => {
+    const aa = a.asin || "", ba = b.asin || "";
+    if (aa !== ba) { const sa = asinTotals[aa]?.sp ?? -1, sb = asinTotals[ba]?.sp ?? -1; if (sa !== sb) return sb - sa; return aa < ba ? -1 : 1; }
+    const av = a[sortF] === null ? -Infinity : (a[sortF] || 0);
+    const bv = b[sortF] === null ? -Infinity : (b[sortF] || 0);
+    return av < bv ? -dir : av > bv ? dir : 0;
+  });
+  const pageSize = Math.min(200, q.pageSize || 60);
+  const page = Math.max(1, q.page || 1);
+  return { total, agg, asinTotals, page, pageSize, groups: groups.slice((page - 1) * pageSize, page * pageSize) };
 }
 
 /* ============================================================

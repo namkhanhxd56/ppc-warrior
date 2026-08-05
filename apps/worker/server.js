@@ -9,7 +9,7 @@ import { setZipLocation, ensureZipLocation } from "./src/scraper/set-location.js
 import { runBatch } from "./src/jobs/run-batch.js";
 import { planCampaigns, buildRowsFromPlans, buildSdRows, buildSbRows, BULK_HEADER, SD_HEADER, SB_HEADER, DEFAULTS as LAUNCH_DEFAULTS } from "./src/launching/bulk-builder.js";
 import { parseH10 } from "./src/launching/h10-parser.js";
-import { etlBulk, queryRows, buildUpdateRows, rowKey } from "./src/adjust/bulk-etl.js";
+import { etlBulk, queryRows, buildUpdateRows, rowKey, groupTerms, listPortfolios } from "./src/adjust/bulk-etl.js";
 import { evaluate as evaluateRules } from "./src/adjust/rule-engine.js";
 import { DEFAULT_RULES } from "./src/adjust/default-rules.js";
 import { buildMetrics, summarize, cellOf, buildAsinDaily } from "./src/data/consolidate.js";
@@ -18,7 +18,7 @@ import { evaluateAsin } from "./src/data/evaluate.js";
 import * as store from "./src/db/file-store.js";
 
 dotenv.config();
-export const APP_VERSION = "0.23.2"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
+export const APP_VERSION = "0.24.0"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
 
 // RUN_MODE:
 // - "local" (mặc định): bấm Kiểm tra là scrape NGAY trên máy này (dùng 1 người, chạy local)
@@ -467,6 +467,25 @@ app.post("/api/adjust/import", (req, res, next) => uploadBig.single("file")(req,
 
 app.get("/api/adjust/datasets", (req, res) => res.json(adjustIndex()));
 
+// Danh sách portfolio (tên + ID) trong dataset — cho dropdown filter
+app.post("/api/adjust/portfolios", (req, res) => {
+  const ds = loadDataset(req.body?.id);
+  if (!ds) return res.status(404).json({ ok: false, message: "Chưa có dataset" });
+  res.json({ ok: true, ...listPortfolios(ds.records) });
+});
+
+// Đặt tên (label) cho dataset đã lưu — lưu trữ file kết quả theo dải ngày + tên tự đặt
+app.post("/api/adjust/datasets/:id/rename", (req, res) => {
+  const idx = adjustIndex();
+  const d = idx.find((x) => x.id === req.params.id);
+  if (!d) return res.status(404).json({ ok: false, message: "Không tìm thấy dataset" });
+  d.label = String(req.body?.name || "").slice(0, 80);
+  fs.mkdirSync(ADJUST_DIR, { recursive: true });
+  fs.writeFileSync(`${ADJUST_DIR}/index.json`, JSON.stringify(idx, null, 1));
+  const ds = adjustCache.get(req.params.id); if (ds && ds.meta) ds.meta.label = d.label;
+  res.json({ ok: true, label: d.label });
+});
+
 // Query bảng làm việc (filter/sort/phân trang server-side)
 app.post("/api/adjust/query", (req, res) => {
   const { id, tab } = req.body || {};
@@ -502,6 +521,13 @@ function sendWorkbook(res, buf, rowCount, id) {
   res.send(buf);
 }
 
+// Search Term gom nhóm (ASIN → term → occurrences) — có tổng chỉ số theo term
+app.post("/api/adjust/terms-grouped", (req, res) => {
+  const ds = loadDataset(req.body?.id);
+  if (!ds) return res.status(404).json({ ok: false, message: "Chưa có dataset — upload file bulk (tick Search Term Report)" });
+  res.json({ ok: true, ...groupTerms(ds.terms || [], req.body), meta: ds.meta });
+});
+
 // Xuất file UPDATE (chỉ dòng thay đổi + Negative mới) + audit log
 app.post("/api/adjust/export", (req, res) => {
   try {
@@ -513,6 +539,17 @@ app.post("/api/adjust/export", (req, res) => {
   } catch (e) {
     res.status(400).json({ ok: false, message: e.message });
   }
+});
+
+// Nhật ký chỉnh sửa (mọi lần xuất file Update — thủ công hoặc từ rule)
+app.get("/api/adjust/audit", (req, res) => {
+  let lines = [];
+  try { lines = fs.readFileSync(`${ADJUST_DIR}/audit.jsonl`, "utf8").split("\n").filter(Boolean); } catch { lines = []; }
+  let entries = lines.map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
+  if (req.query.dataset) entries = entries.filter((e) => e.dataset === req.query.dataset);
+  entries.reverse(); // mới nhất trước
+  const limit = Math.min(500, Number(req.query.limit) || 100);
+  res.json({ ok: true, entries: entries.slice(0, limit) });
 });
 
 /* ===================== MODULE ADJUST A3: rule engine (dry-run → proposals → export) ===================== */

@@ -163,6 +163,12 @@
       <div style="max-width:130px"><label>Mã cá nhân (≤5 ký tự)</label><input type="text" id="manager" maxlength="5" placeholder="KHA"></div>
       <div style="max-width:150px"><button class="btn-sm" id="btnSaveInfo">💾 Lưu thông tin</button></div>
     </div>
+    <div class="row" style="margin-top:6px">
+      <div><label title="Định danh brand đã đăng ký Brand Registry (dạng ENTITY...) — TUỲ CHỌN, chỉ cần khi tạo campaign SB Video">Brand Entity ID <span class="hint">(tuỳ chọn — cho SB)</span></label>
+        <input type="text" id="sbBrandEntityId" placeholder="ENTITY3GJWQD2AN907C"></div>
+      <div style="flex:2"><label title="Video đã upload Asset Library — TUỲ CHỌN, chỉ cần khi tạo campaign SB Video">Video Media ID <span class="hint">(tuỳ chọn — cho SB)</span></label>
+        <input type="text" id="sbMediaId" placeholder="amzn1.assetlibrary.asset1.xxxx:version_v1"></div>
+    </div>
     <div class="hint" id="infoMsg"></div>
   </div>
 
@@ -382,12 +388,7 @@
     <summary class="h2"><input type="checkbox" id="onSB" onclick="event.stopPropagation()"> 3.2 SB — Sponsored Brands Video</summary>
     <p class="sub" style="margin-top:8px">Cấu trúc theo file mẫu SB Video: KHÔNG có ad group — keyword/targeting gắn thẳng campaign, creative video nằm trên dòng campaign · sheet riêng "Sponsored Brands Campaigns" trong cùng file xuất.</p>
 
-    <div class="row" style="margin-bottom:10px">
-      <div><label title="Định danh brand đã đăng ký Brand Registry (dạng ENTITY...)">Brand Entity ID *</label>
-        <input type="text" id="sbBrandEntityId" placeholder="ENTITY3GJWQD2AN907C"></div>
-      <div style="flex:2"><label title="Video đã upload vào Asset Library của Amazon Ads">Video Media ID *</label>
-        <input type="text" id="sbMediaId" placeholder="amzn1.assetlibrary.asset1.xxxx:version_v1"></div>
-    </div>
+    <div class="hint" style="margin-bottom:8px">Brand Entity ID + Video Media ID điền ở <b>mục 1</b> (hàng tuỳ chọn) — bắt buộc phải có khi tạo SB Video.</div>
 
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(285px,1fr));gap:12px">
       <div class="mt-box off" id="boxSbKw">
@@ -541,7 +542,7 @@ const TYPE_LABEL = { SP_KW_EXACT:'Exact', SP_KW_PHRASE:'Phrase', SP_KW_BROAD:'Br
 const STRATEGIES = ['Dynamic bids - down only','Dynamic bids - up and down','Fixed bid'];
 
 /* ===== Cảnh báo server chạy code cũ ===== */
-const UI_VERSION = '0.23.2';
+const UI_VERSION = '0.24.0';
 (async () => {
   try {
     const v = (await (await fetch('/api/version')).json()).version;
@@ -694,7 +695,33 @@ $('btnSaveInfo').onclick = async () => {
   setTimeout(() => $('infoMsg').textContent = '', 5000);
 };
 
-/* ===== Nhận keyword THĂNG CẤP từ trang Adjust (search term ra đơn → Exact) ===== */
+/* ===== Nhận "TẠO CAMPAIGN" từ trang Adjust: tự dựng plan Exact ngay (bid = CPC đã điền bên Adjust) ===== */
+async function receiveAdjustCampaigns() {
+  let items;
+  try { items = JSON.parse(localStorage.getItem('ppcw_create_campaigns') || 'null'); } catch { return; }
+  if (!items || !items.length) return;
+  localStorage.removeItem('ppcw_create_campaigns');
+  // nhóm theo ASIN → mỗi nhóm: điền form (Exact + kw|bid) rồi gọi Tạo campaign — plans CỘNG DỒN đa ASIN
+  const byAsin = {};
+  for (const it of items) (byAsin[it.asin] = byAsin[it.asin] || []).push(it);
+  let made = 0;
+  for (const [asin, list] of Object.entries(byAsin)) {
+    $('asin').value = asin;
+    try { $('asin').dispatchEvent(new Event('change')); } catch {} // autofill hồ sơ SKU/phân loại/mã cá nhân
+    await new Promise(r => setTimeout(r, 400));
+    $('keywords').value = list.map(x => x.bid ? `${x.keyword} | ${x.bid}` : x.keyword).join('\n');
+    $('onExact').checked = true;
+    ['onPhrase','onBroad','onPt','onPtG','onAuto','onSB','onSD'].forEach(id => { if ($(id)) $(id).checked = false; });
+    await $('btnPreview').onclick();
+    made += list.length;
+  }
+  persistForm();
+  $('exportMsg').className = 'msg ok';
+  $('exportMsg').textContent = `🚀 Đã tạo campaign cho ${made} keyword từ Adjust (bid = CPC) — kiểm tra ở mục 5 rồi Xuất Bulk`;
+  try { document.getElementById('previewArea')?.scrollIntoView({ behavior: 'smooth' }); } catch {}
+}
+receiveAdjustCampaigns();
+/* Tương thích cũ: chỉ đổ keyword vào ô (không tự tạo) */
 (() => {
   try {
     const promo = JSON.parse(localStorage.getItem('ppcw_promote_keywords') || 'null');
@@ -704,7 +731,6 @@ $('btnSaveInfo').onclick = async () => {
     promo.forEach(t => cur.add(t));
     $('keywords').value = [...cur].join('\n');
     persistForm();
-    $('h10Msg').textContent = `⤴ Đã nhận ${promo.length} search term thăng cấp từ Adjust — chọn Exact và tạo campaign`;
   } catch {}
 })();
 

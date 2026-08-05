@@ -34,7 +34,7 @@
   .stat b { display:block; font-size:17px; color:var(--b); }
   .stat span { font-size:11px; color:var(--mut); }
   .bulkbar { display:flex; gap:6px; align-items:center; flex-wrap:wrap; background:#f6f8fc; border:1px solid #e3e8f0; border-radius:9px; padding:8px 12px; margin:10px 0; }
-  .tabs { display:flex; gap:8px; margin:10px 0 6px; }
+  .tabs { display:flex; gap:8px; margin:10px 0 6px; flex-wrap:wrap; align-items:center; }
   .tabs button.active { background:var(--b); color:#fff; }
   .msg { font-size:12.5px; } .msg.ok { color:var(--ok); } .msg.err { color:var(--bad); }
   .edited { background:#fff6d9 !important; outline:2px solid var(--bad); outline-offset:-2px; } /* ô đã sửa: viền đỏ */
@@ -42,6 +42,16 @@
   .camp-row { background:#eef4ff; } .camp-row b { color:#1b3a86; }
   tr.grp-start td { border-top:2px solid #97a9cf; } /* vạch tách campaign */
   td.mut { color:#aab3c2; }
+  tr.asin-head td { background:#e6ecfa; border-top:2px solid #8aa0d8; font-size:12.5px; }
+  tr.asin-head b { color:#12306e; }
+  tr.tgroup { background:#f3f6fb; } tr.tgroup b { color:#1b2330; }
+  .tgt { cursor:pointer; display:inline-block; width:16px; text-align:center; color:#4a5670; user-select:none; font-weight:700; }
+  tr.tchild td { background:#fff; }
+  .col-resizer { position:absolute; top:0; right:-1px; width:9px; height:100%; cursor:col-resize; user-select:none; z-index:5; }
+  .col-resizer:hover { background:#5b7de0; }
+  #tblTargets td, #tblTerms td { overflow:hidden; text-overflow:ellipsis; } /* kẹp nội dung khi cột bị thu nhỏ */
+  .pf-item { padding:5px 10px; cursor:pointer; white-space:nowrap; }
+  .pf-item:hover { background:#eef2f9; }
   /* Cột tích chọn (đầu) dính khi cuộn ngang */
   th:first-child, td:first-child { position:sticky; left:0; z-index:1; background:#fff; }
   th:first-child { z-index:4; }
@@ -83,7 +93,8 @@
       <button class="btn-primary" id="btnImport">📥 Import</button>
       <span style="border-left:1px solid #ccd3e0;height:24px"></span>
       <label style="margin:0">Dataset:</label>
-      <select id="dsSelect" style="min-width:280px"></select>
+      <select id="dsSelect" style="min-width:300px"></select>
+      <button class="btn-sm" id="btnRenameDs" title="Đặt tên cho dataset này (lưu theo dải ngày + tên tự đặt)">✎ Đặt tên</button>
       <span class="msg" id="importMsg"></span>
     </div>
     <div class="statgrid" id="dsStats"></div>
@@ -94,18 +105,41 @@
     <h2>2️⃣ Điều chỉnh — sửa xong bấm Xuất file Update để upload ngược lại Amazon</h2>
     <div class="tabs">
       <button id="tabTargets" class="active btn-sm" style="padding:7px 18px">🎯 Campaigns & Targets</button>
-      <button id="tabTerms" class="btn-sm" style="padding:7px 18px">🔍 Search Terms → Negative / Thăng cấp</button>
+      <button id="tabTerms" class="btn-sm" style="padding:7px 18px">🔍 Search Terms → Negative / Tạo Campaign</button>
       <button id="tabRules" class="btn-sm" style="padding:7px 18px">⚙️ Rules / Đề xuất (dry-run)</button>
+      <span style="margin-left:auto;display:flex;gap:6px;align-items:center">
+        <span class="hint">Sắp xếp:</span>
+        <select id="sortField" style="max-width:140px">
+          <option value="grp" selected>Nhóm campaign</option>
+          <option value="sp">Spend</option><option value="sa">Sales</option><option value="or">Orders</option>
+          <option value="clk">Clicks</option><option value="acos">ACoS</option><option value="imp">Impressions</option>
+        </select>
+        <select id="sortDir" style="max-width:80px"><option value="desc">↓ giảm</option><option value="asc">↑ tăng</option></select>
+      </span>
     </div>
 
     <div class="bulkbar" id="filterBar">
       <b style="font-size:12px">🔎</b>
       <input type="text" id="fQ" placeholder="Tên campaign / keyword / ASIN / term" style="width:230px">
-      <select id="fEntity" style="max-width:150px">
-        <option value="">Mọi Entity</option>
-        <option>Campaign</option><option>Ad Group</option><option>Product Ad</option>
-        <option>Keyword</option><option>Product Targeting</option><option>Bidding Adjustment</option>
-      </select>
+      <span style="position:relative;display:inline-block">
+        <button type="button" class="btn-sm" id="fEntityBtn" onclick="toggleEntityDD(event)" style="min-width:130px;text-align:left;background:#fff;border:1px solid #ccd3e0">Mọi Entity ▾</button>
+        <div id="fEntityDD" style="display:none;position:absolute;left:0;top:112%;z-index:40;background:#fff;border:1px solid #ccd3e0;border-radius:8px;padding:6px 10px;box-shadow:0 8px 24px rgba(0,0,0,.18);min-width:175px">
+          <span id="fEntity" style="display:block;font-size:12.5px" title="Chọn nhiều Entity (bỏ trống = tất cả)">
+            <label style="display:block;margin:4px 0;font-weight:500"><input type="checkbox" value="Campaign"> Campaign</label>
+            <label style="display:block;margin:4px 0;font-weight:500"><input type="checkbox" value="Ad Group"> Ad Group</label>
+            <label style="display:block;margin:4px 0;font-weight:500"><input type="checkbox" value="Product Ad"> Product Ad</label>
+            <label style="display:block;margin:4px 0;font-weight:500"><input type="checkbox" value="Keyword"> Keyword</label>
+            <label style="display:block;margin:4px 0;font-weight:500"><input type="checkbox" value="Product Targeting"> Product Targeting</label>
+            <label style="display:block;margin:4px 0;font-weight:500"><input type="checkbox" value="Bidding Adjustment"> Bidding Adjustment (Placement)</label>
+          </span>
+        </div>
+      </span>
+      <span style="position:relative;display:inline-block">
+        <input type="text" id="fPfInput" placeholder="🔎 Mọi Portfolio" autocomplete="off" style="width:200px"
+          oninput="renderPfDD(this.value);openPfDD()" onfocus="renderPfDD(this.value);openPfDD()" title="Gõ để tìm portfolio (theo tên hoặc ID)">
+        <input type="hidden" id="fPortfolio">
+        <div id="fPfDD" style="display:none;position:absolute;left:0;top:112%;z-index:40;background:#fff;border:1px solid #ccd3e0;border-radius:8px;max-height:300px;overflow:auto;box-shadow:0 8px 24px rgba(0,0,0,.18);min-width:280px;font-size:12.5px"></div>
+      </span>
       <select id="fState" style="max-width:110px">
         <option value="">Mọi State</option><option>enabled</option><option>paused</option>
       </select>
@@ -121,14 +155,6 @@
       <button class="btn-sm" id="btnFilter">Lọc</button>
       <button class="btn-sm" id="btnClearFilter">✕</button>
       <span class="hint" id="cntInfo"></span>
-      <span style="margin-left:auto"></span>
-      <span class="hint">Sắp xếp:</span>
-      <select id="sortField" style="max-width:140px">
-        <option value="grp" selected>Nhóm campaign</option>
-        <option value="sp">Spend</option><option value="sa">Sales</option><option value="or">Orders</option>
-        <option value="clk">Clicks</option><option value="acos">ACoS</option><option value="imp">Impressions</option>
-      </select>
-      <select id="sortDir" style="max-width:80px"><option value="desc">↓ giảm</option><option value="asc">↑ tăng</option></select>
     </div>
 
     <div class="bulkbar" id="actionBar"></div>
@@ -143,16 +169,68 @@
     </div>
   </div>
 
+  <!-- ===== 3. Nhật ký chỉnh sửa ===== -->
+  <div class="card">
+    <h2>📜 Nhật ký chỉnh sửa (các file Update đã xuất)</h2>
+    <p class="sub">Mỗi lần bấm Lưu & Tải file Update đều được ghi lại: thời điểm, dataset, nguồn (tự sửa / rule), số thay đổi + negative. Bấm 1 dòng để xem chi tiết old→new.</p>
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+      <label style="margin:0"><input type="checkbox" id="auditThisDs"> chỉ dataset đang chọn</label>
+      <button class="btn-sm" id="btnAuditReload">↻ Tải nhật ký</button>
+      <span class="hint" id="auditInfo"></span>
+    </div>
+    <div id="auditArea" class="scroll" style="max-height:360px"></div>
+  </div>
+
 </main>
 <div class="chgPanel" id="chgPanel" style="display:none"></div>
+<!-- Popup Tạo Campaign từ search term -->
+<div id="promoteModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:100;align-items:center;justify-content:center">
+  <div style="background:#fff;border-radius:12px;padding:20px 22px;max-width:620px;width:92%;max-height:82vh;overflow:auto;box-shadow:0 20px 60px rgba(0,0,0,.4)">
+    <h3 style="margin:0 0 4px;font-size:15px">🚀 Tạo Campaign với keyword</h3>
+    <p class="sub" style="margin:0 0 12px">Mỗi search term = 1 campaign Exact mới cho ASIN đó (tên campaign/ad group theo rule đặt tên của mục Tạo Campaign). <b>Bid mặc định = CPC</b> của term — sửa được. Bấm tạo là campaign xuất hiện NGAY ở mục 5 trang Tạo Campaign.</p>
+    <div id="promoteList" style="max-height:280px;overflow:auto;border:1px solid #e3e8f0;border-radius:8px;padding:8px 12px;margin-bottom:12px;font-size:12.5px"></div>
+    <label style="display:flex;gap:8px;align-items:center;font-weight:600;margin-bottom:16px;font-size:13px">
+      <input type="checkbox" id="promoteNeg"> Đồng thời negativeExact term này vào campaign NGUỒN <span class="hint">(vào file Update của Adjust — chống 2 campaign tự cạnh tranh; mặc định KHÔNG)</span>
+    </label>
+    <div style="display:flex;gap:10px;justify-content:flex-end">
+      <button class="btn-sm" onclick="closePromote()">Hủy</button>
+      <button class="btn-ok" onclick="confirmPromote()">🚀 Tạo campaign</button>
+    </div>
+  </div>
+</div>
 <div id="verWarn" style="display:none;background:#e02020;color:#fff;text-align:center;padding:10px;font-size:13px;font-weight:600;position:sticky;bottom:0"></div>
 <script>
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const pct = (v) => v === null || v === undefined ? '∞' : (v * 100).toFixed(1) + '%';
 const money = (v) => '$' + Number(v || 0).toFixed(2);
+// YYYYMMDD → dd/mm/yyyy
+const fmtYmd = (s) => { s = String(s || ''); return /^\d{8}$/.test(s) ? `${s.slice(6, 8)}/${s.slice(4, 6)}/${s.slice(0, 4)}` : (s || '?'); };
 
-const UI_VERSION = '0.23.2';
+// Co kéo độ rộng cột (kéo cạnh phải ô tiêu đề). Gọi SAU khi đã có dữ liệu để khóa bề rộng tự nhiên.
+function makeResizable(tableId) {
+  const table = document.getElementById(tableId); if (!table) return;
+  const ths = [...table.querySelectorAll('thead th')];
+  if (!ths.length) return;
+  // Khóa bề rộng hiện tại + table-layout:fixed → cho phép kéo THU NHỎ (co vào), không bị nội dung chặn
+  ths.forEach((th) => { th.style.width = th.offsetWidth + 'px'; });
+  table.style.width = table.offsetWidth + 'px';
+  table.style.tableLayout = 'fixed';
+  ths.forEach((th) => {
+    if (th.querySelector('.col-resizer')) return;
+    const h = document.createElement('span'); h.className = 'col-resizer';
+    th.appendChild(h);
+    h.addEventListener('mousedown', (e) => {
+      const startX = e.pageX, startW = th.offsetWidth, startTW = table.offsetWidth;
+      const move = (ev) => { const w = Math.max(28, startW + ev.pageX - startX); th.style.width = w + 'px'; table.style.width = (startTW + w - startW) + 'px'; };
+      const up = () => { document.removeEventListener('mousemove', move); document.removeEventListener('mouseup', up); document.body.style.userSelect = ''; };
+      document.addEventListener('mousemove', move); document.addEventListener('mouseup', up);
+      document.body.style.userSelect = 'none'; e.preventDefault(); e.stopPropagation();
+    });
+  });
+}
+
+const UI_VERSION = '0.24.0';
 (async () => {
   try {
     const v = (await (await fetch('/api/version')).json()).version;
@@ -172,18 +250,52 @@ let lastRows = [];
 let sel = new Set(); // key (targets) hoặc index term đang tick
 let bulkUndo = []; // stack snapshot edits trước mỗi lần bulk (để Undo)
 let loadingMore = false, totalPages = 1, lastCid = null; // infinite scroll
+let termByKey = new Map(), loadedGroups = 0, termGid = 0, lastAsin = null, termAsinTotals = {}; // Search Term gom nhóm
+let chgHidden = false; // ẩn/hiện bảng đen thay đổi
 
 /* ===== Datasets ===== */
 async function loadDatasets(pickId) {
   const list = await (await fetch('/api/adjust/datasets')).json();
   $('dsSelect').innerHTML = list.map(d =>
-    `<option value="${d.id}">${d.windowStart || '?'}–${d.windowEnd || '?'} · ${d.kept} dòng · $${(d.spend||0).toFixed(0)} spend</option>`).join('')
+    `<option value="${d.id}">${d.label ? '📁 ' + esc(d.label) + ' · ' : ''}${fmtYmd(d.windowStart)}–${fmtYmd(d.windowEnd)} · ${d.kept} dòng · $${(d.spend||0).toFixed(0)} spend</option>`).join('')
     || '<option value="">— chưa có, hãy import —</option>';
   if (pickId) $('dsSelect').value = pickId;
   dsId = $('dsSelect').value;
-  if (dsId) { restoreLedger(); renderChanges(); refresh(); }
+  if (dsId) { restoreLedger(); renderChanges(); loadPortfolios(); refresh(); }
 }
-$('dsSelect').onchange = () => { dsId = $('dsSelect').value; page = 1; sel.clear(); restoreLedger(); renderChanges(); refresh(); };
+let pfList = [];
+async function loadPortfolios() {
+  $('fPortfolio').value = ''; $('fPfInput').value = ''; pfList = [];
+  if (!dsId) return;
+  const r = await (await fetch('/api/adjust/portfolios', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: dsId }) })).json();
+  if (!r.ok) return;
+  pfList = (r.portfolios || []).map((p) => ({ value: p.pfid || p.pfname, label: `${p.pfname || '(không tên)'}${p.pfid ? ' · ' + p.pfid : ''} (${p.count})` }));
+  if (r.none) pfList.push({ value: '__none__', label: `— Không có portfolio (${r.none}) —` });
+}
+window.openPfDD = () => { $('fPfDD').style.display = 'block'; };
+window.closePfDD = () => { $('fPfDD').style.display = 'none'; };
+window.renderPfDD = (q) => {
+  q = (q || '').toLowerCase();
+  const items = [{ value: '', label: 'Mọi Portfolio' }, ...pfList.filter((p) => !q || p.label.toLowerCase().includes(q))].slice(0, 300);
+  $('fPfDD').innerHTML = items.map((p) => `<div class="pf-item" data-val="${esc(p.value)}">${esc(p.label)}</div>`).join('')
+    || '<div style="padding:6px 10px;color:#98a2b3">Không có kết quả</div>';
+};
+$('fPfDD').addEventListener('click', (e) => {
+  const it = e.target.closest('.pf-item'); if (!it) return;
+  const val = it.dataset.val;
+  $('fPortfolio').value = val;
+  $('fPfInput').value = val === '' ? '' : it.textContent;
+  closePfDD(); page = 1; refresh();
+});
+$('dsSelect').onchange = () => { dsId = $('dsSelect').value; page = 1; sel.clear(); restoreLedger(); renderChanges(); loadPortfolios(); refresh(); };
+$('btnRenameDs').onclick = async () => {
+  if (!dsId) { alert('Chưa có dataset nào'); return; }
+  const cur = ($('dsSelect').selectedOptions[0]?.text || '').replace(/^📁 /, '').split(' · ')[0];
+  const name = prompt('Tên dataset (VD: "7 ngày trước lễ", "Snapshot 20/7"):', cur);
+  if (name === null) return;
+  await fetch(`/api/adjust/datasets/${dsId}/rename`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name.trim() }) });
+  loadDatasets(dsId);
+};
 
 $('btnImport').onclick = async () => {
   const f = $('bulkFile').files[0];
@@ -209,19 +321,28 @@ function filters() {
     }
     ranges[$('fMetric').value] = [mn, mx];
   }
-  return { q: $('fQ').value.trim(), entity: $('fEntity').value, state: $('fState').value, ranges };
+  const entity = [...$('fEntity').querySelectorAll('input:checked')].map((c) => c.value);
+  return { q: $('fQ').value.trim(), entity, portfolio: $('fPortfolio').value, state: $('fState').value, ranges };
 }
 
-const PAGE_SIZE = 500;
+const pageSizeFor = () => tab === 'terms' ? 60 : 500;
 async function queryPage(p) {
-  const body = { id: dsId, tab, filters: filters(), sort: $('sortField').value, dir: $('sortDir').value, page: p, pageSize: PAGE_SIZE };
-  const r = await (await fetch('/api/adjust/query', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })).json();
+  const url = tab === 'terms' ? '/api/adjust/terms-grouped' : '/api/adjust/query';
+  const body = { id: dsId, filters: filters(), sort: $('sortField').value, dir: $('sortDir').value, page: p, pageSize: pageSizeFor() };
+  if (tab !== 'terms') body.tab = tab;
+  const r = await (await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })).json();
   if (!r.ok) { $('tableArea').innerHTML = `<span class="msg err">❌ ${esc(r.message)}</span>`; return null; }
   return r;
 }
 function updateLoadInfo(total) {
+  const loaded = tab === 'terms' ? loadedGroups : lastRows.length;
+  const unit = tab === 'terms' ? 'nhóm term' : 'dòng';
   const done = page >= totalPages;
-  $('pgInfo').textContent = `Đã tải ${lastRows.length} / ${total} dòng${done ? ' — hết' : ' · cuộn để tải thêm'}`;
+  $('pgInfo').textContent = `Đã tải ${loaded} / ${total} ${unit}${done ? ' — hết' : ' · cuộn để tải thêm'}`;
+}
+function appendBatch(r) {
+  if (tab === 'targets') { appendTargetRows(r.rows); lastRows.push(...r.rows); }
+  else { termAsinTotals = { ...termAsinTotals, ...(r.asinTotals || {}) }; appendTermGroups(r.groups); }
 }
 
 // Nạp lại từ đầu (đổi dataset/tab/filter/sort) — cuộn vô cực sẽ tải tiếp
@@ -233,12 +354,12 @@ async function refresh() {
   $('tableArea').style.maxHeight = rulesMode ? 'none' : '';
   if (rulesMode) return renderRulesTab();
   if (!dsId) { $('tableArea').innerHTML = '<span class="hint">Import hoặc chọn dataset trước.</span>'; return; }
-  page = 1; lastRows = []; lastCid = null;
+  page = 1; lastRows = []; lastCid = null; loadedGroups = 0; termGid = 0; termByKey.clear(); lastAsin = null; termAsinTotals = {};
   $('tableArea').scrollTop = 0;
   const r = await queryPage(1);
   if (!r) return;
   totalPages = Math.max(1, Math.ceil(r.total / r.pageSize));
-  $('cntInfo').textContent = `${r.total} dòng khớp`;
+  $('cntInfo').textContent = `${r.total} ${tab === 'terms' ? 'nhóm term' : 'dòng'} khớp`;
   const aggLbl = r.agg.level === 'campaign' ? 'tổng campaign' : 'tập lọc';
   $('dsStats').innerHTML = `
     <div class="stat"><b>${money(r.agg.sp)}</b><span>Spend (${aggLbl})</span></div>
@@ -246,12 +367,11 @@ async function refresh() {
     <div class="stat"><b>${r.agg.or}</b><span>Orders</span></div>
     <div class="stat"><b>${r.agg.clk}</b><span>Clicks</span></div>
     <div class="stat"><b>${pct(r.agg.acos)}</b><span>ACoS</span></div>
-    <div class="stat"><b>${r.meta.windowStart}–${r.meta.windowEnd}</b><span>Window</span></div>`;
+    <div class="stat"><b>${fmtYmd(r.meta.windowStart)} – ${fmtYmd(r.meta.windowEnd)}</b><span>Window</span></div>`;
   if (tab === 'targets') renderTargetsInit(); else renderTermsInit();
-  (tab === 'targets' ? appendTargetRows : appendTermRows)(r.rows);
-  lastRows.push(...r.rows);
+  appendBatch(r);
   updateLoadInfo(r.total);
-  // Nếu trang đầu chưa lấp đầy khung → tự tải tiếp
+  makeResizable(tab === 'terms' ? 'tblTerms' : 'tblTargets'); // khóa bề rộng sau khi có dữ liệu → kéo co được
   maybeLoadMore(r.total);
 }
 
@@ -261,11 +381,7 @@ async function loadMore() {
   loadingMore = true;
   page++;
   const r = await queryPage(page);
-  if (r) {
-    (tab === 'targets' ? appendTargetRows : appendTermRows)(r.rows);
-    lastRows.push(...r.rows);
-    updateLoadInfo(r.total);
-  } else { page--; }
+  if (r) { appendBatch(r); updateLoadInfo(r.total); } else { page--; }
   loadingMore = false;
   maybeLoadMore(r ? r.total : 0);
 }
@@ -296,11 +412,11 @@ function renderTargetsInit() {
     <button class="btn-sm" onclick="applyBulkAdjust()">Áp dụng</button>
     <button class="btn-sm" id="bkUndo" onclick="undoBulk()" ${bulkUndo.length ? '' : 'disabled'} title="Hoàn tác lần bulk gần nhất">↩ Undo</button>
     <span class="hint">Bid/Budget: Đặt / ±$ / ±% · State: gõ enabled|paused rồi Đặt · áp cho các dòng đã tick</span>`;
-  $('tableArea').innerHTML = `<table><thead><tr>
+  $('tableArea').innerHTML = `<table id="tblTargets"><thead><tr>
     <th style="width:28px"><input type="checkbox" onchange="tickAll(this.checked)"></th>
-    <th class="l">Name</th><th>Entity</th><th class="l">Targeting</th><th>SKU</th><th>Start</th><th>End</th>
+    <th class="l">Name</th><th>Entity</th><th>Oper.</th><th class="l">Targeting</th><th>SKU</th><th>Start</th><th>End</th>
     <th>State</th><th>Budget</th><th>Bid</th><th>%</th>
-    <th>Impr</th><th>Clicks</th><th>Spend</th><th>Sales</th><th>Orders</th><th>ACoS</th><th>CTR</th><th>CR</th><th>CPC</th>
+    <th>Impr</th><th>Clicks</th><th>Spend</th><th>Sales</th><th>Orders</th><th>ACoS</th><th>ROAS</th><th>CTR</th><th>CR</th><th>CPC</th>
     </tr></thead><tbody id="tbMain"></tbody></table>`;
   lastCid = null;
 }
@@ -332,6 +448,7 @@ function buildTargetRow(x) {
     `<td><input type="checkbox" ${sel.has(x.k) ? 'checked' : ''} onchange="tick('${x.k}', this.checked)"></td>`,
     nameCell,
     `<td>${x.e === 'Bidding Adjustment' ? 'Placement' : esc(x.e)}</td>`,
+    `<td class="mut">Update</td>`,
     `<td class="l" style="max-width:220px;overflow:hidden;text-overflow:ellipsis" title="${esc(tTitle)}">${targeting}</td>`,
     `<td class="mut">${esc(x.sku || '')}</td>`,
     `<td class="mut">${esc(x.sd || '')}</td>`,
@@ -343,7 +460,7 @@ function buildTargetRow(x) {
   else if (x.e === 'Product Ad') cells.push(stSel(), DASH, DASH, DASH);
   else cells.push(stSel(), DASH, numCell('bid', x.bid), DASH);
   cells.push(`<td>${x.imp}</td><td>${x.clk}</td><td>${money(x.sp)}</td><td>${money(x.sa)}</td><td>${x.or}</td>
-    <td>${pct(x.acos)}</td><td>${pct(x.ctr)}</td><td>${pct(x.cr)}</td><td>${money(x.cpc)}</td>`);
+    <td>${pct(x.acos)}</td><td>${x.roas || 0}x</td><td>${pct(x.ctr)}</td><td>${pct(x.cr)}</td><td>${money(x.cpc)}</td>`);
   const cls = [groupStart ? 'grp-start' : '', x.e === 'Campaign' ? 'camp-row' : '', stNow === 'paused' ? 'paused-row' : ''].filter(Boolean).join(' ');
   return `<tr class="${cls}">${cells.join('')}</tr>`;
 }
@@ -353,34 +470,64 @@ function renderTermsInit() {
     <b style="font-size:12px">Search term đã tick:</b>
     <button class="btn-sm" style="background:#fde8e8;color:#c0392b" onclick="addNegatives('negativeExact')">🚫 Negative Exact</button>
     <button class="btn-sm" style="background:#fde8e8;color:#c0392b" onclick="addNegatives('negativePhrase')">🚫 Negative Phrase</button>
-    <button class="btn-sm" style="background:#e8f5ec;color:#157a3d" onclick="promoteTerms()">⤴ Thăng cấp Exact (→ Tạo Campaign)</button>
-    <span class="hint">Negative áp vào ĐÚNG campaign/ad group của dòng đó (ID thật) · Thăng cấp: term ra đơn → tạo campaign Exact riêng, nhớ negative term ở campaign nguồn</span>`;
-  $('tableArea').innerHTML = `<table><thead><tr>
-    <th style="width:28px"><input type="checkbox" onchange="tickAll(this.checked)"></th>
-    <th class="l">Customer Search Term</th><th class="l">Campaign</th><th class="l">Targeting</th>
-    <th>Impr</th><th>Clicks</th><th>Spend</th><th>Sales</th><th>Orders</th><th>ACoS</th><th>CR</th>
+    <button class="btn-sm" style="background:#e8f5ec;color:#157a3d" onclick="promoteTerms()">🚀 Tạo Campaign (keyword)</button>
+    <span class="hint">Nhóm <b>ASIN → search term → ad group</b>: bấm ▸ xổ ad group · Tạo Campaign: bid mặc định = CPC, campaign dựng NGAY bên trang Tạo Campaign; negative nguồn (tuỳ chọn) vào file Update</span>`;
+  $('tableArea').innerHTML = `<table id="tblTerms"><thead><tr>
+    <th style="width:44px"><input type="checkbox" onchange="tickAll(this.checked)"></th>
+    <th class="l">ASIN → Search Term → Ad Group</th>
+    <th>Impr</th><th>Clicks</th><th>CTR</th><th>CR</th><th>CPC</th><th>Spend</th><th>Sales</th><th>ROAS</th><th>ACoS</th><th>Orders</th>
     </tr></thead><tbody id="tbMain"></tbody></table>`;
 }
-function appendTermRows(rows) {
+// Cấu trúc: ASIN (header) → search term (tgroup, xổ được) → ad group (tchild)
+function appendTermGroups(groups) {
   const tb = $('tbMain'); if (!tb) return;
-  const start = lastRows.length; // index toàn cục (tick 't'+i khớp lastRows)
-  tb.insertAdjacentHTML('beforeend', rows.map((x, j) => `
-    <tr>
-      <td><input type="checkbox" ${sel.has('t' + (start + j)) ? 'checked' : ''} onchange="tick('t${start + j}', this.checked)"></td>
-      <td class="l" style="max-width:220px;overflow:hidden;text-overflow:ellipsis"><b>${esc(x.term)}</b></td>
-      <td class="l" style="max-width:280px;overflow:hidden;text-overflow:ellipsis" title="${esc(x.name)}">${esc(x.name)}</td>
-      <td class="l">${esc(x.targeting)} <span class="hint">${esc(x.mt)}</span></td>
-      <td>${x.imp}</td><td>${x.clk}</td><td>${money(x.sp)}</td><td>${money(x.sa)}</td><td>${x.or}</td>
-      <td>${pct(x.acos)}</td><td>${pct(x.cr)}</td>
-    </tr>`).join(''));
+  const metrics = (o) => `<td>${o.imp}</td><td>${o.clk}</td><td>${pct(o.ctr)}</td><td>${pct(o.cr)}</td><td>${money(o.cpc)}</td><td>${money(o.sp)}</td><td>${money(o.sa)}</td><td>${o.roas || 0}x</td><td>${pct(o.acos)}</td><td>${o.or}</td>`;
+  let html = '';
+  for (const g of groups) {
+    const asin = g.asin || '';
+    if (asin !== lastAsin) { // dòng ASIN chính đứng đầu cụm
+      lastAsin = asin;
+      const t = termAsinTotals[asin] || {};
+      html += `<tr class="asin-head"><td></td>
+        <td class="l"><b>🅰 ${esc(asin || '(không ASIN)')}</b> <span class="hint">${t.terms || 0} search term</span></td>
+        ${metrics(t)}</tr>`;
+    }
+    const gid = termGid++; loadedGroups++;
+    const childKeys = g.children.map((c) => `tk|${c.cid}|${c.agid}|${c.term}`);
+    g.children.forEach((c, i) => { c.asin = g.asin; termByKey.set(childKeys[i], c); });
+    html += `<tr class="tgroup" data-gid="${gid}">
+      <td><span class="tgt" onclick="toggleTermGroup(${gid})">▸</span><input type="checkbox" onchange="tickGroup(${gid},this.checked)"></td>
+      <td class="l" style="padding-left:14px"><b>${esc(g.term)}</b> <span class="badge">${g.count}</span></td>
+      ${metrics(g)}</tr>`;
+    html += g.children.map((c, i) => `<tr class="tchild tg-${gid}" style="display:none">
+      <td style="padding-left:26px"><input type="checkbox" data-tk="${childKeys[i]}" ${sel.has(childKeys[i]) ? 'checked' : ''} onchange="tickTerm('${childKeys[i]}',this.checked)"></td>
+      <td class="l" style="max-width:360px;overflow:hidden;text-overflow:ellipsis" title="${esc(c.name)}">↳ ${esc(c.name)} <span class="hint">${esc(c.targeting)} ${esc(c.mt)}</span></td>
+      ${metrics(c)}</tr>`).join('');
+  }
+  tb.insertAdjacentHTML('beforeend', html);
 }
+window.toggleTermGroup = (gid) => {
+  const rows = document.querySelectorAll('.tg-' + gid);
+  if (!rows.length) return;
+  const show = rows[0].style.display === 'none';
+  rows.forEach((r) => { r.style.display = show ? '' : 'none'; });
+  const t = document.querySelector(`tr.tgroup[data-gid="${gid}"] .tgt`); if (t) t.textContent = show ? '▾' : '▸';
+};
+window.tickTerm = (key, on) => { on ? sel.add(key) : sel.delete(key); };
+window.tickGroup = (gid, on) => {
+  document.querySelectorAll(`.tg-${gid} input[type=checkbox][data-tk]`).forEach((cb) => { cb.checked = on; on ? sel.add(cb.dataset.tk) : sel.delete(cb.dataset.tk); });
+};
 
 /* ===== Tick / edit / bulk ===== */
 window.tick = (key, on) => { on ? sel.add(key) : sel.delete(key); };
 window.tickAll = (on) => {
   sel.clear();
-  if (on) (tab === 'targets' ? lastRows.map(x => x.k) : lastRows.map((_, i) => 't' + i)).forEach(k => sel.add(k));
-  // Cập nhật checkbox đang hiển thị (không reload — giữ nguyên các dòng đã cuộn tải)
+  if (tab === 'terms') {
+    document.querySelectorAll('#tbMain input[type=checkbox][data-tk]').forEach(cb => { cb.checked = on; if (on) sel.add(cb.dataset.tk); });
+    document.querySelectorAll('#tbMain tr.tgroup input[type=checkbox]').forEach(cb => { cb.checked = on; });
+    return;
+  }
+  if (on) lastRows.map(x => x.k).forEach(k => sel.add(k));
   document.querySelectorAll('#tbMain input[type=checkbox]').forEach(cb => { cb.checked = on; });
 };
 // Guardrail: giá trị ngoài ngưỡng an toàn → trả cảnh báo (không chặn, chỉ báo)
@@ -431,30 +578,66 @@ window.applyBulkAdjust = () => {
   }
   refresh();
 };
+const pickedTerms = () => [...sel].map(k => termByKey.get(k)).filter(Boolean);
+const uncheckTerms = () => { document.querySelectorAll('#tbMain input[type=checkbox]').forEach(cb => cb.checked = false); sel.clear(); };
 window.addNegatives = (mt) => {
-  const picked = lastRows.filter((_, i) => sel.has('t' + i));
+  const picked = pickedTerms();
   if (!picked.length) { alert('Chưa tick search term nào'); return; }
   for (const x of picked) {
     if (negatives.some(n => n.cid === x.cid && n.agid === x.agid && n.term === x.term)) continue;
     negatives.push({ cid: x.cid, agid: x.agid, term: x.term, mt, name: x.name });
   }
-  sel.clear(); renderChanges(); refresh();
+  uncheckTerms(); renderChanges();
 };
+let promotePicked = [];
+let promoteItems = [];
 window.promoteTerms = () => {
-  const picked = lastRows.filter((_, i) => sel.has('t' + i));
+  const picked = pickedTerms();
   if (!picked.length) { alert('Chưa tick search term nào'); return; }
-  const terms = [...new Set(picked.map(x => x.term))];
-  localStorage.setItem('ppcw_promote_keywords', JSON.stringify(terms));
-  // Gợi ý negative term đó ở campaign nguồn (chống tự cạnh tranh)
-  if (confirm(`Đưa ${terms.length} term sang trang Tạo Campaign?\n\nĐồng thời thêm negativeExact các term này vào campaign NGUỒN (chống 2 campaign tự cạnh tranh)?`)) {
-    for (const x of picked) {
+  promotePicked = picked;
+  // gộp theo (asin, term): bid mặc định = CPC = tổng spend / tổng clicks của các dòng đã tick
+  const byKey = {};
+  for (const x of picked) {
+    const k = (x.asin || '?') + '|' + x.term;
+    byKey[k] = byKey[k] || { asin: x.asin || '', term: x.term, sp: 0, clk: 0 };
+    byKey[k].sp += x.sp || 0;
+    byKey[k].clk += x.clk || 0;
+  }
+  promoteItems = Object.values(byKey);
+  $('promoteList').innerHTML = promoteItems.map((it, i) => {
+    const cpc = it.clk > 0 ? (it.sp / it.clk).toFixed(2) : '';
+    return `<div style="display:flex;gap:8px;align-items:center;padding:3px 0">
+      <b style="flex:1">${esc(it.term)}</b>
+      <span class="hint">${esc(it.asin || 'ASIN?')}</span>
+      <span class="hint">Bid</span><input type="text" id="pmBid_${i}" value="${cpc}" placeholder="CPC?" style="width:64px;padding:3px 6px;border:1px solid #ccd3e0;border-radius:5px" title="Mặc định = CPC (${it.sp.toFixed(2)}$ / ${it.clk} click)">
+    </div>`;
+  }).join('') + `<div class="hint" style="margin-top:6px">${promoteItems.length} campaign sẽ tạo · ${picked.length} dòng ad group nguồn</div>`;
+  $('promoteNeg').checked = false;
+  $('promoteModal').style.display = 'flex';
+};
+window.closePromote = () => { $('promoteModal').style.display = 'none'; };
+window.confirmPromote = () => {
+  // Handoff sang trang Tạo Campaign: mở trang là plan Exact tự dựng (bid = ô đã điền)
+  const items = promoteItems.map((it, i) => ({
+    asin: it.asin, keyword: it.term,
+    bid: parseFloat(String(document.getElementById('pmBid_' + i).value).replace(',', '.')) || null
+  })).filter(x => /^[A-Z0-9]{10}$/.test(x.asin));
+  const bad = promoteItems.length - items.length;
+  let pending = [];
+  try { pending = JSON.parse(localStorage.getItem('ppcw_create_campaigns') || '[]'); } catch {}
+  localStorage.setItem('ppcw_create_campaigns', JSON.stringify([...pending, ...items]));
+  // Negative NGUỒN ở lại Adjust (cần ID thật campaign/ad group — chỉ Adjust có)
+  if ($('promoteNeg').checked) {
+    for (const x of promotePicked) {
       if (!negatives.some(n => n.cid === x.cid && n.agid === x.agid && n.term === x.term)) {
         negatives.push({ cid: x.cid, agid: x.agid, term: x.term, mt: 'negativeExact', name: x.name });
       }
     }
   }
-  renderChanges();
-  window.open('/launching.html', '_blank');
+  uncheckTerms(); renderChanges(); closePromote();
+  if (confirm(`✅ ${items.length} campaign đã xếp chờ${bad ? ` (${bad} term không nhận diện được ASIN — bỏ qua)` : ''}.\nMở trang Tạo Campaign để dựng ngay?`)) {
+    window.open('/launching.html', '_blank');
+  }
 };
 
 /* ===== Panel thay đổi + export ===== */
@@ -463,18 +646,29 @@ function restoreLedger() {
   try { const p = JSON.parse(localStorage.getItem('ppcw_adj_' + dsId)); edits = p.edits || []; negatives = p.negatives || []; }
   catch { edits = []; negatives = []; }
 }
+window.toggleChg = () => { chgHidden = !chgHidden; renderChanges(); };
 function renderChanges() {
   saveLedger();
   const n = edits.length + negatives.length;
   if (!n) { $('chgPanel').style.display = 'none'; return; }
   $('chgPanel').style.display = 'block';
-  const FIELD_LB = { bid: 'Bid', bud: 'Budget', pct: 'Placement %', st: 'State', agbid: 'Ad Group Bid', name: 'Tên Campaign' };
+  if (chgHidden) { // đã ẩn → chỉ hiện nút nhỏ để mở lại
+    $('chgPanel').style.padding = '8px 12px';
+    $('chgPanel').innerHTML = `<button class="btn-ok" style="padding:6px 12px" onclick="toggleChg()">📋 Hiện thay đổi (${n})</button>`;
+    return;
+  }
+  $('chgPanel').style.padding = '';
+  const FIELD_LB = { bid: 'Bid', bud: 'Budget', pct: 'Placement %', st: 'State', agbid: 'Ad Group Bid', name: 'Tên Campaign', agname: 'Tên Ad Group' };
   const warns = edits.filter(e => e.warn).length;
-  $('chgPanel').innerHTML = `<h3>📋 Thay đổi (${n})${warns ? ` · <span style="color:#ffb3b3">⚠️ ${warns} cảnh báo</span>` : ''} — chưa áp dụng cho tới khi xuất file & upload</h3>` +
+  $('chgPanel').innerHTML = `<h3>📋 Thay đổi (${n})${warns ? ` · <span style="color:#ffb3b3">⚠️ ${warns} cảnh báo</span>` : ''} <span class="undo" style="float:right;cursor:pointer" onclick="toggleChg()" title="Ẩn bảng">🗕 Ẩn</span></h3>` +
+    `<div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+      <button class="btn-ok" style="padding:6px 14px" onclick="doExport()">💾 Lưu & Tải file Update</button>
+      <span class="msg" id="chgExportMsg"></span>
+    </div>` +
     edits.map((e, i) => `<div class="it"><span class="undo" onclick="undoEdit(${i})">✕</span>
       <span>${FIELD_LB[e.field] || e.field}: <b>${esc(e.old)}</b> → <b style="color:#7ef0a8">${esc(e.value)}</b> · ${esc(e.label)}${e.warn ? ` <span style="color:#ffb3b3" title="${esc(e.warn)}">⚠️</span>` : ''}</span></div>`).join('') +
     negatives.map((g, i) => `<div class="it"><span class="undo" onclick="undoNeg(${i})">✕</span>
-      <span>🚫 ${g.mt === 'negativePhrase' ? 'Phrase' : 'Exact'}: <b>${esc(g.term)}</b> · ${esc((g.name || '').slice(0, 38))}</span></div>`).join('');
+      <span><span class="badge" style="background:#334;color:#9fd8b0">Create</span> 🚫 ${g.mt === 'negativePhrase' ? 'Phrase' : 'Exact'}: <b>${esc(g.term)}</b> · ${esc((g.name || '').slice(0, 38))}</span></div>`).join('');
 }
 window.undoEdit = (i) => {
   const e = edits[i]; edits.splice(i, 1); renderChanges();
@@ -485,27 +679,28 @@ window.undoEdit = (i) => {
 };
 window.undoNeg = (i) => { negatives.splice(i, 1); renderChanges(); };
 
-$('btnExport').onclick = async () => {
-  if (!edits.length && !negatives.length) { $('exportMsg').className = 'msg err'; $('exportMsg').textContent = '❌ Chưa có thay đổi nào'; return; }
+async function doExport() {
+  const setMsg = (cls, txt) => {
+    for (const id of ['exportMsg', 'chgExportMsg']) { const el = $(id); if (el) { el.className = 'msg ' + cls; el.textContent = txt; } }
+  };
+  if (!edits.length && !negatives.length) { setMsg('err', '❌ Chưa có thay đổi nào'); return; }
   const warns = edits.filter(e => e.warn).length;
   if (warns && !confirm(`Có ${warns} giá trị ngoài ngưỡng an toàn (⚠️). Vẫn xuất file?`)) return;
-  $('exportMsg').className = 'msg'; $('exportMsg').textContent = '⏳...';
+  setMsg('', '⏳ Đang tạo file...');
   const res = await fetch('/api/adjust/export', { method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ id: dsId, edits, negatives }) });
-  if (!res.ok) {
-    const e = await res.json().catch(() => ({}));
-    $('exportMsg').className = 'msg err'; $('exportMsg').textContent = '❌ ' + (e.message || res.status);
-    return;
-  }
+  if (!res.ok) { const e = await res.json().catch(() => ({})); setMsg('err', '❌ ' + (e.message || res.status)); return; }
   const info = JSON.parse(res.headers.get('X-Adjust-Info') || '{}');
   const blob = await res.blob();
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
   a.download = (res.headers.get('Content-Disposition') || '').match(/filename="(.+)"/)?.[1] || 'bulk-update.xlsx';
   a.click();
-  $('exportMsg').className = 'msg ok';
-  $('exportMsg').textContent = `✅ ${info.rows} dòng Update — upload file này vào Amazon Ads (Bulk operations)`;
-};
+  setMsg('ok', `✅ ${info.rows} dòng Update — upload vào Amazon Ads (Bulk operations)`);
+  loadAudit(); // cập nhật nhật ký
+}
+window.doExport = doExport;
+$('btnExport').onclick = doExport;
 
 /* ===== Tab Rules / Đề xuất (dry-run) ===== */
 let rulesCache = [];
@@ -641,6 +836,7 @@ window.exportProps = async () => {
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
   a.download = (res.headers.get('Content-Disposition') || '').match(/filename="(.+)"/)?.[1] || 'bulk-update.xlsx'; a.click();
   $('propMsg').className = 'msg ok'; $('propMsg').textContent = `✅ ${info.rows} dòng Update — upload vào Amazon Ads (Bulk operations)`;
+  loadAudit(); // cập nhật nhật ký
 };
 
 /* ===== Tab / filter / phân trang ===== */
@@ -655,8 +851,17 @@ $('tabTargets').onclick = () => setTab('targets');
 $('tabTerms').onclick = () => setTab('terms');
 $('tabRules').onclick = () => setTab('rules');
 $('btnFilter').onclick = () => { page = 1; refresh(); };
-$('btnClearFilter').onclick = () => { $('fQ').value = ''; $('fEntity').value = ''; $('fState').value = ''; $('fMetric').value = ''; $('fMin').value = ''; $('fMax').value = ''; page = 1; refresh(); };
+$('btnClearFilter').onclick = () => { $('fQ').value = ''; $('fEntity').querySelectorAll('input').forEach(c => c.checked = false); updateEntityLabel(); $('fPortfolio').value = ''; $('fPfInput').value = ''; $('fState').value = ''; $('fMetric').value = ''; $('fMin').value = ''; $('fMax').value = ''; page = 1; refresh(); };
 $('fQ').addEventListener('keydown', (e) => { if (e.key === 'Enter') { page = 1; refresh(); } });
+window.toggleEntityDD = (e) => { const dd = $('fEntityDD'); dd.style.display = dd.style.display === 'none' ? 'block' : 'none'; if (e) e.stopPropagation(); };
+function updateEntityLabel() {
+  const selv = [...$('fEntity').querySelectorAll('input:checked')].map(c => c.value);
+  $('fEntityBtn').textContent = (selv.length ? `${selv.length} entity` : 'Mọi Entity') + ' ▾';
+}
+document.addEventListener('click', (e) => { const dd = $('fEntityDD'); if (dd && dd.style.display !== 'none' && !e.target.closest('#fEntityDD') && e.target !== $('fEntityBtn')) dd.style.display = 'none'; });
+$('fEntity').addEventListener('change', () => { updateEntityLabel(); page = 1; refresh(); });
+$('fState').addEventListener('change', () => { page = 1; refresh(); });
+document.addEventListener('click', (e) => { if (!e.target.closest('#fPfDD') && e.target !== $('fPfInput')) closePfDD(); });
 $('sortField').onchange = $('sortDir').onchange = () => { refresh(); };
 // Infinite scroll: cuộn gần đáy khung bảng → tải thêm
 $('pgPrev').style.display = 'none';
@@ -666,7 +871,41 @@ $('tableArea').addEventListener('scroll', () => {
   if (el.scrollTop + el.clientHeight >= el.scrollHeight - 400) loadMore();
 });
 
+/* ===== Nhật ký chỉnh sửa (audit log các file Update đã xuất) ===== */
+const AUDIT_LB = { bid: 'Bid', bud: 'Budget', pct: 'Placement %', st: 'State', agbid: 'Ad Group Bid', name: 'Tên Campaign', agname: 'Tên Ad Group' };
+async function loadAudit() {
+  const qs = new URLSearchParams();
+  if ($('auditThisDs').checked && dsId) qs.set('dataset', dsId);
+  const r = await (await fetch('/api/adjust/audit?' + qs)).json();
+  const entries = r.entries || [];
+  $('auditInfo').textContent = `${entries.length} lần xuất`;
+  if (!entries.length) { $('auditArea').innerHTML = '<span class="hint">Chưa có lần xuất nào.</span>'; return; }
+  $('auditArea').innerHTML = entries.map((e) => {
+    const when = String(e.at || '').replace('T', ' ').slice(0, 19);
+    const src = e.source === 'rules' ? '🤖 rule' : '✍️ tự sửa';
+    // Thứ tự: ASIN · Entity · Tên  →  Trường: cũ→mới
+    const dets = (e.detail?.edits || []).map((x) => {
+      const ent = String(x.k || '').split('|')[0] || '';
+      const asin = ((x.label || '').match(/B0[A-Z0-9]{8}/) || [''])[0];
+      return `<div class="hint">• <b>${esc(asin || '—')}</b> · ${esc(ent)} · ${esc(x.label || '')} — <b>${AUDIT_LB[x.field] || x.field}</b>: ${esc(x.old)} → <b style="color:#157a3d">${esc(x.value)}</b></div>`;
+    }).join('')
+      + (e.detail?.negatives || []).map((n) => {
+        const asin = ((n.name || '').match(/B0[A-Z0-9]{8}/) || [''])[0];
+        return `<div class="hint">• <b>${esc(asin || '—')}</b> · Negative Keyword (Create) · ${esc((n.name || '').slice(0, 40))} — 🚫 ${n.mt === 'negativePhrase' ? 'Phrase' : 'Exact'}: <b>${esc(n.term)}</b></div>`;
+      }).join('');
+    return `<div class="subcard" style="margin:6px 0;padding:8px 10px">
+      <div style="cursor:pointer" onclick="const d=this.nextElementSibling;d.style.display=d.style.display==='none'?'block':'none'">
+        <b>${when}</b> · ${src} · <b>${e.edits || 0}</b> sửa + <b>${e.negatives || 0}</b> negative · <span class="hint">${esc(e.dataset || '')}</span> <span class="hint">▸ chi tiết</span>
+      </div>
+      <div style="display:none;margin-top:6px;border-top:1px solid #eef1f7;padding-top:6px">${dets || '<span class="hint">—</span>'}</div>
+    </div>`;
+  }).join('');
+}
+$('btnAuditReload').onclick = loadAudit;
+$('auditThisDs').onchange = loadAudit;
+
 loadDatasets();
+loadAudit();
 </script>
 </body>
 </html>

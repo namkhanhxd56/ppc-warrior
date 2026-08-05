@@ -227,7 +227,7 @@
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;');
 
-const UI_VERSION = '0.23.2'; // PHẢI khớp APP_VERSION server.js
+const UI_VERSION = '0.24.0'; // PHẢI khớp APP_VERSION server.js
 (async () => {
   try {
     const v = (await (await fetch('/api/version')).json()).version;
@@ -1155,7 +1155,9 @@ async function loadCompLib() {
   $('libMain').innerHTML = mains.map((a) => `<option ${a === cur ? 'selected' : ''}>${a}</option>`).join('') || '<option disabled>chưa có ASIN theo dõi</option>';
   renderCompLib();
 }
-ui.libW = ui.libW || { sel: 30, img: 62, comp: 116, title: 260, n: 78, best: 84, sale: 70, price: 76, eye: 62, star: 74, del: 36 };
+// v2: cân lại cỡ cột mặc định (star gọn vì chỉ còn icon) — đè bản lưu cũ 1 lần qua cờ _libW2
+if (!ui._libW2) { ui.libW = null; ui._libW2 = true; }
+ui.libW = ui.libW || { sel: 30, img: 60, comp: 112, title: 300, n: 92, best: 92, sale: 78, price: 82, eye: 68, star: 56, del: 34 };
 const latestOf = (obj) => { const ks = Object.keys(obj || {}).sort(); return ks.length ? obj[ks[ks.length - 1]] : null; };
 function renderCompLib() {
   const groups = Object.entries(LIB.groups || {});
@@ -1190,7 +1192,7 @@ function renderCompLib() {
         <td style="text-align:center" title="${esc(Object.keys(v.prices || {}).sort().pop() || '')}">${latestOf(v.prices) ?? '_'}</td>
         <td style="text-align:center"><span class="lib-eye" title="${v.enabled !== false ? 'Đang theo dõi — bấm để TẮT' : 'Đã tắt theo dõi — bấm để BẬT lại'}" onclick="libPatch('${main}','${comp}',{enabled:${v.enabled === false}})">${v.enabled !== false ? '👁' : '🙈'}</span></td>
         <td style="text-align:center"><span class="lib-star" title="${v.favorite ? 'Bỏ Favorite' : 'Đánh dấu Favorite — theo dõi sát sao'}" onclick="libPatch('${main}','${comp}',{favorite:${!v.favorite}})"
-          style="font-size:10px;font-weight:700;border-radius:8px;padding:2px 8px;${v.favorite ? 'background:#fff1c9;color:#a07800' : 'background:#f0f2f6;color:#a3adc0'}">Favorite</span></td>
+          style="color:${v.favorite ? '#e5a400' : '#c3c9d6'}">${v.favorite ? '★' : '☆'}</span></td>
         <td><span style="color:#c0392b;cursor:pointer" title="Xoá khỏi nhóm ${main}" onclick="if(confirm('Xoá ${comp} khỏi nhóm ${main}?'))libPatch('${main}','${comp}',{delete:true})">🗑</span></td>
       </tr>`).join('')}</tbody></table></div>`;
   }
