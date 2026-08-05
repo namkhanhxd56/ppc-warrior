@@ -18,7 +18,7 @@ import { evaluateAsin } from "./src/data/evaluate.js";
 import * as store from "./src/db/file-store.js";
 
 dotenv.config();
-export const APP_VERSION = "0.24.0"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
+export const APP_VERSION = "0.24.1"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
 
 // RUN_MODE:
 // - "local" (mặc định): bấm Kiểm tra là scrape NGAY trên máy này (dùng 1 người, chạy local)
@@ -302,6 +302,47 @@ app.post("/api/launch/h10", (req, res, next) => uploadMw.single("file")(req, res
 
 // Preview: lập danh sách campaign PLAN — UI hiển thị bảng CHỈNH SỬA ĐƯỢC (bid, budget,
 // portfolio, note) trước khi export
+// ADJUST → TẠO FILE BULK TRỰC TIẾP (search term thăng cấp thành campaign Exact, bid = CPC, kèm portfolio)
+app.post("/api/adjust/create-campaigns", (req, res) => {
+  try {
+    const { items, portfolioId, campaignMode } = req.body || {};
+    if (!Array.isArray(items) || !items.length) throw new Error("Không có keyword nào");
+    const saved = store.getLaunchSettings();
+    const byAsin = {};
+    for (const it of items) {
+      const asin = String(it.asin || "").toUpperCase();
+      if (!/^[A-Z0-9]{10}$/.test(asin)) continue;
+      (byAsin[asin] = byAsin[asin] || []).push(it);
+    }
+    if (!Object.keys(byAsin).length) throw new Error("Không nhận diện được ASIN nào");
+    const allRows = [];
+    let total = 0;
+    for (const [asin, list] of Object.entries(byAsin)) {
+      const prof = saved.products?.[asin] || {};
+      const input = {
+        info: { sku: prof.sku || asin, asin, startDate: new Date().toISOString().slice(0, 10), manager: prof.manager || saved.manager || "", category: prof.category || "" },
+        keywords: list.map((x) => ({ text: x.keyword, bid: x.bid || null })),
+        naming: { kw: saved.nameKw ? String(saved.nameKw).replace(/\{Name\}/g, "{NameID}") : undefined }, // template cũ còn {Name} → quy về {NameID}
+        portfolios: { exact: String(portfolioId || "").trim() },
+        bidRule: { mode: "fixed", fixedBid: Number(saved.fixedBid) || 0.6, minBid: Number(saved.minBid) || 0.15 },
+        matches: { exact: { on: true, levels: 1, step: 0.02, note: "HARVEST" }, phrase: { on: false }, broad: { on: false } },
+        campaignMode: campaignMode === "multi" ? "multi" : "single"
+      };
+      const { plans, trackingKeywords } = planCampaigns(input);
+      allRows.push(...buildRowsFromPlans(plans, input));
+      store.upsertKeywords(asin, trackingKeywords.map((k) => k.keyword || k), "PPC", "adjust-harvest");
+      total += plans.length;
+    }
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(allRows, { header: BULK_HEADER }), "Sponsored Products Campaigns");
+    const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
+    store.saveExportSnapshot({ source: "adjust-harvest", campaigns: total, rows: allRows.length }, buf);
+    res.setHeader("Content-Disposition", `attachment; filename="bulk-create-harvest-${new Date().toISOString().slice(0, 10)}.xlsx"`);
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.send(buf);
+  } catch (e) { res.status(400).json({ ok: false, message: e.message }); }
+});
+
 app.post("/api/launch/preview", (req, res) => {
   try {
     const { plans, stats, trackingKeywords, asin } = planCampaigns(req.body || {});

@@ -187,10 +187,19 @@
 <div id="promoteModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:100;align-items:center;justify-content:center">
   <div style="background:#fff;border-radius:12px;padding:20px 22px;max-width:620px;width:92%;max-height:82vh;overflow:auto;box-shadow:0 20px 60px rgba(0,0,0,.4)">
     <h3 style="margin:0 0 4px;font-size:15px">🚀 Tạo Campaign với keyword</h3>
-    <p class="sub" style="margin:0 0 12px">Mỗi search term = 1 campaign Exact mới cho ASIN đó (tên campaign/ad group theo rule đặt tên của mục Tạo Campaign). <b>Bid mặc định = CPC</b> của term — sửa được. Bấm tạo là campaign xuất hiện NGAY ở mục 5 trang Tạo Campaign.</p>
+    <p class="sub" style="margin:0 0 12px">Mỗi search term = campaign Exact mới cho ASIN đó (tên theo rule đặt tên đã lưu). <b>Bid mặc định = CPC</b> — sửa được. Bấm tạo là <b>TẢI THẲNG FILE BULK</b> (không qua trang Tạo Campaign).</p>
+    <div style="display:flex;gap:10px;margin-bottom:10px;align-items:flex-end;flex-wrap:wrap">
+      <div><label style="font-size:11.5px;color:#667;display:block;margin-bottom:2px">Portfolio ID (campaign mới nằm trong portfolio này)</label>
+        <input type="text" id="pmPortfolio" placeholder="VD: 16 số portfolio" style="width:200px;padding:5px 8px;border:1px solid #ccd3e0;border-radius:6px"></div>
+      <div><label style="font-size:11.5px;color:#667;display:block;margin-bottom:2px">Chế độ</label>
+        <select id="pmMode" style="padding:5px 8px;border:1px solid #ccd3e0;border-radius:6px">
+          <option value="single">1 campaign – 1 ad group / keyword</option>
+          <option value="multi">1 campaign – nhiều ad group (mỗi keyword 1 AG)</option>
+        </select></div>
+    </div>
     <div id="promoteList" style="max-height:280px;overflow:auto;border:1px solid #e3e8f0;border-radius:8px;padding:8px 12px;margin-bottom:12px;font-size:12.5px"></div>
     <label style="display:flex;gap:8px;align-items:center;font-weight:600;margin-bottom:16px;font-size:13px">
-      <input type="checkbox" id="promoteNeg"> Đồng thời negativeExact term này vào campaign NGUỒN <span class="hint">(vào file Update của Adjust — chống 2 campaign tự cạnh tranh; mặc định KHÔNG)</span>
+      <input type="checkbox" id="promoteNeg"> Đồng thời negativeExact term này vào <b>AD GROUP nguồn</b> <span class="hint">(Negative Keyword cấp ad group — chỉ chặn đúng ad group sinh ra term, vào file Update; mặc định KHÔNG)</span>
     </label>
     <div style="display:flex;gap:10px;justify-content:flex-end">
       <button class="btn-sm" onclick="closePromote()">Hủy</button>
@@ -230,7 +239,7 @@ function makeResizable(tableId) {
   });
 }
 
-const UI_VERSION = '0.24.0';
+const UI_VERSION = '0.24.1';
 (async () => {
   try {
     const v = (await (await fetch('/api/version')).json()).version;
@@ -616,17 +625,15 @@ window.promoteTerms = () => {
   $('promoteModal').style.display = 'flex';
 };
 window.closePromote = () => { $('promoteModal').style.display = 'none'; };
-window.confirmPromote = () => {
-  // Handoff sang trang Tạo Campaign: mở trang là plan Exact tự dựng (bid = ô đã điền)
+window.confirmPromote = async () => {
+  // TẠO THẲNG FILE BULK — không qua trang Tạo Campaign (campaign mới nằm trong portfolio đã điền)
   const items = promoteItems.map((it, i) => ({
     asin: it.asin, keyword: it.term,
     bid: parseFloat(String(document.getElementById('pmBid_' + i).value).replace(',', '.')) || null
   })).filter(x => /^[A-Z0-9]{10}$/.test(x.asin));
   const bad = promoteItems.length - items.length;
-  let pending = [];
-  try { pending = JSON.parse(localStorage.getItem('ppcw_create_campaigns') || '[]'); } catch {}
-  localStorage.setItem('ppcw_create_campaigns', JSON.stringify([...pending, ...items]));
-  // Negative NGUỒN ở lại Adjust (cần ID thật campaign/ad group — chỉ Adjust có)
+  if (!items.length) { alert('Không nhận diện được ASIN của term nào (tên campaign nguồn không chứa ASIN)'); return; }
+  // Negative NGUỒN ở lại Adjust: Negative Keyword cấp AD GROUP (đúng ad group sinh ra term) — cần ID thật, chỉ Adjust có
   if ($('promoteNeg').checked) {
     for (const x of promotePicked) {
       if (!negatives.some(n => n.cid === x.cid && n.agid === x.agid && n.term === x.term)) {
@@ -634,10 +641,21 @@ window.confirmPromote = () => {
       }
     }
   }
-  uncheckTerms(); renderChanges(); closePromote();
-  if (confirm(`✅ ${items.length} campaign đã xếp chờ${bad ? ` (${bad} term không nhận diện được ASIN — bỏ qua)` : ''}.\nMở trang Tạo Campaign để dựng ngay?`)) {
-    window.open('/launching.html', '_blank');
+  const res = await fetch('/api/adjust/create-campaigns', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ items, portfolioId: $('pmPortfolio').value.trim(), campaignMode: $('pmMode').value }) });
+  if (!res.ok) {
+    let msg = 'Lỗi';
+    try { msg = (await res.json()).message; } catch {}
+    alert('❌ ' + msg + (msg.includes('API') ? '' : ' — server chạy code cũ? restart npm start'));
+    return;
   }
+  const blob = await res.blob();
+  const el = document.createElement('a');
+  el.href = URL.createObjectURL(blob);
+  el.download = 'bulk-create-harvest-' + new Date().toISOString().slice(0, 10) + '.xlsx';
+  el.click();
+  uncheckTerms(); renderChanges(); closePromote();
+  alert(`✅ Đã tải file bulk tạo ${items.length} keyword${bad ? ` (bỏ ${bad} term không nhận diện ASIN)` : ''} — upload lên Amazon Ads.` + ($('promoteNeg').checked ? '\nNegative ad group nguồn đã vào danh sách thay đổi (xuất cùng file Update).' : ''));
 };
 
 /* ===== Panel thay đổi + export ===== */

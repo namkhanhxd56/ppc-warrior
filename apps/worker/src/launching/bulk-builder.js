@@ -209,8 +209,9 @@ export function planCampaigns(input) {
 
   // Bid Exact gốc: fixed → fixedBid; suggest → (bid nhập tay ?? bid H10 theo loại) × hệ số, trần cap
   const exactBase = (kw) => {
+    if (kw.bid != null) return r2(kw.bid); // bid tay "kw | bid" LUÔN ưu tiên (kể cả mode fixed — Adjust harvest bid=CPC)
     if (bidRule.mode === "fixed") return r2(bidRule.fixedBid);
-    const raw = kw.bid ?? (kw.bids ? kw.bids[bidRule.h10Type] : null);
+    const raw = kw.bids ? kw.bids[bidRule.h10Type] : null;
     if (raw == null) return r2(bidRule.defaultBid);
     return Math.min(r2(bidRule.maxBidCap), r2(raw * bidRule.bidMultiplier));
   };
@@ -235,9 +236,40 @@ export function planCampaigns(input) {
     };
   };
 
-  for (const kw of input.keywords || []) {
-    const text = String(kw.text || "").trim().toLowerCase();
-    if (!text) continue;
+  // CHẾ ĐỘ CAMPAIGN (19/07): "single" = 1 campaign - 1 ad group (mặc định, như cũ)
+  //                          "multi"  = 1 campaign - NHIỀU ad group (mỗi keyword 1 ad group, bid riêng)
+  // multi: ladder KHÔNG áp (mỗi keyword dùng bid gốc của nó); tên campaign: {Keyword} = "kw đầu +N"
+  const campaignMode = input.campaignMode === "multi" ? "multi" : "single";
+  const kwListClean = (input.keywords || [])
+    .map((kw) => ({ ...kw, text: String(kw.text || "").trim().toLowerCase() }))
+    .filter((kw) => kw.text);
+
+  if (campaignMode === "multi") {
+    const mkMulti = (matchType, kws, date, portfolio, note) => {
+      if (!kws.length) return;
+      const label = kws.length > 1 ? `${kws[0].text} +${kws.length - 1}` : kws[0].text;
+      const name = renderName(naming.kw, { ...baseCtx, Keyword: label,
+        MatchType: matchType[0].toUpperCase() + matchType.slice(1),
+        Bid: r2(exactBase(kws[0])).toFixed(2), StartDate: date, Note: note });
+      push({
+        type: `SP_KW_${matchType.toUpperCase()}`, name,
+        keyword: label, matchType, bid: r2(exactBase(kws[0])), budget: Number(camp.dailyBudget),
+        portfolioId: portfolio, startDateBulk: date, endDateBulk: "", note, ...campLevel, ...productLevel,
+        adGroups: kws.map((kw) => {
+          const b = matchType === "exact" ? r2(exactBase(kw)) : r2(derived(matchType === "phrase" ? phrase : broad, exactBase(kw)));
+          return { name: kw.text, defaultBid: Number(camp.adGroupDefaultBid) || d.adGroupDefaultBid,
+            targets: [{ kind: "kw", text: kw.text, mt: matchType, bid: b }], negatives: [], negPt: [] };
+        })
+      });
+    };
+    if (exact.on) mkMulti("exact", kwListClean, exactDate, pf("exact"), exact.note || "");
+    const phraseLimit = Number(phrase.wordLimit ?? wordCountLimit);
+    const broadLimit = Number(broad.wordLimit ?? wordCountLimit);
+    if (phrase.on) mkMulti("phrase", kwListClean.filter((k) => k.text.split(/\s+/).length <= phraseLimit), phraseDate, pf("phrase"), phrase.note || "");
+    if (broad.on) mkMulti("broad", kwListClean.filter((k) => k.text.split(/\s+/).length <= broadLimit), broadDate, pf("broad"), broad.note || "");
+  } else
+  for (const kw of kwListClean) {
+    const text = kw.text;
     const base = exactBase(kw);
     const words = text.split(/\s+/).length;
 

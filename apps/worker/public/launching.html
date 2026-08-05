@@ -242,6 +242,14 @@
       </div>
     </fieldset>
 
+    <div class="row" style="margin:4px 0 10px;align-items:center">
+      <label style="margin:0" title="single: mỗi keyword (× mỗi mức bid) = 1 campaign riêng — như từ trước tới nay. multi: TẤT CẢ keyword vào 1 campaign, mỗi keyword 1 ad group (bid riêng từng keyword, KHÔNG áp thang bid)">Chế độ campaign</label>
+      <select id="campaignMode" style="max-width:330px">
+        <option value="single">1 campaign – 1 ad group (mặc định)</option>
+        <option value="multi">1 campaign – nhiều ad group (mỗi keyword 1 ad group)</option>
+      </select>
+      <span class="hint">multi: bỏ qua thang bid (số mức/bước nhảy) — mỗi keyword dùng bid gốc của nó</span>
+    </div>
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(285px,1fr));gap:12px">
       <div class="mt-box" id="boxExact">
         <h3><input type="checkbox" id="onExact" checked> Exact</h3>
@@ -542,7 +550,7 @@ const TYPE_LABEL = { SP_KW_EXACT:'Exact', SP_KW_PHRASE:'Phrase', SP_KW_BROAD:'Br
 const STRATEGIES = ['Dynamic bids - down only','Dynamic bids - up and down','Fixed bid'];
 
 /* ===== Cảnh báo server chạy code cũ ===== */
-const UI_VERSION = '0.24.0';
+const UI_VERSION = '0.24.1';
 (async () => {
   try {
     const v = (await (await fetch('/api/version')).json()).version;
@@ -812,6 +820,7 @@ function buildPayload() {
                 wordLimit: +$('wordLimitBroad').value, offsetDays: +$('offsetBroad').value,
                 step: +$('stepBroad').value, levels: +$('levelsBroad').value, note: $('noteBroad').value.trim() }
     },
+    campaignMode: $('campaignMode') ? $('campaignMode').value : 'single',
     pt: { on: sp && $('onPt').checked, exact: $('exactPt').checked, expanded: $('expandedPt').checked,
       bid: +$('bidPt').value, step: +$('stepPt').value, levels: +$('levelsPt').value, note: $('notePt').value.trim() },
     ptGroup: { on: sp && $('onPtG').checked, exact: $('exactPtG').checked, expanded: $('expandedPtG').checked,
