@@ -1265,6 +1265,48 @@ loadCompLib();
 function csvq(x){ x=String(x??''); return /[",\n]/.test(x) ? '"'+x.replace(/"/g,'""')+'"' : x; }
 
 loadTracking();
+
+/* ===== 👥 QUẢN LÝ USER (admin) ===== */
+window.__adminUsers = async () => {
+  const r = await (await fetch('/api/auth/users')).json();
+  if (r.error) return alert(r.error);
+  const rows = r.users.map((u) => `
+    <div style="display:flex;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid #f0f2f6;font-size:12.5px">
+      <b style="flex:1">${u.name}${u.legacyRoot ? ' <span style="font-size:10px;color:#a07800">(admin gốc — dữ liệu chính)</span>' : ''}</b>
+      <select onchange="__setRole('${u.name}',this.value)" ${u.legacyRoot ? 'disabled' : ''}>
+        <option ${u.role === 'admin' ? 'selected' : ''}>admin</option>
+        <option ${u.role === 'member' ? 'selected' : ''}>member</option></select>
+      <span style="color:#8a94a8;font-size:11px">${(u.createdAt || '').slice(0, 10)}</span>
+      ${u.legacyRoot ? '' : `<button class="btn-sm" style="color:#c0392b" onclick="__delUser('${u.name}')">🗑</button>`}
+    </div>`).join('');
+  modal('👥 Quản lý user', rows + '<div class="hint" style="font-size:11px;color:var(--mut);margin-top:8px">Member đăng ký tại /login.html — mỗi user 1 phân vùng dữ liệu riêng (data/users/&lt;tên&gt;). Xoá user KHÔNG xoá dữ liệu trên đĩa.</div>');
+};
+window.__setRole = async (name, role) => {
+  const r = await (await fetch('/api/auth/role', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, role }) })).json();
+  if (r.error) alert(r.error);
+  __adminUsers();
+};
+window.__delUser = async (name) => {
+  if (!confirm(`Xoá user "${name}"? (phân vùng dữ liệu trên đĩa giữ lại)`)) return;
+  const r = await (await fetch('/api/auth/delete-user', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) })).json();
+  if (r.error) alert(r.error);
+  __adminUsers();
+};
+
+/* ===== USER CHIP (hệ thống đa user) ===== */
+(async () => {
+  try {
+    const me = await (await fetch('/api/auth/me')).json();
+    if (!me.user) return; // chưa bật hệ thống user (local 1 người) — không hiện gì
+    const st = document.getElementById('status');
+    const chip = document.createElement('span');
+    chip.style.cssText = 'display:inline-flex;gap:6px;align-items:center;margin-left:12px;font-size:12px';
+    chip.innerHTML = `<span style="background:${me.user.role === 'admin' ? '#e5a400' : '#2455e6'};color:#fff;border-radius:9px;padding:2px 10px;font-weight:700">${me.user.name} · ${me.user.role}</span>`
+      + (me.user.role === 'admin' && window.__adminUsers ? `<button onclick="__adminUsers()" style="background:#243049;color:#9fb0c8;border:none;border-radius:7px;padding:3px 9px;cursor:pointer;font-size:11.5px" title="Quản lý user">👥</button>` : '')
+      + `<button onclick="fetch('/api/auth/logout',{method:'POST'}).then(()=>location.href='/login.html')" style="background:#243049;color:#9fb0c8;border:none;border-radius:7px;padding:3px 9px;cursor:pointer;font-size:11.5px" title="Đăng xuất">⎋</button>`;
+    (st ? st.parentNode : document.querySelector('header'))?.appendChild(chip);
+  } catch {}
+})();
 </script>
 </body>
 </html>

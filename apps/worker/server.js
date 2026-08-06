@@ -16,6 +16,8 @@ import { buildMetrics, summarize, cellOf, buildAsinDaily } from "./src/data/cons
 import { importAdsBulk, importBusiness, importInventory, preview as previewImport, FIELD_SPECS } from "./src/data/imports.js";
 import { evaluateAsin } from "./src/data/evaluate.js";
 import * as store from "./src/db/file-store.js";
+import * as auth from "./src/auth.js";
+import { als, runAsUser, userDataDir } from "./src/db/user-context.js";
 
 dotenv.config();
 export const APP_VERSION = "0.25.1"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
@@ -37,17 +39,91 @@ let stopFlag = false;
 // Không đặt → không hỏi (chạy local như cũ). Trình duyệt sẽ tự hiện hộp đăng nhập,
 // user = bất kỳ (VD "admin"), password = WORKER_PASSWORD.
 const PASSWORD = process.env.WORKER_PASSWORD || "";
-if (PASSWORD) {
-  app.use((req, res, next) => {
-    const auth = req.headers.authorization || "";
-    const pass = auth.startsWith("Basic ")
-      ? Buffer.from(auth.slice(6), "base64").toString().split(":").slice(1).join(":")
-      : "";
-    if (pass === PASSWORD) return next();
-    res.set("WWW-Authenticate", 'Basic realm="PPC Warrior Worker"');
-    res.status(401).send("Cần mật khẩu (WORKER_PASSWORD)");
-  });
-}
+/* ===== HỆ THỐNG USER (05/08/2026) =====
+   - Chưa có user nào đăng ký → chạy như cũ (không hỏi đăng nhập; nếu đặt WORKER_PASSWORD thì Basic auth cũ)
+   - Có user: trang → redirect /login.html; API → 401; phiên qua cookie ppcw_sid
+   - Agent: Basic <username>:<password> (tài khoản thật) → job/data vào ĐÚNG PHÂN VÙNG user đó
+   - Mỗi request chạy trong AsyncLocalStorage context → file-store tự resolve ./data hay ./data/users/<name> */
+const PUBLIC_PATHS = ["/login.html", "/api/auth/login", "/api/auth/register", "/api/version", "/favicon.ico"];
+app.use((req, res, next) => {
+  const p = req.path;
+  if (PUBLIC_PATHS.includes(p)) return next();
+
+  // Agent: xác thực bằng tài khoản user (đa user) — fallback WORKER_PASSWORD kiểu cũ khi chưa có user
+  if (p.startsWith("/api/agent/")) {
+    const u = auth.verifyBasic(req);
+    if (u) return runAsUser(u, next);
+    if (!auth.hasUsers() && PASSWORD) {
+      const pass = String(req.headers.authorization || "").startsWith("Basic ")
+        ? Buffer.from(req.headers.authorization.slice(6), "base64").toString().split(":").slice(1).join(":") : "";
+      if (pass === PASSWORD) return next(); // legacy: context gốc
+    }
+    if (!auth.hasUsers() && !PASSWORD) return next(); // local dev chưa cấu hình gì
+    return res.status(401).json({ error: "Agent cần đăng nhập bằng tài khoản user (AGENT_USER/AGENT_PASSWORD)" });
+  }
+
+  // Chưa có user nào đăng ký → chế độ local 1 người như trước (kèm Basic WORKER_PASSWORD nếu đặt)
+  if (!auth.hasUsers()) {
+    if (PASSWORD) {
+      const pass = String(req.headers.authorization || "").startsWith("Basic ")
+        ? Buffer.from(req.headers.authorization.slice(6), "base64").toString().split(":").slice(1).join(":") : "";
+      if (pass !== PASSWORD) {
+        res.set("WWW-Authenticate", 'Basic realm="PPC Warrior Worker"');
+        return res.status(401).send("Cần mật khẩu (WORKER_PASSWORD)");
+      }
+    }
+    return next();
+  }
+
+  // Đã có user → bắt buộc phiên
+  const user = auth.getSession(auth.parseCookie(req));
+  if (!user) {
+    if (p.startsWith("/api/")) return res.status(401).json({ error: "Chưa đăng nhập" });
+    return res.redirect("/login.html");
+  }
+  return runAsUser(user, next);
+});
+
+/* ===== API AUTH ===== */
+app.use("/api/auth", express.json());
+app.post("/api/auth/register", (req, res) => {
+  try {
+    const u = auth.register(req.body?.username, req.body?.password);
+    const token = auth.createSession(u);
+    res.setHeader("Set-Cookie", `ppcw_sid=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${30 * 24 * 3600}`);
+    res.json({ ok: true, user: u, first: u.role === "admin" });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+app.post("/api/auth/login", (req, res) => {
+  const u = auth.verify(req.body?.username, req.body?.password);
+  if (!u) return res.status(401).json({ error: "Sai tên đăng nhập hoặc mật khẩu" });
+  const token = auth.createSession(u);
+  res.setHeader("Set-Cookie", `ppcw_sid=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${30 * 24 * 3600}`);
+  res.json({ ok: true, user: u });
+});
+app.post("/api/auth/logout", (req, res) => {
+  auth.destroySession(auth.parseCookie(req));
+  res.setHeader("Set-Cookie", "ppcw_sid=; Path=/; Max-Age=0");
+  res.json({ ok: true });
+});
+app.get("/api/auth/me", (req, res) => {
+  const u = auth.getSession(auth.parseCookie(req));
+  res.json({ user: u, hasUsers: auth.hasUsers() });
+});
+const requireAdmin = (req, res, next) => {
+  const u = auth.getSession(auth.parseCookie(req));
+  if (!u || u.role !== "admin") return res.status(403).json({ error: "Cần quyền admin" });
+  next();
+};
+app.get("/api/auth/users", requireAdmin, (req, res) => res.json({ users: auth.listUsers() }));
+app.post("/api/auth/role", requireAdmin, (req, res) => {
+  try { auth.setRole(req.body?.name, req.body?.role); res.json({ ok: true }); }
+  catch (e) { res.status(400).json({ error: e.message }); }
+});
+app.post("/api/auth/delete-user", requireAdmin, (req, res) => {
+  try { auth.deleteUser(req.body?.name); res.json({ ok: true }); }
+  catch (e) { res.status(400).json({ error: e.message }); }
+});
 
 app.use(express.json({ limit: "25mb" })); // agent đẩy run kèm snapshot có thể lớn
 app.use(express.static("public"));
@@ -252,6 +328,16 @@ app.post("/api/schedule", (req, res) => {
 
 /* Vòng lặp scheduler: mỗi 30s so giờ máy; mỗi ngày chạy 1 lần đúng giờ đã đặt */
 setInterval(async () => {
+  // Đa user: duyệt từng user (admin gốc + members), mỗi user lịch/data riêng
+  const userList = auth.hasUsers()
+    ? auth.listUsers().map((u) => ({ name: u.name, role: u.role, legacyRoot: u.legacyRoot }))
+    : [null]; // chưa có user → context gốc
+  for (const u of userList) {
+    await new Promise((done) => (u ? runAsUser(u, () => schedTick().finally(done)) : schedTick().finally(done)));
+  }
+}, 30000);
+
+async function schedTick() {
   const s = store.getSchedule();
   if (!s.enabled || running) return;
   const now = new Date();
@@ -281,7 +367,7 @@ setInterval(async () => {
       console.error(`⏰ [Scheduler] lỗi ${job.asin}: ${e.message}`);
     }
   }
-}, 30000);
+}
 
 /* Cài đặt theo ASIN — UI tự nạp khi nhập ASIN */
 app.get("/api/asin-settings/:asin", (req, res) => {
@@ -518,18 +604,18 @@ app.get("/api/competitor-snapshot/:asin", (req, res) => {
 });
 
 /* ===================== MODULE ADJUST (chỉnh sửa ads từ file bulk) ===================== */
-const ADJUST_DIR = "./data/adjust";
+const ADJUST_DIR_FN = () => `${userDataDir()}/adjust`;
 const adjustCache = new Map(); // id → dataset (lazy load)
 const uploadBig = multer({ dest: "./data/uploads", limits: { fileSize: 300 * 1024 * 1024 } });
 
 function adjustIndex() {
-  try { return JSON.parse(fs.readFileSync(`${ADJUST_DIR}/index.json`, "utf8")); } catch { return []; }
+  try { return JSON.parse(fs.readFileSync(`${ADJUST_DIR_FN()}/index.json`, "utf8")); } catch { return []; }
 }
 function loadDataset(id) {
   if (adjustCache.has(id)) return adjustCache.get(id);
   if (!/^[\w-]+$/.test(id)) return null;
   try {
-    const ds = JSON.parse(fs.readFileSync(`${ADJUST_DIR}/${id}.json`, "utf8"));
+    const ds = JSON.parse(fs.readFileSync(`${ADJUST_DIR_FN()}/${id}.json`, "utf8"));
     ds.byKey = new Map(ds.records.map((r) => [rowKey(r), r]));
     adjustCache.set(id, ds);
     return ds;
@@ -543,12 +629,12 @@ app.post("/api/adjust/import", (req, res, next) => uploadBig.single("file")(req,
     const ds = etlBulk(fs.readFileSync(req.file.path), req.file.originalname);
     fs.unlinkSync(req.file.path);
 
-    fs.mkdirSync(ADJUST_DIR, { recursive: true });
+    fs.mkdirSync(ADJUST_DIR_FN(), { recursive: true });
     const id = `${ds.meta.windowStart || "x"}-${ds.meta.windowEnd || "x"}-${Date.now().toString(36)}`;
-    fs.writeFileSync(`${ADJUST_DIR}/${id}.json`, JSON.stringify(ds));
+    fs.writeFileSync(`${ADJUST_DIR_FN()}/${id}.json`, JSON.stringify(ds));
     const idx = adjustIndex().filter((d) => d.id !== id);
     idx.unshift({ id, ...ds.meta });
-    fs.writeFileSync(`${ADJUST_DIR}/index.json`, JSON.stringify(idx.slice(0, 20), null, 1));
+    fs.writeFileSync(`${ADJUST_DIR_FN()}/index.json`, JSON.stringify(idx.slice(0, 20), null, 1));
     ds.byKey = new Map(ds.records.map((r) => [rowKey(r), r]));
     adjustCache.set(id, ds);
 
@@ -573,8 +659,8 @@ app.post("/api/adjust/datasets/:id/rename", (req, res) => {
   const d = idx.find((x) => x.id === req.params.id);
   if (!d) return res.status(404).json({ ok: false, message: "Không tìm thấy dataset" });
   d.label = String(req.body?.name || "").slice(0, 80);
-  fs.mkdirSync(ADJUST_DIR, { recursive: true });
-  fs.writeFileSync(`${ADJUST_DIR}/index.json`, JSON.stringify(idx, null, 1));
+  fs.mkdirSync(ADJUST_DIR_FN(), { recursive: true });
+  fs.writeFileSync(`${ADJUST_DIR_FN()}/index.json`, JSON.stringify(idx, null, 1));
   const ds = adjustCache.get(req.params.id); if (ds && ds.meta) ds.meta.label = d.label;
   res.json({ ok: true, label: d.label });
 });
@@ -599,10 +685,10 @@ function writeUpdateWorkbook(ds, edits, negatives, id, source) {
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Sponsored Products Campaigns");
   const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
-  fs.mkdirSync(ADJUST_DIR, { recursive: true });
+  fs.mkdirSync(ADJUST_DIR_FN(), { recursive: true });
   const audit = { at: new Date().toISOString(), dataset: id, source: source || "manual",
     edits: (edits || []).length, negatives: (negatives || []).length, detail: { edits, negatives } };
-  fs.appendFileSync(`${ADJUST_DIR}/audit.jsonl`, JSON.stringify(audit) + "\n");
+  fs.appendFileSync(`${ADJUST_DIR_FN()}/audit.jsonl`, JSON.stringify(audit) + "\n");
   return { buf, rowCount: rows.length };
 }
 
@@ -658,11 +744,11 @@ app.post("/api/adjust/export-all", (req, res) => {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows, { header: ds.header }), "Sponsored Products Campaigns");
     const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
-    fs.mkdirSync(ADJUST_DIR, { recursive: true });
+    fs.mkdirSync(ADJUST_DIR_FN(), { recursive: true });
     const audit = { at: new Date().toISOString(), dataset: id, source: "manual",
       edits: (edits || []).length, negatives: (negatives || []).length, creates: (creates || []).length,
       detail: { edits, negatives, creates } };
-    fs.appendFileSync(`${ADJUST_DIR}/audit.jsonl`, JSON.stringify(audit) + "\n");
+    fs.appendFileSync(`${ADJUST_DIR_FN()}/audit.jsonl`, JSON.stringify(audit) + "\n");
     if (campaigns) store.saveExportSnapshot({ source: "adjust-all", campaigns, rows: createRows.length }, buf);
     res.setHeader("Content-Disposition",
       `attachment; filename="bulk-adjust-${id}-${new Date().toISOString().slice(0, 10)}.xlsx"`);
@@ -678,7 +764,7 @@ app.post("/api/adjust/export-all", (req, res) => {
 // Nhật ký chỉnh sửa (mọi lần xuất file Update — thủ công hoặc từ rule)
 app.get("/api/adjust/audit", (req, res) => {
   let lines = [];
-  try { lines = fs.readFileSync(`${ADJUST_DIR}/audit.jsonl`, "utf8").split("\n").filter(Boolean); } catch { lines = []; }
+  try { lines = fs.readFileSync(`${ADJUST_DIR_FN()}/audit.jsonl`, "utf8").split("\n").filter(Boolean); } catch { lines = []; }
   let entries = lines.map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
   if (req.query.dataset) entries = entries.filter((e) => e.dataset === req.query.dataset);
   entries.reverse(); // mới nhất trước

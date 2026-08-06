@@ -3,13 +3,16 @@
 
 import fs from "fs";
 import path from "path";
+import { userDataDir } from "./user-context.js";
 
-const DATA_DIR = "./data";
-const VARIANTS_FILE = path.join(DATA_DIR, "variants-cache.json");
-const RESULTS_DIR = path.join(DATA_DIR, "results");
+// PHÂN VÙNG THEO USER (05/08/2026): mọi đường dẫn resolve TẠI THỜI ĐIỂM GỌI qua userDataDir()
+// — chưa đăng nhập/admin gốc → ./data (dữ liệu cũ nguyên vẹn); member → ./data/users/<name>/
+const DATA_DIR = "./data"; // chỉ còn dùng cho file DÙNG CHUNG (users.json, sessions.json)
+const VARIANTS_FILE = () => path.join(userDataDir(), "variants-cache.json");
+const RESULTS_DIR = () => path.join(userDataDir(), "results");
 
 function ensureDirs() {
-  fs.mkdirSync(RESULTS_DIR, { recursive: true });
+  fs.mkdirSync(RESULTS_DIR(), { recursive: true }); // tự tạo cả ./data/users/<name>/results
 }
 
 function readJson(file, fallback) {
@@ -18,74 +21,74 @@ function readJson(file, fallback) {
 
 /* ===== Cache biến thể (parent/child) ===== */
 export function getProductVariants(asin) {
-  const cache = readJson(VARIANTS_FILE, {});
+  const cache = readJson(VARIANTS_FILE(), {});
   return cache[asin] || null; // {parentAsin, childAsins, checkedAt}
 }
 
 export function saveProductVariants(asin, parentAsin, childAsins) {
   ensureDirs();
-  const cache = readJson(VARIANTS_FILE, {});
+  const cache = readJson(VARIANTS_FILE(), {});
   cache[asin] = { parentAsin, childAsins, checkedAt: new Date().toISOString() };
   // các child cùng nhóm dùng chung cache
   for (const c of childAsins || []) {
     cache[c] = cache[asin];
   }
-  fs.writeFileSync(VARIANTS_FILE, JSON.stringify(cache, null, 2));
+  fs.writeFileSync(VARIANTS_FILE(), JSON.stringify(cache, null, 2));
 }
 
 /* ===== Lịch check daily ===== */
-const SCHEDULE_FILE = path.join(DATA_DIR, "schedule.json");
+const SCHEDULE_FILE = () => path.join(userDataDir(), "schedule.json");
 
 export function getSchedule() {
-  return readJson(SCHEDULE_FILE, { enabled: false, time: "07:00", jobs: [], lastRunDate: null });
+  return readJson(SCHEDULE_FILE(), { enabled: false, time: "07:00", jobs: [], lastRunDate: null });
 }
 
 export function saveSchedule(s) {
   ensureDirs();
-  fs.writeFileSync(SCHEDULE_FILE, JSON.stringify(s, null, 2));
+  fs.writeFileSync(SCHEDULE_FILE(), JSON.stringify(s, null, 2));
 }
 
 /* ===== Cấu hình worker (zip code...) — sau này chuyển thành cấu hình theo project ===== */
-const CONFIG_FILE = path.join(DATA_DIR, "worker-config.json");
+const CONFIG_FILE = () => path.join(userDataDir(), "worker-config.json");
 
 export function getWorkerConfig() {
-  return readJson(CONFIG_FILE, { zip: "10011" }); // spec gốc: zip theo project, hiện 10011
+  return readJson(CONFIG_FILE(), { zip: "10011" }); // spec gốc: zip theo project, hiện 10011
 }
 
 export function saveWorkerConfig(cfg) {
   ensureDirs();
   const cur = getWorkerConfig();
-  fs.writeFileSync(CONFIG_FILE, JSON.stringify({ ...cur, ...cfg, updatedAt: new Date().toISOString() }, null, 2));
+  fs.writeFileSync(CONFIG_FILE(), JSON.stringify({ ...cur, ...cfg, updatedAt: new Date().toISOString() }, null, 2));
   return getWorkerConfig();
 }
 
 /* ===== Cài đặt theo ASIN (toggle track parent...) ===== */
-const SETTINGS_FILE = path.join(DATA_DIR, "asin-settings.json");
+const SETTINGS_FILE = () => path.join(userDataDir(), "asin-settings.json");
 
 export function getAsinSettings(asin) {
-  return readJson(SETTINGS_FILE, {})[asin] || null; // {trackParent: bool}
+  return readJson(SETTINGS_FILE(), {})[asin] || null; // {trackParent: bool}
 }
 
 export function saveAsinSettings(asin, settings) {
   ensureDirs();
-  const all = readJson(SETTINGS_FILE, {});
+  const all = readJson(SETTINGS_FILE(), {});
   all[asin] = { ...(all[asin] || {}), ...settings, updatedAt: new Date().toISOString() };
-  fs.writeFileSync(SETTINGS_FILE, JSON.stringify(all, null, 2));
+  fs.writeFileSync(SETTINGS_FILE(), JSON.stringify(all, null, 2));
 }
 
 /* ===== Chỉ số ads theo ASIN × ngày (từ file bulk daily / business report) ===== */
-const METRICS_FILE = path.join(DATA_DIR, "asin-metrics.json");
+const METRICS_FILE = () => path.join(userDataDir(), "asin-metrics.json");
 
 export function saveAsinMetrics(asin, date, metrics) {
   ensureDirs();
-  const all = readJson(METRICS_FILE, {});
+  const all = readJson(METRICS_FILE(), {});
   all[asin] = all[asin] || {};
   all[asin][date] = { ...(all[asin][date] || {}), ...metrics, updatedAt: new Date().toISOString() };
-  fs.writeFileSync(METRICS_FILE, JSON.stringify(all, null, 2));
+  fs.writeFileSync(METRICS_FILE(), JSON.stringify(all, null, 2));
 }
 
 export function getAsinMetrics(asin) {
-  return readJson(METRICS_FILE, {})[asin] || {}; // { "2026-07-13": {spent, salesAds, ordersAds, salesTotal} }
+  return readJson(METRICS_FILE(), {})[asin] || {}; // { "2026-07-13": {spent, salesAds, ordersAds, salesTotal} }
 }
 
 /* ===== MODULE DATA: import chỉ số theo ngày (ads / business / tồn kho) =====
@@ -106,42 +109,42 @@ export function saveBusinessData(asin, date, { sessions = null, units = null, sa
   saveAsinMetrics(String(asin).toUpperCase(), date, m);
 }
 
-const INVENTORY_FILE = path.join(DATA_DIR, "inventory-daily.json");
+const INVENTORY_FILE = () => path.join(userDataDir(), "inventory-daily.json");
 
 export function saveInventory(asin, date, { unitsAvailable = null, inbound = null, reserved = null, daysOfSupply = null, source = "" } = {}) {
   ensureDirs();
-  const all = readJson(INVENTORY_FILE, {});
+  const all = readJson(INVENTORY_FILE(), {});
   const key = String(asin).toUpperCase();
   all[key] = all[key] || {};
   all[key][date] = { unitsAvailable, inbound, reserved, daysOfSupply, source, updatedAt: new Date().toISOString() };
-  fs.writeFileSync(INVENTORY_FILE, JSON.stringify(all, null, 1));
+  fs.writeFileSync(INVENTORY_FILE(), JSON.stringify(all, null, 1));
 }
 
 export function getInventory(asin) {
-  return readJson(INVENTORY_FILE, {})[String(asin).toUpperCase()] || {}; // { "YYYY-MM-DD": {unitsAvailable, inbound...} }
+  return readJson(INVENTORY_FILE(), {})[String(asin).toUpperCase()] || {}; // { "YYYY-MM-DD": {unitsAvailable, inbound...} }
 }
 
 /** Union ASIN có mặt ở metrics + inventory + daily-rank (dùng cho ASIN picker). */
 export function listDataAsins() {
   const set = new Set();
-  for (const a of Object.keys(readJson(METRICS_FILE, {}))) set.add(a);
-  for (const a of Object.keys(readJson(INVENTORY_FILE, {}))) set.add(a);
-  for (const a of Object.keys(readJson(DAILY_FILE, {}))) set.add(a);
+  for (const a of Object.keys(readJson(METRICS_FILE(), {}))) set.add(a);
+  for (const a of Object.keys(readJson(INVENTORY_FILE(), {}))) set.add(a);
+  for (const a of Object.keys(readJson(DAILY_FILE(), {}))) set.add(a);
   return [...set].sort();
 }
 
 /* Lịch sử import (giống index Adjust) — cho UI hiển thị danh sách file đã nạp. */
-const IMPORTS_FILE = path.join(DATA_DIR, "data-imports.json");
+const IMPORTS_FILE = () => path.join(userDataDir(), "data-imports.json");
 
 export function recordImport(entry) {
   ensureDirs();
-  const idx = readJson(IMPORTS_FILE, []);
+  const idx = readJson(IMPORTS_FILE(), []);
   idx.unshift({ id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), ...entry, importedAt: new Date().toISOString() });
-  fs.writeFileSync(IMPORTS_FILE, JSON.stringify(idx.slice(0, 100), null, 1));
+  fs.writeFileSync(IMPORTS_FILE(), JSON.stringify(idx.slice(0, 100), null, 1));
 }
 
 export function listImports(kind) {
-  const idx = readJson(IMPORTS_FILE, []);
+  const idx = readJson(IMPORTS_FILE(), []);
   return kind ? idx.filter((x) => x.kind === kind) : idx;
 }
 
@@ -151,11 +154,11 @@ export function listImports(kind) {
    - ros/vid/sb/car: 0|1 | pv: ownPreviouslyViewed | va: variant asin rank thay (nếu chính vắng)
    - t: checkedAt — nhiều lần check trong ngày → lần CUỐI thắng
    Map thẳng sang bảng rank_checks khi lên Postgres. */
-const DAILY_FILE = path.join(DATA_DIR, "daily-rank.json");
+const DAILY_FILE = () => path.join(userDataDir(), "daily-rank.json");
 
 export function saveDailyRanks(asin, checkedAt, results, dateKey) {
   ensureDirs();
-  const all = readJson(DAILY_FILE, {});
+  const all = readJson(DAILY_FILE(), {});
   const date = dateKey || String(checkedAt).slice(0, 10); // dateKey = nhãn PHIÊN QUÉT (Run tạo mới, Continue nối vào)
   all[asin] = all[asin] || {};
   for (const x of results || []) {
@@ -177,7 +180,7 @@ export function saveDailyRanks(asin, checkedAt, results, dateKey) {
       t: checkedAt
     };
   }
-  fs.writeFileSync(DAILY_FILE, JSON.stringify(all));
+  fs.writeFileSync(DAILY_FILE(), JSON.stringify(all));
   // Tự đăng ký ASIN + keyword vào bảng theo dõi + ghi nhãn phiên
   trackingRegisterRun(asin, (results || []).filter((x) => !x.error).map((x) => x.keyword), date);
   // Gộp competitor snapshot của phiên (nếu có)
@@ -185,7 +188,7 @@ export function saveDailyRanks(asin, checkedAt, results, dateKey) {
 }
 
 export function getDailySeries(asin) {
-  return readJson(DAILY_FILE, {})[asin] || {}; // { keyword: { date: {...} } }
+  return readJson(DAILY_FILE(), {})[asin] || {}; // { keyword: { date: {...} } }
 }
 
 /* ===== BẢNG THEO DÕI RANKING (tracking) =====
@@ -194,10 +197,10 @@ export function getDailySeries(asin) {
                       keywords: { kw: { enabled, volume, loai } } } },
      sessions: ["2026-07-14", "2026-07-19 09:45", ...],
      config: { metrics: ["Sale","Sale ads","Spent"], kwFields: ["tos","ros"] } } */
-const TRACKING_FILE = path.join(DATA_DIR, "tracking.json");
+const TRACKING_FILE = () => path.join(userDataDir(), "tracking.json");
 
 export function getTracking() {
-  const t = readJson(TRACKING_FILE, {});
+  const t = readJson(TRACKING_FILE(), {});
   t.asins = t.asins || {};
   t.sessions = t.sessions || [];
   t.config = t.config || {};
@@ -207,7 +210,7 @@ export function getTracking() {
 }
 function writeTracking(t) {
   ensureDirs();
-  fs.writeFileSync(TRACKING_FILE, JSON.stringify(t, null, 1));
+  fs.writeFileSync(TRACKING_FILE(), JSON.stringify(t, null, 1));
 }
 
 /** Run xong tự đăng ký ASIN/keyword vào bảng + ghi nhãn phiên quét. */
@@ -237,12 +240,12 @@ export function trackingPatchAsin(asin, patch) {
   const key = String(asin).toUpperCase();
   if (patch.delete) { // xoá hẳn: cấu hình + toàn bộ lịch sử rank + metrics + competitor
     delete t.asins[key];
-    const daily = readJson(DAILY_FILE, {}); delete daily[key];
-    fs.writeFileSync(DAILY_FILE, JSON.stringify(daily));
-    const met = readJson(METRICS_FILE, {}); delete met[key];
-    fs.writeFileSync(METRICS_FILE, JSON.stringify(met, null, 1));
-    const comp = readJson(COMPRANK_FILE, {}); delete comp[key];
-    fs.writeFileSync(COMPRANK_FILE, JSON.stringify(comp));
+    const daily = readJson(DAILY_FILE(), {}); delete daily[key];
+    fs.writeFileSync(DAILY_FILE(), JSON.stringify(daily));
+    const met = readJson(METRICS_FILE(), {}); delete met[key];
+    fs.writeFileSync(METRICS_FILE(), JSON.stringify(met, null, 1));
+    const comp = readJson(COMPRANK_FILE(), {}); delete comp[key];
+    fs.writeFileSync(COMPRANK_FILE(), JSON.stringify(comp));
     writeTracking(t);
     return t;
   }
@@ -261,8 +264,8 @@ export function trackingPatchKeyword(asin, keyword, patch) {
   if (!t.asins[key]) return t;
   if (patch.delete) { // xoá keyword khỏi bảng + lịch sử của keyword đó
     delete t.asins[key].keywords[k];
-    const daily = readJson(DAILY_FILE, {});
-    if (daily[key]) { delete daily[key][k]; fs.writeFileSync(DAILY_FILE, JSON.stringify(daily)); }
+    const daily = readJson(DAILY_FILE(), {});
+    if (daily[key]) { delete daily[key][k]; fs.writeFileSync(DAILY_FILE(), JSON.stringify(daily)); }
     writeTracking(t);
     return t;
   }
@@ -302,17 +305,17 @@ export function trackingSetConfig(cfg) {
 
 /** Xoá 1 ngày/phiên khỏi toàn bộ data (daily-rank, metrics, competitor, sessions). */
 export function trackingDeleteDate(dateKey) {
-  const daily = readJson(DAILY_FILE, {});
+  const daily = readJson(DAILY_FILE(), {});
   for (const asin of Object.keys(daily)) {
     for (const kw of Object.keys(daily[asin])) delete daily[asin][kw][dateKey];
   }
-  fs.writeFileSync(DAILY_FILE, JSON.stringify(daily));
-  const met = readJson(METRICS_FILE, {});
+  fs.writeFileSync(DAILY_FILE(), JSON.stringify(daily));
+  const met = readJson(METRICS_FILE(), {});
   for (const asin of Object.keys(met)) delete met[asin][dateKey];
-  fs.writeFileSync(METRICS_FILE, JSON.stringify(met, null, 1));
-  const comp = readJson(COMPRANK_FILE, {});
+  fs.writeFileSync(METRICS_FILE(), JSON.stringify(met, null, 1));
+  const comp = readJson(COMPRANK_FILE(), {});
   for (const asin of Object.keys(comp)) { if (comp[asin]) delete comp[asin][dateKey]; }
-  fs.writeFileSync(COMPRANK_FILE, JSON.stringify(comp));
+  fs.writeFileSync(COMPRANK_FILE(), JSON.stringify(comp));
   const t = getTracking();
   t.sessions = t.sessions.filter((s) => s !== dateKey);
   writeTracking(t);
@@ -321,9 +324,9 @@ export function trackingDeleteDate(dateKey) {
 /** Bảng đầy đủ cho UI: cấu hình + series + metrics + phân loại PPC từ kho keyword. */
 export function getTrackingTable() {
   const t = getTracking();
-  const daily = readJson(DAILY_FILE, {});
-  const met = readJson(METRICS_FILE, {});
-  const bank = readJson(BANK_FILE, {});
+  const daily = readJson(DAILY_FILE(), {});
+  const met = readJson(METRICS_FILE(), {});
+  const bank = readJson(BANK_FILE(), {});
   // ASIN có trong daily nhưng chưa có tracking (data cũ) → tự thêm
   for (const asin of Object.keys(daily)) {
     if (!t.asins[asin]) {
@@ -378,13 +381,13 @@ export function trackingDailyJobs() {
 /* ===== Xếp hạng COMPETITOR theo phiên quét =====
    competitor-rank.json: { asin: { dateKey: { compAsin: {n, bestRank, kws: [...]} } } }
    n = số keyword (trong nhóm keyword của mình) mà competitor xuất hiện (ads hoặc organic top 10). */
-const COMPRANK_FILE = path.join(DATA_DIR, "competitor-rank.json");
+const COMPRANK_FILE = () => path.join(userDataDir(), "competitor-rank.json");
 
 export function saveCompetitorAgg(asin, dateKey, results) {
   const key = String(asin).toUpperCase();
   // Loại CHÍNH MÌNH + parent + mọi biến thể cùng nhóm khỏi danh sách competitor (chống "trùng" với sản phẩm của mình)
   const own = new Set([key]);
-  const vc = readJson(VARIANTS_FILE, {})[key];
+  const vc = readJson(VARIANTS_FILE(), {})[key];
   if (vc) { if (vc.parentAsin) own.add(String(vc.parentAsin).toUpperCase()); for (const c of vc.childAsins || []) own.add(String(c).toUpperCase()); }
   const agg = {};
   let has = false;
@@ -414,7 +417,7 @@ export function saveCompetitorAgg(asin, dateKey, results) {
     }
   }
   if (!has) return;
-  const all = readJson(COMPRANK_FILE, {});
+  const all = readJson(COMPRANK_FILE(), {});
   all[key] = all[key] || {};
   const cur = all[key][dateKey] || {};
   for (const [a, v] of Object.entries(agg)) {
@@ -424,12 +427,12 @@ export function saveCompetitorAgg(asin, dateKey, results) {
     cur[a] = { n: kws.length, bestRank: best === 999 ? null : best, kws };
   }
   all[key][dateKey] = cur;
-  fs.writeFileSync(COMPRANK_FILE, JSON.stringify(all));
+  fs.writeFileSync(COMPRANK_FILE(), JSON.stringify(all));
   compLibUpdateStats(key, dateKey); // Số keyword + Best Organic trong Library update theo phiên này
 }
 
 export function getCompetitorRank(asin, dateKey) {
-  const all = readJson(COMPRANK_FILE, {})[String(asin).toUpperCase()] || {};
+  const all = readJson(COMPRANK_FILE(), {})[String(asin).toUpperCase()] || {};
   const dates = Object.keys(all).sort();
   const d = dateKey || dates[dates.length - 1];
   const list = Object.entries(all[d] || {})
@@ -445,12 +448,12 @@ export function getCompetitorRank(asin, dateKey) {
        addedAt, scannedAt } } } }
    - ảnh + title: quét 1 LẦN; Sale: mỗi lần quét
    - legacy v1 (phẳng, chưa phân nhóm): backup .v1.bak rồi làm mới — user tự add lại */
-const COMPLIB_FILE = path.join(DATA_DIR, "competitor-library.json");
+const COMPLIB_FILE = () => path.join(userDataDir(), "competitor-library.json");
 
 export function getCompetitorLibrary() {
-  const raw = readJson(COMPLIB_FILE, { _v: 2, groups: {} });
+  const raw = readJson(COMPLIB_FILE(), { _v: 2, groups: {} });
   if (raw._v !== 2) { // legacy phẳng → backup + reset
-    try { fs.writeFileSync(COMPLIB_FILE + ".v1.bak", JSON.stringify(raw)); } catch {}
+    try { fs.writeFileSync(COMPLIB_FILE() + ".v1.bak", JSON.stringify(raw)); } catch {}
     const fresh = { _v: 2, groups: {} };
     writeCompLib(fresh);
     return fresh;
@@ -460,7 +463,7 @@ export function getCompetitorLibrary() {
 }
 function writeCompLib(lib) {
   ensureDirs();
-  fs.writeFileSync(COMPLIB_FILE, JSON.stringify(lib, null, 1));
+  fs.writeFileSync(COMPLIB_FILE(), JSON.stringify(lib, null, 1));
 }
 export function compLibAdd(mainAsin, asins) {
   const lib = getCompetitorLibrary();
@@ -515,7 +518,7 @@ export function compLibUpdateStats(mainAsin, dateKey) {
   const main = String(mainAsin).toUpperCase();
   const g = lib.groups[main];
   if (!g) return;
-  const agg = readJson(COMPRANK_FILE, {})[main]?.[dateKey] || {};
+  const agg = readJson(COMPRANK_FILE(), {})[main]?.[dateKey] || {};
   let touched = false;
   for (const [comp, v] of Object.entries(agg)) {
     if (!g[comp]) continue;
@@ -540,7 +543,7 @@ export function getCompetitorPickLib(mainAsin, minKw, maxKw, includeUntracked) {
 
 /** Get Competitor cho Tạo Campaign: gộp NHIỀU PHIÊN + lọc khoảng số keyword + loại ASIN đã tắt theo dõi. */
 export function getCompetitorPick(asin, dates, minKw, maxKw, excludeUntracked) {
-  const all = readJson(COMPRANK_FILE, {})[String(asin).toUpperCase()] || {};
+  const all = readJson(COMPRANK_FILE(), {})[String(asin).toUpperCase()] || {};
   const lib = excludeUntracked ? getCompetitorLibrary() : null;
   const merged = {}; // comp → Set(kws), bestRank
   for (const d of dates || []) {
@@ -560,12 +563,12 @@ export function getCompetitorPick(asin, dates, minKw, maxKw, excludeUntracked) {
 }
 
 /* ===== Module LAUNCHING: cài đặt + kho keyword + snapshot export ===== */
-const LAUNCH_FILE = path.join(DATA_DIR, "launch-settings.json");
+const LAUNCH_FILE = () => path.join(userDataDir(), "launch-settings.json");
 
 /** Thông tin lưu lại theo yêu cầu: SKU, ASIN, Portfolio ID, Mã cá nhân (KHÔNG lưu ngày tạo)
     + naming templates + cấu hình bid/campaign. */
 export function getLaunchSettings() {
-  return readJson(LAUNCH_FILE, {});
+  return readJson(LAUNCH_FILE(), {});
 }
 export function saveLaunchSettings(s) {
   ensureDirs();
@@ -581,23 +584,23 @@ export function saveLaunchSettings(s) {
       updatedAt: new Date().toISOString()
     };
   }
-  fs.writeFileSync(LAUNCH_FILE, JSON.stringify(merged, null, 2));
+  fs.writeFileSync(LAUNCH_FILE(), JSON.stringify(merged, null, 2));
   return getLaunchSettings();
 }
 
 /* Kho keyword theo tag (mục 3.1-3.2 file kiến thức): PPC | manual | removal
    Dedup theo keyword+ASIN; ưu tiên tag: removal > PPC > manual (removal không bị ghi đè). */
-const BANK_FILE = path.join(DATA_DIR, "keyword-bank.json");
+const BANK_FILE = () => path.join(userDataDir(), "keyword-bank.json");
 const TAG_PRIORITY = { removal: 3, PPC: 2, manual: 1 };
 
 export function getKeywordBank(asin) {
-  const all = readJson(BANK_FILE, {});
+  const all = readJson(BANK_FILE(), {});
   return asin ? all[String(asin).toUpperCase()] || {} : all;
 }
 
 export function upsertKeywords(asin, keywords, tag = "PPC", source = "launching") {
   ensureDirs();
-  const all = readJson(BANK_FILE, {});
+  const all = readJson(BANK_FILE(), {});
   const key = String(asin).toUpperCase();
   all[key] = all[key] || {};
   let added = 0, kept = 0;
@@ -613,48 +616,48 @@ export function upsertKeywords(asin, keywords, tag = "PPC", source = "launching"
     };
     added++;
   }
-  fs.writeFileSync(BANK_FILE, JSON.stringify(all, null, 1));
+  fs.writeFileSync(BANK_FILE(), JSON.stringify(all, null, 1));
   return { added, kept };
 }
 
 export function setKeywordTag(asin, keyword, tag) {
   ensureDirs();
-  const all = readJson(BANK_FILE, {});
+  const all = readJson(BANK_FILE(), {});
   const key = String(asin).toUpperCase();
   const k = String(keyword).trim().toLowerCase();
   if (all[key]?.[k]) {
     all[key][k].tag = tag;
     all[key][k].updatedAt = new Date().toISOString();
-    fs.writeFileSync(BANK_FILE, JSON.stringify(all, null, 1));
+    fs.writeFileSync(BANK_FILE(), JSON.stringify(all, null, 1));
     return true;
   }
   return false;
 }
 
 /* Snapshot export (mục 2 — Output: "lưu trữ lại toàn bộ nội dung đã export để đối chiếu") */
-const EXPORTS_DIR = path.join(DATA_DIR, "exports");
+const EXPORTS_DIR = () => path.join(userDataDir(), "exports");
 
 export function saveExportSnapshot(meta, xlsxBuffer) {
-  fs.mkdirSync(EXPORTS_DIR, { recursive: true });
+  fs.mkdirSync(EXPORTS_DIR(), { recursive: true });
   const id = new Date().toISOString().replace(/[:.]/g, "-");
-  fs.writeFileSync(path.join(EXPORTS_DIR, `${id}.xlsx`), xlsxBuffer);
-  const idx = readJson(path.join(EXPORTS_DIR, "index.json"), []);
+  fs.writeFileSync(path.join(EXPORTS_DIR(), `${id}.xlsx`), xlsxBuffer);
+  const idx = readJson(path.join(EXPORTS_DIR(), "index.json"), []);
   idx.push({ id, ...meta, createdAt: new Date().toISOString() });
-  fs.writeFileSync(path.join(EXPORTS_DIR, "index.json"), JSON.stringify(idx, null, 1));
+  fs.writeFileSync(path.join(EXPORTS_DIR(), "index.json"), JSON.stringify(idx, null, 1));
   return id;
 }
 export function listExports() {
-  return readJson(path.join(EXPORTS_DIR, "index.json"), []).slice(-30).reverse();
+  return readJson(path.join(EXPORTS_DIR(), "index.json"), []).slice(-30).reverse();
 }
 
 /* ===== MODULE ADJUST A3: rules + proposed_changes + products (target ACoS) =====
    Map thẳng sang bảng rules / proposed_changes / products khi lên Postgres. */
-const ADJUST_DIR = path.join(DATA_DIR, "adjust");
-const RULES_FILE = path.join(ADJUST_DIR, "rules.json");
-const PROPOSALS_FILE = path.join(ADJUST_DIR, "proposals.json");
-const PRODUCTS_FILE = path.join(DATA_DIR, "products.json");
+const ADJUST_DIR = () => path.join(userDataDir(), "adjust");
+const RULES_FILE = path.join(ADJUST_DIR(), "rules.json");
+const PROPOSALS_FILE = path.join(ADJUST_DIR(), "proposals.json");
+const PRODUCTS_FILE = () => path.join(userDataDir(), "products.json");
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
-function ensureAdjustDir() { fs.mkdirSync(ADJUST_DIR, { recursive: true }); }
+function ensureAdjustDir() { fs.mkdirSync(ADJUST_DIR(), { recursive: true }); }
 
 export function listRules() { return readJson(RULES_FILE, []); }
 export function createRule(r) {
@@ -728,34 +731,34 @@ export function setProposalStatusByDataset(datasetId, fromStatus, toStatus) {
 }
 
 /* Products: target ACoS theo ASIN (user nhập từ margin) — rule P3/P4 cần. */
-export function getProduct(asin) { return readJson(PRODUCTS_FILE, {})[String(asin).toUpperCase()] || null; }
+export function getProduct(asin) { return readJson(PRODUCTS_FILE(), {})[String(asin).toUpperCase()] || null; }
 export function upsertProduct(asin, patch) {
   ensureDirs();
-  const all = readJson(PRODUCTS_FILE, {});
+  const all = readJson(PRODUCTS_FILE(), {});
   const key = String(asin).toUpperCase();
   all[key] = { ...(all[key] || {}), ...patch, updatedAt: new Date().toISOString() };
-  fs.writeFileSync(PRODUCTS_FILE, JSON.stringify(all, null, 1));
+  fs.writeFileSync(PRODUCTS_FILE(), JSON.stringify(all, null, 1));
   return all[key];
 }
 export function getProductsMap(asins) {
-  const all = readJson(PRODUCTS_FILE, {});
+  const all = readJson(PRODUCTS_FILE(), {});
   if (!asins) return all;
   const out = {};
   for (const a of asins) { const k = String(a).toUpperCase(); if (all[k]) out[k] = all[k]; }
   return out;
 }
-export function listProducts() { return readJson(PRODUCTS_FILE, {}); }
+export function listProducts() { return readJson(PRODUCTS_FILE(), {}); }
 
 /* ===== Job queue (RUN_MODE=queue) =====
    Server trung tâm XẾP job — agent trên máy cá nhân KÉO về chạy (Phương án A, mục 8.6
    file kiến thức). Job "running" quá 30 phút coi như agent chết → trả lại hàng đợi.
    Map thẳng sang bảng jobs khi lên Postgres. */
-const JOBS_FILE = path.join(DATA_DIR, "jobs.json");
+const JOBS_FILE = () => path.join(userDataDir(), "jobs.json");
 
-function readJobs() { return readJson(JOBS_FILE, []); }
+function readJobs() { return readJson(JOBS_FILE(), []); }
 function writeJobs(jobs) {
   ensureDirs();
-  fs.writeFileSync(JOBS_FILE, JSON.stringify(jobs.slice(-200), null, 1)); // giữ 200 job gần nhất
+  fs.writeFileSync(JOBS_FILE(), JSON.stringify(jobs.slice(-200), null, 1)); // giữ 200 job gần nhất
 }
 
 export function enqueueJob(payload) {
@@ -823,7 +826,7 @@ export function listJobs() { return readJobs().slice(-50).reverse(); }
 export function importRunResult(run) {
   ensureDirs();
   const id = run.id || new Date().toISOString().replace(/[:.]/g, "-");
-  fs.writeFileSync(path.join(RESULTS_DIR, `${id}.json`), JSON.stringify({ ...run, id }, null, 2));
+  fs.writeFileSync(path.join(RESULTS_DIR(), `${id}.json`), JSON.stringify({ ...run, id }, null, 2));
   return id;
 }
 
@@ -831,24 +834,24 @@ export function importRunResult(run) {
 export function saveRunResult(run) {
   ensureDirs();
   const id = new Date().toISOString().replace(/[:.]/g, "-");
-  const file = path.join(RESULTS_DIR, `${id}.json`);
+  const file = path.join(RESULTS_DIR(), `${id}.json`);
   fs.writeFileSync(file, JSON.stringify({ id, ...run }, null, 2));
   return id;
 }
 
 export function listRunResults() {
   ensureDirs();
-  return fs.readdirSync(RESULTS_DIR)
+  return fs.readdirSync(RESULTS_DIR())
     .filter((f) => f.endsWith(".json"))
     .sort()
     .reverse()
     .map((f) => {
-      const r = readJson(path.join(RESULTS_DIR, f), {});
+      const r = readJson(path.join(RESULTS_DIR(), f), {});
       return { id: r.id, asin: r.asin, checkedAt: r.checkedAt, keywordCount: (r.results || []).length };
     });
 }
 
 export function getRunResult(id) {
   if (!/^[\w-]+$/.test(id)) return null;
-  return readJson(path.join(RESULTS_DIR, `${id}.json`), null);
+  return readJson(path.join(RESULTS_DIR(), `${id}.json`), null);
 }

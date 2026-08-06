@@ -19,12 +19,17 @@ dotenv.config();
 
 const SERVER = String(process.env.SERVER_URL || "").replace(/\/+$/, "");
 const PASSWORD = process.env.WORKER_PASSWORD || "";
+// HỆ THỐNG USER: agent đăng nhập bằng TÀI KHOẢN THẬT (AGENT_USER/AGENT_PASSWORD)
+// → job + dữ liệu vào ĐÚNG PHÂN VÙNG của user đó trên server. Chưa có user: fallback WORKER_PASSWORD cũ.
+const AGENT_USER = process.env.AGENT_USER || "";
+const AGENT_PASSWORD = process.env.AGENT_PASSWORD || "";
 const NAME = process.env.AGENT_NAME || os.hostname();
 const POLL_MS = Math.max(5000, Number(process.env.POLL_INTERVAL_MS || 15000));
 
+const basicPair = AGENT_USER ? `${AGENT_USER}:${AGENT_PASSWORD}` : (PASSWORD ? `agent:${PASSWORD}` : "");
 const headers = {
   "Content-Type": "application/json",
-  ...(PASSWORD ? { Authorization: "Basic " + Buffer.from("agent:" + PASSWORD).toString("base64") } : {})
+  ...(basicPair ? { Authorization: "Basic " + Buffer.from(basicPair).toString("base64") } : {})
 };
 
 async function api(path, body) {
