@@ -1279,7 +1279,13 @@ window.__adminUsers = async () => {
       <span style="color:#8a94a8;font-size:11px">${(u.createdAt || '').slice(0, 10)}</span>
       ${u.legacyRoot ? '' : `<button class="btn-sm" style="color:#c0392b" onclick="__delUser('${u.name}')">🗑</button>`}
     </div>`).join('');
-  modal('👥 Quản lý user', rows + '<div class="hint" style="font-size:11px;color:var(--mut);margin-top:8px">Member đăng ký tại /login.html — mỗi user 1 phân vùng dữ liệu riêng (data/users/&lt;tên&gt;). Xoá user KHÔNG xoá dữ liệu trên đĩa.</div>');
+  modal('👥 Quản lý user', `
+    <div style="display:flex;gap:8px;align-items:center;background:#fff8ef;border:1px solid #f0d9b8;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:12.5px">
+      🎟 Mã mời đăng ký: <b style="font-size:14px;letter-spacing:1px">${r.invite}</b>
+      <button class="btn-sm" onclick="navigator.clipboard.writeText('${r.invite}').then(()=>alert('✅ Đã copy'))">📋</button>
+      <button class="btn-sm" onclick="if(confirm('Tạo mã mới? Mã cũ hết hiệu lực ngay.'))fetch('/api/auth/invite-regen',{method:'POST'}).then(()=>__adminUsers())" title="Đổi mã (mã cũ vô hiệu)">🔄</button>
+      <span class="hint" style="font-size:11px;color:var(--mut)">gửi mã này cho người cần tạo tài khoản tại /login.html</span>
+    </div>` + rows + '<div class="hint" style="font-size:11px;color:var(--mut);margin-top:8px">Mỗi user 1 phân vùng dữ liệu riêng (data/users/&lt;tên&gt;). Xoá user KHÔNG xoá dữ liệu trên đĩa.</div>');
 };
 window.__setRole = async (name, role) => {
   const r = await (await fetch('/api/auth/role', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, role }) })).json();

@@ -35,6 +35,10 @@
   <div id="p2wrap" style="display:none">
     <label>Nhập lại mật khẩu</label>
     <input type="password" id="p2">
+    <div id="invwrap" style="display:none">
+      <label>Mã mời (xin từ admin)</label>
+      <input type="text" id="inv" placeholder="VD: A1B2C3D4" style="text-transform:uppercase">
+    </div>
   </div>
   <button class="go" id="go" onclick="submit()">Đăng nhập</button>
   <div class="msg" id="msg"></div>
@@ -42,6 +46,7 @@
 </div>
 <script>
 let mode = 'login';
+let hasUsers = true;
 const $ = (id) => document.getElementById(id);
 function syncTab() {
   $('tabLogin').classList.toggle('active', mode === 'login');
@@ -54,10 +59,12 @@ function syncTab() {
   try {
     const r = await (await fetch('/api/auth/me')).json();
     if (r.user) { location.href = '/'; return; }
+    hasUsers = !!r.hasUsers;
     if (!r.hasUsers) {
       mode = 'reg'; syncTab();
-      $('note').textContent = '💡 Chưa có tài khoản nào — tài khoản ĐẦU TIÊN đăng ký sẽ là ADMIN và sở hữu toàn bộ dữ liệu hiện có.';
+      $('note').textContent = '💡 Chưa có tài khoản nào — tài khoản ĐẦU TIÊN đăng ký sẽ là ADMIN và sở hữu toàn bộ dữ liệu hiện có (không cần mã mời).';
     }
+    $('invwrap').style.display = r.hasUsers ? '' : 'none';
   } catch {}
 })();
 async function submit() {
@@ -67,7 +74,7 @@ async function submit() {
   try {
     const r = await (await fetch('/api/auth/' + (mode === 'login' ? 'login' : 'register'), {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, password }) })).json();
+      body: JSON.stringify({ username, password, invite: $('inv') ? $('inv').value.trim() : '' }) })).json();
     if (r.error) { show(r.error, true); }
     else {
       show(r.first ? '✅ Đã tạo tài khoản ADMIN — đang vào...' : '✅ Thành công — đang vào...', false);

@@ -88,7 +88,7 @@ app.use((req, res, next) => {
 app.use("/api/auth", express.json());
 app.post("/api/auth/register", (req, res) => {
   try {
-    const u = auth.register(req.body?.username, req.body?.password);
+    const u = auth.register(req.body?.username, req.body?.password, req.body?.invite);
     const token = auth.createSession(u);
     res.setHeader("Set-Cookie", `ppcw_sid=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${30 * 24 * 3600}`);
     res.json({ ok: true, user: u, first: u.role === "admin" });
@@ -115,7 +115,8 @@ const requireAdmin = (req, res, next) => {
   if (!u || u.role !== "admin") return res.status(403).json({ error: "Cần quyền admin" });
   next();
 };
-app.get("/api/auth/users", requireAdmin, (req, res) => res.json({ users: auth.listUsers() }));
+app.get("/api/auth/users", requireAdmin, (req, res) => res.json({ users: auth.listUsers(), invite: auth.getInviteCode() }));
+app.post("/api/auth/invite-regen", requireAdmin, (req, res) => res.json({ invite: auth.regenInviteCode() }));
 app.post("/api/auth/role", requireAdmin, (req, res) => {
   try { auth.setRole(req.body?.name, req.body?.role); res.json({ ok: true }); }
   catch (e) { res.status(400).json({ error: e.message }); }

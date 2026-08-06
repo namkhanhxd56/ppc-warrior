@@ -21,6 +21,22 @@ function writeJson(f, v) {
 }
 
 export function getUsers() { return readJson(USERS_FILE, {}); }
+
+/* ===== MÃ MỜI: sau khi có admin đầu tiên, đăng ký PHẢI có mã (chặn người lạ trên URL công khai) ===== */
+const INVITE_FILE = "./data/invite.json";
+export function getInviteCode() {
+  let v = readJson(INVITE_FILE, null);
+  if (!v?.code) {
+    v = { code: crypto.randomBytes(4).toString("hex").toUpperCase(), createdAt: new Date().toISOString() };
+    writeJson(INVITE_FILE, v);
+  }
+  return v.code;
+}
+export function regenInviteCode() {
+  const v = { code: crypto.randomBytes(4).toString("hex").toUpperCase(), createdAt: new Date().toISOString() };
+  writeJson(INVITE_FILE, v);
+  return v.code;
+}
 export function hasUsers() { return Object.keys(getUsers()).length > 0; }
 
 function hashPassword(password, salt) {
@@ -29,7 +45,7 @@ function hashPassword(password, salt) {
 
 const NAME_RE = /^[a-z0-9_-]{3,20}$/;
 
-export function register(username, password) {
+export function register(username, password, invite) {
   const name = String(username || "").trim().toLowerCase();
   if (!NAME_RE.test(name)) throw new Error("Tên đăng nhập: 3-20 ký tự a-z 0-9 _ - (không dấu, không khoảng trắng)");
   if (name === "users" || name === "sessions") throw new Error("Tên này không dùng được");
@@ -37,6 +53,10 @@ export function register(username, password) {
   const users = getUsers();
   if (users[name]) throw new Error("Tên đăng nhập đã tồn tại");
   const first = Object.keys(users).length === 0;
+  // Người ĐẦU TIÊN (admin) không cần mã; sau đó bắt buộc mã mời do admin cấp
+  if (!first && String(invite || "").trim().toUpperCase() !== getInviteCode()) {
+    throw new Error("Sai mã mời — xin mã từ admin (nút 👥 trên trang chính)");
+  }
   const salt = crypto.randomBytes(16).toString("hex");
   users[name] = {
     salt, hash: hashPassword(password, salt),
