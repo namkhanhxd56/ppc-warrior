@@ -1220,7 +1220,10 @@ app.get("/api/history/:asin", (req, res) => {
 
 console.log(`▶ boot: PORT=${process.env.PORT || "(trống)"} WORKER_PORT=${process.env.WORKER_PORT || "(trống)"} RUN_MODE=${RUN_MODE} node=${process.version}`);
 const srv = app.listen(PORT, "0.0.0.0", () =>
-  console.log(`🚀 PPC Warrior Worker v${APP_VERSION}: http://localhost:${PORT}`)
+  console.log(`🚀 PPC Warrior Worker v${APP_VERSION}: http://localhost:${PORT}\n` +
+    `   Chrome khi bấm Run: ${RUN_MODE === "queue" ? "KHÔNG mở trên server này (RUN_MODE=queue — agent chạy)"
+      : process.env.HEADFUL === "1" ? "HEADFUL (cửa sổ ngoài màn hình, có icon Dock)"
+      : "HEADLESS mới (vô hình hoàn toàn: không cửa sổ, không icon Dock)"}`)
 );
 srv.on("error", (e) => {
   if (e.code === "EADDRINUSE") {

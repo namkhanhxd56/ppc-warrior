@@ -123,7 +123,9 @@ async function runLibScanJob(job, send) {
     process.exit(1);
   }
   console.log(`🛰 PPC Warrior Agent "${NAME}" → ${SERVER} (poll ${POLL_MS / 1000}s, Ctrl+C để dừng)`);
-  console.log("   Chrome chạy ngầm (cửa sổ ngoài màn hình) — đừng tắt tiến trình Chrome khi đang có job.");
+  console.log(process.env.HEADFUL === "1"
+    ? "   Chrome chạy ngầm HEADFUL (cửa sổ đẩy ngoài màn hình, có icon Dock) — đừng tắt Chrome khi đang có job."
+    : "   Chrome chạy HEADLESS mới (vô hình hoàn toàn: không cửa sổ, không icon Dock) — đổi HEADFUL=1 trong .env nếu ToS ra '?' nhiều.");
   let lastErr = "";
   while (true) {
     try {

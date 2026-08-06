@@ -51,6 +51,11 @@ export async function launchBrowser() {
     "--lang=en-US,en"
   ];
   if (headful) args.push("--window-position=-2400,-2400"); // ngoài màn hình — chạy ngầm
+  // HEADLESS: screen.width/height mặc định là 800x600 — NHỎ HƠN cửa sổ 1366 → "màn hình bé hơn
+  // cửa sổ" là điều bất khả thi với máy thật, detector bắt được (đo 06/08/2026: headful báo
+  // 1470x956, headless báo 800x600 — khác biệt DUY NHẤT giữa 2 chế độ). --screen-info là flag
+  // NATIVE của Chrome headless mới (không phải vá JS nên không lộ descriptor lạ).
+  else args.push(`--screen-info={${process.env.SCREEN_INFO || "1470x956"}}`);
 
   const opts = {
     // HEADFUL=0/không đặt → HEADLESS THẾ HỆ MỚI (puppeteer 22+): cùng engine Chrome thật,
