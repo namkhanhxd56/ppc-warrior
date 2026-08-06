@@ -1320,26 +1320,18 @@ window.__delUser = async (name) => {
   __adminUsers();
 };
 
-/* ===== USER CHIP (hệ thống đa user) ===== */
+/* ===== USER (góc phải header → trang /user) ===== */
 (async () => {
   try {
     const me = await (await fetch('/api/auth/me')).json();
-    if (!me.user) return; // chưa bật hệ thống user (local 1 người) — không hiện gì
+    if (!me.user) return; // chế độ local 1 người — không hiện
     const st = document.getElementById('status');
-    const chip = document.createElement('span');
-    chip.style.cssText = 'display:inline-flex;gap:6px;align-items:center;margin-left:12px;font-size:12px';
-    let projSel = '';
-    if (me.user.role === 'admin' && me.users) {
-      // ADMIN = tập hợp dự án: chọn xem/thao tác dữ liệu của user nào
-      projSel = `<select onchange="fetch('/api/auth/switch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:this.value})}).then(()=>location.reload())"
-        style="background:#243049;color:#9fb0c8;border:none;border-radius:7px;padding:3px 8px;font-size:11.5px" title="Dự án (phân vùng dữ liệu) đang xem">
-        ${me.users.map(u => `<option value="${u}" ${u === (me.actAs || me.user.name) ? 'selected' : ''}>📁 ${u}</option>`).join('')}</select>`;
-    }
-    chip.innerHTML = `<span style="background:${me.user.role === 'admin' ? '#e5a400' : '#2455e6'};color:#fff;border-radius:9px;padding:2px 10px;font-weight:700">${me.user.name} · ${me.user.role}</span>`
-      + projSel
-      + `<button onclick="__agentSetup && __agentSetup()" style="background:#243049;color:#9fb0c8;border:none;border-radius:7px;padding:3px 9px;cursor:pointer;font-size:11.5px" title="Cài agent quét cho máy — 1 lệnh, không cần git/mật khẩu">🖥</button>`
-      + (me.user.role === 'admin' && window.__adminUsers ? `<button onclick="__adminUsers()" style="background:#243049;color:#9fb0c8;border:none;border-radius:7px;padding:3px 9px;cursor:pointer;font-size:11.5px" title="Quản lý user">👥</button>` : '')
-      + `<button onclick="fetch('/api/auth/logout',{method:'POST'}).then(()=>location.href='/login.html')" style="background:#243049;color:#9fb0c8;border:none;border-radius:7px;padding:3px 9px;cursor:pointer;font-size:11.5px" title="Đăng xuất">⎋</button>`;
+    const chip = document.createElement('a');
+    chip.href = '/user';
+    chip.title = 'Tài khoản · agent · đăng xuất';
+    chip.style.cssText = 'margin-left:12px;font-size:12px;text-decoration:none;color:#fff;font-weight:700;'
+      + `background:${me.user.role === 'admin' ? '#e5a400' : '#2455e6'};border-radius:9px;padding:3px 12px`;
+    chip.textContent = '👤 ' + me.user.name + (me.actAs && me.actAs !== me.user.name ? ' → 📁' + me.actAs : '');
     (st ? st.parentNode : document.querySelector('header'))?.appendChild(chip);
   } catch {}
 })();

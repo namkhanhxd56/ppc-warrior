@@ -45,7 +45,7 @@ const PASSWORD = process.env.WORKER_PASSWORD || "";
    - Có user: trang → redirect /login.html; API → 401; phiên qua cookie ppcw_sid
    - Agent: Basic <username>:<password> (tài khoản thật) → job/data vào ĐÚNG PHÂN VÙNG user đó
    - Mỗi request chạy trong AsyncLocalStorage context → file-store tự resolve ./data hay ./data/users/<name> */
-const PUBLIC_PATHS = ["/login.html", "/api/auth/login", "/api/auth/register", "/api/version", "/favicon.ico", "/setup-agent.sh", "/agent-bundle.tgz"];
+const PUBLIC_PATHS = ["/user", "/user.html", "/login.html", "/api/auth/login", "/api/auth/register", "/api/auth/me", "/api/version", "/favicon.ico", "/setup-agent.sh", "/agent-bundle.tgz"];
 app.use((req, res, next) => {
   const p = req.path;
   if (PUBLIC_PATHS.includes(p)) return next();
@@ -83,7 +83,7 @@ app.use((req, res, next) => {
   const user = auth.getSession(tok);
   if (!user) {
     if (p.startsWith("/api/")) return res.status(401).json({ error: "Chưa đăng nhập" });
-    return res.redirect("/login.html");
+    return res.redirect("/user");
   }
   // ADMIN = tập hợp dự án: nếu đã chọn "dự án" (user khác) → mọi đọc/ghi vào phân vùng user đó
   const ctx = user.role === "admin" ? (auth.getActAs(tok) || user) : user;
@@ -206,6 +206,9 @@ app.use(express.json({ limit: "25mb" })); // agent đẩy run kèm snapshot có 
 app.use(express.static("public"));
 
 app.get("/api/version", (req, res) => res.json({ version: APP_VERSION, runMode: RUN_MODE }));
+// Trang tài khoản: domain/user (đăng nhập, tạo tài khoản, quản lý agent) — login.html cũ chuyển hướng về đây
+app.get("/user", (req, res) => res.sendFile("user.html", { root: "public" }));
+app.get("/login.html", (req, res) => res.redirect("/user"));
 
 /* ===== Cookies (giữ zip code) ===== */
 app.get("/api/cookies", (req, res) => {

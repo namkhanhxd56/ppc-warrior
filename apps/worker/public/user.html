@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<title>PPC Warrior — Tài khoản</title>
+<style>
+  * { box-sizing:border-box; }
+  body { font-family:-apple-system,Segoe UI,Arial,sans-serif; margin:0; background:#f4f6fa; color:#1b2330; }
+  header { background:#101828; color:#fff; padding:14px 24px; display:flex; align-items:center; gap:12px; }
+  header h1 { font-size:17px; margin:0; }
+  header a { color:#9fb0c8; text-decoration:none; font-size:13px; padding:6px 14px; border-radius:8px; }
+  main { max-width:760px; margin:26px auto; padding:0 16px; }
+  .card { background:#fff; border:1px solid #e3e8f0; border-radius:12px; padding:20px 22px; margin-bottom:16px; }
+  .card h2 { font-size:14px; margin:0 0 12px; }
+  label { font-size:12px; color:#667; display:block; margin:10px 0 4px; }
+  input, select { width:100%; padding:9px 11px; border:1px solid #ccd3e0; border-radius:7px; font-size:13.5px; }
+  button { padding:9px 16px; border:none; border-radius:7px; cursor:pointer; font-size:13px; font-weight:600; background:#eef1f7; }
+  .primary { background:#2455e6; color:#fff; }
+  .danger { background:#fde8e8; color:#c0392b; }
+  .tabs { display:flex; gap:6px; margin-bottom:14px; }
+  .tabs button { flex:1; }
+  .tabs button.active { background:#2455e6; color:#fff; }
+  .msg { font-size:12px; margin-top:10px; min-height:16px; }
+  .msg.err { color:#c0392b; } .msg.ok { color:#128a43; }
+  .hint { font-size:11.5px; color:#8a94a8; line-height:1.6; }
+  .rolechip { display:inline-block; border-radius:9px; padding:2px 12px; font-weight:700; color:#fff; font-size:12px; }
+  .cmd { background:#0b1020; color:#7ef0a8; border-radius:8px; padding:10px 12px; font:11.5px ui-monospace,Menlo,monospace; word-break:break-all; margin-top:8px; }
+  .mrow { display:flex; gap:10px; align-items:center; padding:8px 0; border-bottom:1px solid #f0f2f6; font-size:12.5px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>⚔️ PPC Warrior</h1>
+  <nav id="nav" style="display:none;margin-left:10px">
+    <a href="/">📊 Check Ranking</a><a href="/launching.html">🚀 Tạo Campaign</a><a href="/adjust.html">⚙️ Adjust</a>
+  </nav>
+  <span style="margin-left:auto;font-size:13px;color:#fff;background:#243049;padding:6px 14px;border-radius:8px">👤 Tài khoản</span>
+</header>
+<main>
+
+  <!-- ===== CHƯA ĐĂNG NHẬP: login / đăng ký ===== -->
+  <div class="card" id="authCard" style="display:none;max-width:400px;margin:40px auto">
+    <h2 style="font-size:16px">Đăng nhập / Tạo tài khoản</h2>
+    <p class="hint" style="margin-top:-6px">Người mới chỉ cần tạo tài khoản là dùng được ngay — mỗi tài khoản một phân vùng dữ liệu riêng.</p>
+    <div class="tabs">
+      <button id="tabLogin" class="active" onclick="mode='login';syncTab()">Đăng nhập</button>
+      <button id="tabReg" onclick="mode='reg';syncTab()">Tạo tài khoản</button>
+    </div>
+    <label>Tên đăng nhập</label>
+    <input type="text" id="u" placeholder="a-z 0-9 _ - (3-20 ký tự)" autocomplete="username">
+    <label>Mật khẩu</label>
+    <input type="password" id="p" placeholder="tối thiểu 6 ký tự">
+    <div id="regExtra" style="display:none">
+      <label>Nhập lại mật khẩu</label>
+      <input type="password" id="p2">
+      <div id="invwrap">
+        <label>Mã mời (xin từ quản trị)</label>
+        <input type="text" id="inv" placeholder="VD: A1B2C3D4" style="text-transform:uppercase">
+      </div>
+    </div>
+    <button class="primary" id="go" style="width:100%;margin-top:16px" onclick="submitAuth()">Đăng nhập</button>
+    <div class="msg" id="authMsg"></div>
+    <div class="hint" id="authNote"></div>
+  </div>
+
+  <!-- ===== ĐÃ ĐĂNG NHẬP ===== -->
+  <div id="accountArea" style="display:none">
+    <div class="card">
+      <h2>👤 Thông tin tài khoản</h2>
+      <div style="display:flex;gap:12px;align-items:center">
+        <span class="rolechip" id="roleChip"></span>
+        <b id="accName" style="font-size:16px"></b>
+        <button class="danger" style="margin-left:auto" onclick="logout()">⎋ Đăng xuất</button>
+      </div>
+      <div id="adminExtra" style="display:none;margin-top:14px;border-top:1px dashed #e3e8f0;padding-top:12px">
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+          <span style="font-size:12.5px">📁 Dự án đang thao tác:</span>
+          <select id="projSel" style="width:auto;min-width:140px" onchange="switchProj(this.value)"></select>
+          <span style="font-size:12.5px;margin-left:14px">🎟 Mã mời:</span>
+          <b id="invCode" style="letter-spacing:1px"></b>
+          <button onclick="navigator.clipboard.writeText(document.getElementById('invCode').textContent).then(()=>note('✅ Đã copy mã mời'))">📋</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>🖥 Agent quét ranking của tôi</h2>
+      <p class="hint" style="margin-top:-4px">Agent là tiến trình quét chạy ngầm trên máy tính (IP dân cư của máy đó). Máy <b>không lưu mật khẩu</b> —
+        chỉ giữ 1 token gắn với tài khoản này, thu hồi được bất cứ lúc nào. Máy cần có Node.js 20+ và Google Chrome.</p>
+      <div style="display:flex;gap:10px;align-items:center;margin:12px 0 4px">
+        <input type="text" id="agLabel" placeholder="tên máy (VD: macbook-kha)" style="max-width:220px">
+        <button class="primary" onclick="newToken()">➕ Tạo lệnh cài cho máy mới</button>
+      </div>
+      <div id="agCmd"></div>
+      <div id="agList" style="margin-top:14px"></div>
+      <div class="hint" style="margin-top:10px">Cách dùng: bấm tạo lệnh → copy → dán vào Terminal của máy cần quét →
+        khi cài xong chạy <b>cd ~/ppc-warrior-agent && npm run agent</b>. Job bấm Run trên web sẽ do máy này quét.</div>
+    </div>
+
+    <div class="msg ok" id="pageMsg" style="padding:0 4px"></div>
+  </div>
+
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;');
+let mode = 'login', hasUsers = true;
+
+function syncTab() {
+  $('tabLogin').classList.toggle('active', mode === 'login');
+  $('tabReg').classList.toggle('active', mode === 'reg');
+  $('regExtra').style.display = mode === 'reg' ? '' : 'none';
+  $('go').textContent = mode === 'login' ? 'Đăng nhập' : 'Tạo tài khoản';
+  $('authMsg').textContent = '';
+}
+function note(m) { $('pageMsg').textContent = m; setTimeout(() => $('pageMsg').textContent = '', 4000); }
+
+async function boot() {
+  const me = await (await fetch('/api/auth/me')).json();
+  hasUsers = !!me.hasUsers;
+  if (!me.user) {
+    $('authCard').style.display = '';
+    if (!hasUsers) {
+      mode = 'reg'; syncTab();
+      $('authNote').textContent = '💡 Chưa có tài khoản nào — tài khoản ĐẦU TIÊN sẽ là quản trị (không cần mã mời).';
+    }
+    $('invwrap').style.display = hasUsers ? '' : 'none';
+    return;
+  }
+  // đã đăng nhập
+  $('accountArea').style.display = '';
+  $('nav').style.display = 'flex';
+  $('accName').textContent = me.user.name;
+  $('roleChip').textContent = me.user.role;
+  $('roleChip').style.background = me.user.role === 'admin' ? '#e5a400' : '#2455e6';
+  if (me.user.role === 'admin') {
+    $('adminExtra').style.display = '';
+    $('projSel').innerHTML = (me.users || []).map((u) => `<option ${u === me.actAs ? 'selected' : ''}>${esc(u)}</option>`).join('');
+    try {
+      const r = await (await fetch('/api/auth/users')).json();
+      $('invCode').textContent = r.invite || '';
+    } catch {}
+  }
+  loadTokens();
+}
+async function submitAuth() {
+  const username = $('u').value.trim(), password = $('p').value;
+  if (mode === 'reg' && password !== $('p2').value) return show('Mật khẩu nhập lại không khớp', true);
+  $('go').disabled = true;
+  try {
+    const r = await (await fetch('/api/auth/' + (mode === 'login' ? 'login' : 'register'), {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password, invite: $('inv').value.trim() }) })).json();
+    if (r.error) show(r.error, true);
+    else { show('✅ Thành công', false); setTimeout(() => location.reload(), 400); }
+  } catch (e) { show('Lỗi kết nối: ' + e.message, true); }
+  $('go').disabled = false;
+}
+function show(m, err) { $('authMsg').textContent = m; $('authMsg').className = 'msg ' + (err ? 'err' : 'ok'); }
+function logout() { fetch('/api/auth/logout', { method: 'POST' }).then(() => location.reload()); }
+function switchProj(name) {
+  fetch('/api/auth/switch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) })
+    .then(() => note('📁 Đang thao tác trên dự án: ' + name));
+}
+
+/* ===== Agent tokens ===== */
+async function loadTokens() {
+  const r = await (await fetch('/api/agent-tokens')).json();
+  $('agList').innerHTML = '<b style="font-size:12.5px">Máy đã cấp</b>' + ((r.tokens || []).map((t) => `
+    <div class="mrow" style="${t.revoked ? 'opacity:.4' : ''}">
+      <b style="flex:1">🖥 ${esc(t.label)}</b>
+      <span class="hint">${esc(t.user)}</span>
+      <span class="hint" title="Hoạt động gần nhất">${t.lastSeen ? t.lastSeen.slice(0, 16).replace('T', ' ') : 'chưa chạy'}</span>
+      ${t.revoked ? '<span style="color:#c0392b;font-size:11.5px">đã thu hồi</span>'
+        : `<button class="danger" onclick="revoke('${t.id}')">Thu hồi</button>`}
+    </div>`).join('') || '<div class="hint">chưa có máy nào</div>');
+}
+async function newToken() {
+  const r = await (await fetch('/api/agent-tokens', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ label: $('agLabel').value }) })).json();
+  $('agCmd').innerHTML = `<div class="cmd">${esc(r.command)}</div>
+    <button style="margin-top:6px" onclick='navigator.clipboard.writeText(${JSON.stringify(r.command)}).then(()=>note("✅ Đã copy lệnh cài"))'>📋 Copy lệnh</button>`;
+  loadTokens();
+}
+async function revoke(id) {
+  if (!confirm('Thu hồi? Máy này sẽ không quét được nữa.')) return;
+  await fetch('/api/agent-tokens/revoke', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) });
+  loadTokens();
+}
+boot();
+</script>
+</body>
+</html>
