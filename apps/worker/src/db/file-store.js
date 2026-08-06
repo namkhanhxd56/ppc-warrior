@@ -653,19 +653,21 @@ export function listExports() {
 /* ===== MODULE ADJUST A3: rules + proposed_changes + products (target ACoS) =====
    Map thẳng sang bảng rules / proposed_changes / products khi lên Postgres. */
 const ADJUST_DIR = () => path.join(userDataDir(), "adjust");
-const RULES_FILE = path.join(ADJUST_DIR(), "rules.json");
-const PROPOSALS_FILE = path.join(ADJUST_DIR(), "proposals.json");
+// PHẢI là HÀM: hằng số sẽ tính lúc import (chưa có user context) → mọi user
+// dùng chung file của admin gốc — rò rules/proposals giữa các phân vùng.
+const RULES_FILE = () => path.join(ADJUST_DIR(), "rules.json");
+const PROPOSALS_FILE = () => path.join(ADJUST_DIR(), "proposals.json");
 const PRODUCTS_FILE = () => path.join(userDataDir(), "products.json");
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 function ensureAdjustDir() { fs.mkdirSync(ADJUST_DIR(), { recursive: true }); }
 
-export function listRules() { return readJson(RULES_FILE, []); }
+export function listRules() { return readJson(RULES_FILE(), []); }
 export function createRule(r) {
   ensureAdjustDir();
   const all = listRules();
   const rule = { id: uid(), enabled: true, priority: 100, ...r, createdAt: new Date().toISOString() };
   all.push(rule);
-  fs.writeFileSync(RULES_FILE, JSON.stringify(all, null, 1));
+  fs.writeFileSync(RULES_FILE(), JSON.stringify(all, null, 1));
   return rule;
 }
 export function updateRule(id, patch) {
@@ -673,39 +675,39 @@ export function updateRule(id, patch) {
   const r = all.find((x) => x.id === id);
   if (!r) return null;
   Object.assign(r, patch, { updatedAt: new Date().toISOString() });
-  fs.writeFileSync(RULES_FILE, JSON.stringify(all, null, 1));
+  fs.writeFileSync(RULES_FILE(), JSON.stringify(all, null, 1));
   return r;
 }
 export function deleteRule(id) {
   ensureAdjustDir();
-  fs.writeFileSync(RULES_FILE, JSON.stringify(listRules().filter((x) => x.id !== id), null, 1));
+  fs.writeFileSync(RULES_FILE(), JSON.stringify(listRules().filter((x) => x.id !== id), null, 1));
 }
 /** Seed Rule Set v1 nếu bảng rule rỗng (defaults = mảng object rule). */
 export function seedDefaultRulesIfEmpty(defaults) {
   if (listRules().length) return false;
   ensureAdjustDir();
   const all = (defaults || []).map((r) => ({ id: uid(), createdAt: new Date().toISOString(), ...r }));
-  fs.writeFileSync(RULES_FILE, JSON.stringify(all, null, 1));
+  fs.writeFileSync(RULES_FILE(), JSON.stringify(all, null, 1));
   return true;
 }
 /** Reset về mặc định (xóa hết rồi seed lại). */
 export function resetRules(defaults) {
   ensureAdjustDir();
-  fs.writeFileSync(RULES_FILE, JSON.stringify([], null, 1));
+  fs.writeFileSync(RULES_FILE(), JSON.stringify([], null, 1));
   return seedDefaultRulesIfEmpty(defaults);
 }
 
 export function insertProposals(rows) {
   ensureAdjustDir();
-  const all = readJson(PROPOSALS_FILE, []);
+  const all = readJson(PROPOSALS_FILE(), []);
   const now = new Date().toISOString();
   const added = (rows || []).map((r) => ({ id: uid(), status: "pending", createdAt: now, ...r }));
   const merged = [...all, ...added].slice(-5000); // chống phình
-  fs.writeFileSync(PROPOSALS_FILE, JSON.stringify(merged, null, 1));
+  fs.writeFileSync(PROPOSALS_FILE(), JSON.stringify(merged, null, 1));
   return added;
 }
 export function listProposals({ datasetId, status, runId } = {}) {
-  let out = readJson(PROPOSALS_FILE, []);
+  let out = readJson(PROPOSALS_FILE(), []);
   if (datasetId) out = out.filter((p) => p.datasetId === datasetId);
   if (runId) out = out.filter((p) => p.runId === runId);
   if (status) out = out.filter((p) => p.status === status);
@@ -713,20 +715,20 @@ export function listProposals({ datasetId, status, runId } = {}) {
 }
 export function setProposalStatus(ids, status) {
   const set = new Set(ids || []);
-  const all = readJson(PROPOSALS_FILE, []);
+  const all = readJson(PROPOSALS_FILE(), []);
   let n = 0;
   for (const p of all) if (set.has(p.id)) { p.status = status; p.reviewedAt = new Date().toISOString(); n++; }
   ensureAdjustDir();
-  fs.writeFileSync(PROPOSALS_FILE, JSON.stringify(all, null, 1));
+  fs.writeFileSync(PROPOSALS_FILE(), JSON.stringify(all, null, 1));
   return n;
 }
 /** Đặt status cho TẤT CẢ proposals pending của 1 dataset (approve/reject all). */
 export function setProposalStatusByDataset(datasetId, fromStatus, toStatus) {
-  const all = readJson(PROPOSALS_FILE, []);
+  const all = readJson(PROPOSALS_FILE(), []);
   let n = 0;
   for (const p of all) if (p.datasetId === datasetId && p.status === fromStatus) { p.status = toStatus; p.reviewedAt = new Date().toISOString(); n++; }
   ensureAdjustDir();
-  fs.writeFileSync(PROPOSALS_FILE, JSON.stringify(all, null, 1));
+  fs.writeFileSync(PROPOSALS_FILE(), JSON.stringify(all, null, 1));
   return n;
 }
 

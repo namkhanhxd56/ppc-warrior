@@ -688,19 +688,41 @@ app.get("/api/competitor-snapshot/:asin", (req, res) => {
 
 /* ===================== MODULE ADJUST (chỉnh sửa ads từ file bulk) ===================== */
 const ADJUST_DIR_FN = () => `${userDataDir()}/adjust`;
-const adjustCache = new Map(); // id → dataset (lazy load)
+// Cache dataset: key PHẢI gồm phân vùng — key chỉ theo id thì user A biết id của user B là
+// đọc trọn bulk data của B từ RAM (bỏ qua cả bước resolve đường dẫn). Giới hạn số dataset
+// giữ trong RAM: mỗi file bulk ~170MB JSON, parse ra còn lớn hơn → không chặn là OOM.
+const adjustCache = new Map(); // "<phân vùng>|<id>" → dataset (Map giữ thứ tự chèn = LRU thô)
+// ĐO THẬT 06/08/2026: file bulk 81MB → RSS server tăng 44MB ⇒ 991MB (gấp ~12 lần file, do
+// 300k object record). File 165MB ≈ 2GB. Nên chỉ giữ 1 dataset: giữ 3 là 4-6GB → OOM Railway.
+// Đổi dataset phải nạp lại nhưng chỉ mất ~0.6s; cùng dataset (tab Targets↔Terms) vẫn cache hit.
+const ADJUST_CACHE_MAX = 1;
+const cacheKey = (id) => `${userDataDir()}|${id}`;
+function cachePut(id, ds) {
+  const k = cacheKey(id);
+  adjustCache.delete(k);
+  adjustCache.set(k, ds);
+  while (adjustCache.size > ADJUST_CACHE_MAX) adjustCache.delete(adjustCache.keys().next().value);
+}
+function cacheGet(id) {
+  const k = cacheKey(id);
+  if (!adjustCache.has(k)) return null;
+  const ds = adjustCache.get(k);
+  adjustCache.delete(k); adjustCache.set(k, ds); // vừa dùng → đẩy xuống cuối
+  return ds;
+}
 const uploadBig = multer({ dest: "./data/uploads", limits: { fileSize: 300 * 1024 * 1024 } });
 
 function adjustIndex() {
   try { return JSON.parse(fs.readFileSync(`${ADJUST_DIR_FN()}/index.json`, "utf8")); } catch { return []; }
 }
 function loadDataset(id) {
-  if (adjustCache.has(id)) return adjustCache.get(id);
-  if (!/^[\w-]+$/.test(id)) return null;
+  if (!/^[\w-]+$/.test(String(id || ""))) return null; // chặn traversal TRƯỚC khi tra cache
+  const hit = cacheGet(id);
+  if (hit) return hit;
   try {
     const ds = JSON.parse(fs.readFileSync(`${ADJUST_DIR_FN()}/${id}.json`, "utf8"));
     ds.byKey = new Map(ds.records.map((r) => [rowKey(r), r]));
-    adjustCache.set(id, ds);
+    cachePut(id, ds);
     return ds;
   } catch { return null; }
 }
@@ -719,7 +741,7 @@ app.post("/api/adjust/import", (req, res, next) => uploadBig.single("file")(req,
     idx.unshift({ id, ...ds.meta });
     fs.writeFileSync(`${ADJUST_DIR_FN()}/index.json`, JSON.stringify(idx.slice(0, 20), null, 1));
     ds.byKey = new Map(ds.records.map((r) => [rowKey(r), r]));
-    adjustCache.set(id, ds);
+    cachePut(id, ds);
 
     res.json({ ok: true, id, meta: ds.meta });
   } catch (e) {
@@ -744,7 +766,7 @@ app.post("/api/adjust/datasets/:id/rename", (req, res) => {
   d.label = String(req.body?.name || "").slice(0, 80);
   fs.mkdirSync(ADJUST_DIR_FN(), { recursive: true });
   fs.writeFileSync(`${ADJUST_DIR_FN()}/index.json`, JSON.stringify(idx, null, 1));
-  const ds = adjustCache.get(req.params.id); if (ds && ds.meta) ds.meta.label = d.label;
+  const ds = cacheGet(req.params.id); if (ds && ds.meta) ds.meta.label = d.label;
   res.json({ ok: true, label: d.label });
 });
 
