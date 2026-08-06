@@ -103,6 +103,22 @@ export function getSession(token) {
   return u ? publicUser(s.user.name, u) : null;
 }
 
+/** Admin chuyển "dự án": phiên ghi nhớ đang thao tác trên phân vùng user nào. */
+export function setActAs(token, name) {
+  const sess = readJson(SESS_FILE, {});
+  if (!sess[token]) throw new Error("Phiên không hợp lệ");
+  const target = getUsers()[String(name).toLowerCase()];
+  if (!target) throw new Error("User không tồn tại");
+  sess[token].actAs = String(name).toLowerCase();
+  writeJson(SESS_FILE, sess);
+}
+export function getActAs(token) {
+  const s = readJson(SESS_FILE, {})[token];
+  if (!s?.actAs) return null;
+  const u = getUsers()[s.actAs];
+  return u ? publicUser(s.actAs, u) : null;
+}
+
 export function destroySession(token) {
   const sess = readJson(SESS_FILE, {});
   if (sess[token]) { delete sess[token]; writeJson(SESS_FILE, sess); }
@@ -146,4 +162,56 @@ export function verifyBasic(req) {
   if (!auth.startsWith("Basic ")) return null;
   const [name, ...rest] = Buffer.from(auth.slice(6), "base64").toString().split(":");
   return verify(name, rest.join(":"));
+}
+
+/* ===== AGENT TOKEN: máy chạy agent KHÔNG lưu user/pass =====
+   agent-tokens.json: { token: { user, label, createdAt, lastSeen, revoked } }
+   - Mỗi user tự tạo token cho máy của mình (web → 🖥 Agent) — admin thấy/thu hồi được tất cả
+   - Agent gửi header x-agent-token → server resolve ra user → job/data vào đúng phân vùng
+   - Mất máy/lộ token → thu hồi, không phải đổi mật khẩu */
+const AGENT_TOKENS_FILE = "./data/agent-tokens.json";
+
+function readTokens() { return readJson(AGENT_TOKENS_FILE, {}); }
+function writeTokens(t) { writeJson(AGENT_TOKENS_FILE, t); }
+
+export function createAgentToken(userName, label) {
+  const tokens = readTokens();
+  const token = "pwa_" + crypto.randomBytes(18).toString("hex");
+  tokens[token] = { user: userName, label: String(label || "máy chưa đặt tên").slice(0, 40),
+    createdAt: new Date().toISOString(), lastSeen: null, revoked: false };
+  writeTokens(tokens);
+  return token;
+}
+
+export function resolveAgentToken(token) {
+  if (!token || !String(token).startsWith("pwa_")) return null;
+  const tokens = readTokens();
+  const t = tokens[token];
+  if (!t || t.revoked) return null;
+  const u = getUsers()[t.user];
+  if (!u) return null;
+  // cập nhật lastSeen (throttle 60s để đỡ ghi file liên tục)
+  if (!t.lastSeen || Date.now() - new Date(t.lastSeen).getTime() > 60000) {
+    t.lastSeen = new Date().toISOString();
+    writeTokens(tokens);
+  }
+  return publicUser(t.user, u);
+}
+
+export function listAgentTokens(userName, isAdmin) {
+  return Object.entries(readTokens())
+    .filter(([, t]) => isAdmin || t.user === userName)
+    .map(([token, t]) => ({
+      token: token.slice(0, 10) + "…", tokenFull: undefined, // không trả token đầy đủ khi liệt kê
+      id: token.slice(-8), user: t.user, label: t.label,
+      createdAt: t.createdAt, lastSeen: t.lastSeen, revoked: !!t.revoked
+    }));
+}
+
+export function revokeAgentToken(idSuffix, userName, isAdmin) {
+  const tokens = readTokens();
+  const entry = Object.entries(tokens).find(([token, t]) => token.endsWith(idSuffix) && (isAdmin || t.user === userName));
+  if (!entry) throw new Error("Không tìm thấy token (hoặc không có quyền)");
+  entry[1].revoked = true;
+  writeTokens(tokens);
 }

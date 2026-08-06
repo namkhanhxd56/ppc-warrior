@@ -1,6 +1,7 @@
 // server.js — PPC Warrior Worker: UI check ranking chạy local (http://localhost:3100)
 import express from "express";
 import fs from "fs";
+import { spawn } from "child_process";
 import dotenv from "dotenv";
 import multer from "multer";
 import * as XLSX from "xlsx";
@@ -20,7 +21,7 @@ import * as auth from "./src/auth.js";
 import { als, runAsUser, userDataDir } from "./src/db/user-context.js";
 
 dotenv.config();
-export const APP_VERSION = "0.25.1"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
+export const APP_VERSION = "0.27.0"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
 
 // RUN_MODE:
 // - "local" (mặc định): bấm Kiểm tra là scrape NGAY trên máy này (dùng 1 người, chạy local)
@@ -44,13 +45,15 @@ const PASSWORD = process.env.WORKER_PASSWORD || "";
    - Có user: trang → redirect /login.html; API → 401; phiên qua cookie ppcw_sid
    - Agent: Basic <username>:<password> (tài khoản thật) → job/data vào ĐÚNG PHÂN VÙNG user đó
    - Mỗi request chạy trong AsyncLocalStorage context → file-store tự resolve ./data hay ./data/users/<name> */
-const PUBLIC_PATHS = ["/login.html", "/api/auth/login", "/api/auth/register", "/api/version", "/favicon.ico"];
+const PUBLIC_PATHS = ["/login.html", "/api/auth/login", "/api/auth/register", "/api/version", "/favicon.ico", "/setup-agent.sh", "/agent-bundle.tgz"];
 app.use((req, res, next) => {
   const p = req.path;
   if (PUBLIC_PATHS.includes(p)) return next();
 
-  // Agent: xác thực bằng tài khoản user (đa user) — fallback WORKER_PASSWORD kiểu cũ khi chưa có user
+  // Agent: TOKEN (máy không lưu user/pass — khuyên dùng) → Basic user:pass → fallback WORKER_PASSWORD
   if (p.startsWith("/api/agent/")) {
+    const tokenUser = auth.resolveAgentToken(req.headers["x-agent-token"]);
+    if (tokenUser) return runAsUser(tokenUser, next);
     const u = auth.verifyBasic(req);
     if (u) return runAsUser(u, next);
     if (!auth.hasUsers() && PASSWORD) {
@@ -76,12 +79,15 @@ app.use((req, res, next) => {
   }
 
   // Đã có user → bắt buộc phiên
-  const user = auth.getSession(auth.parseCookie(req));
+  const tok = auth.parseCookie(req);
+  const user = auth.getSession(tok);
   if (!user) {
     if (p.startsWith("/api/")) return res.status(401).json({ error: "Chưa đăng nhập" });
     return res.redirect("/login.html");
   }
-  return runAsUser(user, next);
+  // ADMIN = tập hợp dự án: nếu đã chọn "dự án" (user khác) → mọi đọc/ghi vào phân vùng user đó
+  const ctx = user.role === "admin" ? (auth.getActAs(tok) || user) : user;
+  return runAsUser(ctx, next);
 });
 
 /* ===== API AUTH ===== */
@@ -107,8 +113,22 @@ app.post("/api/auth/logout", (req, res) => {
   res.json({ ok: true });
 });
 app.get("/api/auth/me", (req, res) => {
-  const u = auth.getSession(auth.parseCookie(req));
-  res.json({ user: u, hasUsers: auth.hasUsers() });
+  const tok = auth.parseCookie(req);
+  const u = auth.getSession(tok);
+  const out = { user: u, hasUsers: auth.hasUsers() };
+  if (u?.role === "admin") {
+    out.users = auth.listUsers().map((x) => x.name); // ADMIN = tập hợp dự án — chọn phân vùng để xem
+    out.actAs = auth.getActAs(tok)?.name || u.name;
+  }
+  res.json(out);
+});
+// Admin chuyển dự án (phân vùng dữ liệu) đang thao tác
+app.post("/api/auth/switch", (req, res) => {
+  const tok = auth.parseCookie(req);
+  const u = auth.getSession(tok);
+  if (!u || u.role !== "admin") return res.status(403).json({ error: "Cần quyền admin" });
+  try { auth.setActAs(tok, req.body?.name); res.json({ ok: true }); }
+  catch (e) { res.status(400).json({ error: e.message }); }
 });
 const requireAdmin = (req, res, next) => {
   const u = auth.getSession(auth.parseCookie(req));
@@ -116,6 +136,62 @@ const requireAdmin = (req, res, next) => {
   next();
 };
 app.get("/api/auth/users", requireAdmin, (req, res) => res.json({ users: auth.listUsers(), invite: auth.getInviteCode() }));
+
+/* ===== AGENT TOKEN (🖥 mỗi user tự cấp cho máy của mình — credentials KHÔNG rời server) ===== */
+app.post("/api/agent-tokens", (req, res) => {
+  const u = auth.getSession(auth.parseCookie(req));
+  if (!u) return res.status(401).json({ error: "Chưa đăng nhập" });
+  const token = auth.createAgentToken(u.name, req.body?.label);
+  const base = `${req.protocol}://${req.get("host")}`;
+  res.json({ ok: true, token,
+    command: `curl -fsSL "${base}/setup-agent.sh" | bash -s -- "${base}" "${token}"` });
+});
+app.get("/api/agent-tokens", (req, res) => {
+  const u = auth.getSession(auth.parseCookie(req));
+  if (!u) return res.status(401).json({ error: "Chưa đăng nhập" });
+  res.json({ tokens: auth.listAgentTokens(u.name, u.role === "admin") });
+});
+app.post("/api/agent-tokens/revoke", (req, res) => {
+  const u = auth.getSession(auth.parseCookie(req));
+  if (!u) return res.status(401).json({ error: "Chưa đăng nhập" });
+  try { auth.revokeAgentToken(String(req.body?.id || ""), u.name, u.role === "admin"); res.json({ ok: true }); }
+  catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+/* ===== CÀI AGENT 1 LỆNH — tải code từ CHÍNH SERVER, không cần git/GitHub ===== */
+app.get("/setup-agent.sh", (req, res) => {
+  res.setHeader("Content-Type", "text/plain; charset=utf-8");
+  res.send(`#!/bin/bash
+# PPC Warrior — cài agent 1 lệnh (không cần git). Dùng: curl -fsSL <url>/setup-agent.sh | bash -s -- <SERVER_URL> <TOKEN>
+set -e
+SERVER="\${1:?Thiếu SERVER_URL}"; TOKEN="\${2:?Thiếu TOKEN}"
+command -v node >/dev/null || { echo "❌ Cần Node.js 20+ (https://nodejs.org)"; exit 1; }
+DIR="$HOME/ppc-warrior-agent"
+echo "📦 Tải agent từ $SERVER vào $DIR ..."
+mkdir -p "$DIR" && cd "$DIR"
+curl -fsSL "$SERVER/agent-bundle.tgz?token=$TOKEN" | tar xz
+echo "📚 Cài thư viện (1-2 phút)..."
+npm install --omit=dev --silent
+cat > .env <<EOF
+SERVER_URL=$SERVER
+AGENT_TOKEN=$TOKEN
+AGENT_NAME=$(hostname)
+HEADFUL=0
+CHROME_CHANNEL=chrome
+WORKER_PROFILE=1
+EOF
+echo ""
+echo "✅ Xong! Chạy agent:  cd $DIR && npm run agent"
+echo "   (Token gắn với tài khoản của bạn trên server — máy này KHÔNG lưu mật khẩu)"
+`);
+});
+app.get("/agent-bundle.tgz", (req, res) => {
+  if (!auth.resolveAgentToken(String(req.query.token || ""))) return res.status(401).send("Token không hợp lệ/đã thu hồi");
+  res.setHeader("Content-Type", "application/gzip");
+  const tar = spawn("tar", ["czf", "-", "agent.js", "package.json", "src/scraper", "src/parser", "src/jobs", "src/db", "src/adjust", "src/launching", "src/data", "src/auth.js"]);
+  tar.stdout.pipe(res);
+  tar.on("error", () => res.end());
+});
 app.post("/api/auth/invite-regen", requireAdmin, (req, res) => res.json({ invite: auth.regenInviteCode() }));
 app.post("/api/auth/role", requireAdmin, (req, res) => {
   try { auth.setRole(req.body?.name, req.body?.role); res.json({ ok: true }); }

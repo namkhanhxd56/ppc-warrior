@@ -138,11 +138,6 @@
       <button class="btn-stop" id="btnStop">⏹ Dừng</button>
       <span id="zipStatus" style="font-size:11.5px;color:var(--mut)"></span>
     </div>
-    <details style="margin-top:8px">
-      <summary>🍪 Cookies</summary>
-      <textarea id="cookies" rows="4" style="margin-top:6px"></textarea>
-      <button class="btn-sm" id="btnSaveCookies" style="margin-top:6px">Lưu cookies</button>
-    </details>
     <details style="margin-top:6px">
       <summary>➕ Thêm ASIN + keywords vào bảng theo dõi</summary>
       <div class="row" style="margin-top:6px">
@@ -227,7 +222,7 @@
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;');
 
-const UI_VERSION = '0.25.1'; // PHẢI khớp APP_VERSION server.js
+const UI_VERSION = '0.27.0'; // PHẢI khớp APP_VERSION server.js
 (async () => {
   try {
     const v = (await (await fetch('/api/version')).json()).version;
@@ -907,13 +902,7 @@ $('btnSetZip').onclick = async () => {
   const r = await (await fetch('/api/location', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ zip, saveOnly: true }) })).json();
   $('zipStatus').textContent = r.ok !== false ? '✅ Đã lưu zip ' + zip + ' — tự đặt ngầm khi chạy' : '❌ ' + (r.message || 'Lỗi');
 };
-(async () => { $('cookies').value = JSON.stringify(await (await fetch('/api/cookies')).json(), null, 1); })();
-$('btnSaveCookies').onclick = async () => {
-  try {
-    const r = await fetch('/api/cookies', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: $('cookies').value });
-    alert((await r.json()).ok ? '✅ Đã lưu' : '❌ Lỗi');
-  } catch { alert('❌ JSON không hợp lệ'); }
-};
+// 🍪 Cookies UI đã bỏ (06/08): phiên zip do agent TỰ TẠO — không cần dán tay; API /api/cookies giữ cho tương thích
 (async () => {
   const s = await (await fetch('/api/schedule')).json();
   $('schTime').value = s.time || '07:00';
@@ -1266,6 +1255,38 @@ function csvq(x){ x=String(x??''); return /[",\n]/.test(x) ? '"'+x.replace(/"/g,
 
 loadTracking();
 
+/* ===== 🖥 AGENT — cài 1 lệnh, máy KHÔNG lưu mật khẩu ===== */
+window.__agentSetup = async () => {
+  const r = await (await fetch('/api/agent-tokens')).json();
+  const rows = (r.tokens || []).map((t) => `
+    <div style="display:flex;gap:8px;align-items:center;padding:5px 0;border-bottom:1px solid #f0f2f6;font-size:12px;${t.revoked ? 'opacity:.4' : ''}">
+      <b style="flex:1">🖥 ${esc(t.label)}</b><span class="hint">${esc(t.user)}</span>
+      <span class="hint" title="Hoạt động gần nhất">${t.lastSeen ? t.lastSeen.slice(0, 16).replace('T', ' ') : 'chưa chạy'}</span>
+      ${t.revoked ? '<span style="color:#c0392b;font-size:11px">đã thu hồi</span>'
+        : `<button class="btn-sm" style="color:#c0392b" onclick="if(confirm('Thu hồi? Máy này sẽ không quét được nữa.'))fetch('/api/agent-tokens/revoke',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:'${t.id}'})}).then(()=>__agentSetup())">Thu hồi</button>`}
+    </div>`).join('');
+  modal('🖥 Agent quét ranking — cài 1 lệnh cho máy bất kỳ', `
+    <div class="hint" style="font-size:12px;color:var(--mut);margin-bottom:8px">
+      Agent là tiến trình quét chạy ngầm trên máy tính (dùng IP dân cư của máy đó). Máy <b>không lưu tên đăng nhập/mật khẩu</b> —
+      chỉ giữ 1 token gắn với tài khoản của bạn, thu hồi được bất cứ lúc nào. Cần: Node.js 20+ và Google Chrome.</div>
+    <div class="row" style="align-items:center;margin-bottom:10px">
+      <input type="text" id="agLabel" placeholder="tên máy (VD: macbook-kha)" style="width:190px">
+      <button class="btn-sm" style="background:var(--b);color:#fff" onclick="__newAgentToken()">➕ Tạo lệnh cài cho máy mới</button>
+    </div>
+    <div id="agCmd"></div>
+    <div style="margin-top:12px"><b style="font-size:12px">Máy đã cấp</b>${rows || '<div class="hint" style="font-size:12px;color:var(--mut)">chưa có</div>'}</div>`);
+};
+window.__newAgentToken = async () => {
+  const r = await (await fetch('/api/agent-tokens', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ label: document.getElementById('agLabel').value }) })).json();
+  document.getElementById('agCmd').innerHTML = `
+    <div style="background:#0b1020;color:#7ef0a8;border-radius:8px;padding:10px 12px;font:11.5px ui-monospace,Menlo,monospace;word-break:break-all">${esc(r.command)}</div>
+    <div style="display:flex;gap:8px;margin-top:6px;align-items:center">
+      <button class="btn-sm" onclick="navigator.clipboard.writeText(${JSON.stringify('')} + this.dataset.c).then(()=>alert('✅ Đã copy'))" data-c="${esc(r.command)}">📋 Copy lệnh</button>
+      <span class="hint" style="font-size:11px;color:var(--mut)">dán vào Terminal của máy cần cài → xong chạy: <b>cd ~/ppc-warrior-agent && npm run agent</b></span>
+    </div>`;
+};
+
 /* ===== 👥 QUẢN LÝ USER (admin) ===== */
 window.__adminUsers = async () => {
   const r = await (await fetch('/api/auth/users')).json();
@@ -1307,7 +1328,16 @@ window.__delUser = async (name) => {
     const st = document.getElementById('status');
     const chip = document.createElement('span');
     chip.style.cssText = 'display:inline-flex;gap:6px;align-items:center;margin-left:12px;font-size:12px';
+    let projSel = '';
+    if (me.user.role === 'admin' && me.users) {
+      // ADMIN = tập hợp dự án: chọn xem/thao tác dữ liệu của user nào
+      projSel = `<select onchange="fetch('/api/auth/switch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:this.value})}).then(()=>location.reload())"
+        style="background:#243049;color:#9fb0c8;border:none;border-radius:7px;padding:3px 8px;font-size:11.5px" title="Dự án (phân vùng dữ liệu) đang xem">
+        ${me.users.map(u => `<option value="${u}" ${u === (me.actAs || me.user.name) ? 'selected' : ''}>📁 ${u}</option>`).join('')}</select>`;
+    }
     chip.innerHTML = `<span style="background:${me.user.role === 'admin' ? '#e5a400' : '#2455e6'};color:#fff;border-radius:9px;padding:2px 10px;font-weight:700">${me.user.name} · ${me.user.role}</span>`
+      + projSel
+      + `<button onclick="__agentSetup && __agentSetup()" style="background:#243049;color:#9fb0c8;border:none;border-radius:7px;padding:3px 9px;cursor:pointer;font-size:11.5px" title="Cài agent quét cho máy — 1 lệnh, không cần git/mật khẩu">🖥</button>`
       + (me.user.role === 'admin' && window.__adminUsers ? `<button onclick="__adminUsers()" style="background:#243049;color:#9fb0c8;border:none;border-radius:7px;padding:3px 9px;cursor:pointer;font-size:11.5px" title="Quản lý user">👥</button>` : '')
       + `<button onclick="fetch('/api/auth/logout',{method:'POST'}).then(()=>location.href='/login.html')" style="background:#243049;color:#9fb0c8;border:none;border-radius:7px;padding:3px 9px;cursor:pointer;font-size:11.5px" title="Đăng xuất">⎋</button>`;
     (st ? st.parentNode : document.querySelector('header'))?.appendChild(chip);

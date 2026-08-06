@@ -23,13 +23,16 @@ const PASSWORD = process.env.WORKER_PASSWORD || "";
 // → job + dữ liệu vào ĐÚNG PHÂN VÙNG của user đó trên server. Chưa có user: fallback WORKER_PASSWORD cũ.
 const AGENT_USER = process.env.AGENT_USER || "";
 const AGENT_PASSWORD = process.env.AGENT_PASSWORD || "";
+// KHUYÊN DÙNG: AGENT_TOKEN — máy không lưu user/pass (token cấp từ web 🖥, thu hồi được)
+const AGENT_TOKEN = process.env.AGENT_TOKEN || "";
 const NAME = process.env.AGENT_NAME || os.hostname();
 const POLL_MS = Math.max(5000, Number(process.env.POLL_INTERVAL_MS || 15000));
 
 const basicPair = AGENT_USER ? `${AGENT_USER}:${AGENT_PASSWORD}` : (PASSWORD ? `agent:${PASSWORD}` : "");
 const headers = {
   "Content-Type": "application/json",
-  ...(basicPair ? { Authorization: "Basic " + Buffer.from(basicPair).toString("base64") } : {})
+  ...(AGENT_TOKEN ? { "x-agent-token": AGENT_TOKEN } : {}),
+  ...(!AGENT_TOKEN && basicPair ? { Authorization: "Basic " + Buffer.from(basicPair).toString("base64") } : {})
 };
 
 async function api(path, body) {
