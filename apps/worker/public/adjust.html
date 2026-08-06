@@ -70,6 +70,16 @@
   .diff-old { color:#b12727; } .diff-new { color:#157a3d; font-weight:700; }
   .subcard { border:1px solid #e3e8f0; border-radius:10px; padding:12px 14px; margin:10px 0; }
   .subcard h3 { margin:0 0 8px; font-size:13px; }
+  /* Hộp thoại + toast TRONG TRANG (không dùng alert/confirm/prompt của trình duyệt) */
+  .dlgWrap { position:fixed; inset:0; background:rgba(16,24,40,.45); z-index:200; display:flex; align-items:center; justify-content:center; }
+  .dlg { background:#fff; border-radius:12px; padding:18px 20px; max-width:540px; width:92%; max-height:82vh; overflow:auto; box-shadow:0 20px 60px rgba(0,0,0,.4); }
+  .dlg h3 { margin:0 0 8px; font-size:15px; }
+  .dlg .txt { font-size:13px; color:#334; white-space:pre-line; margin:0 0 14px; }
+  .dlg .acts { display:flex; gap:8px; justify-content:flex-end; align-items:center; }
+  .toast { position:fixed; left:50%; transform:translateX(-50%); bottom:22px; background:#101828; color:#e8edf6;
+    padding:10px 18px; border-radius:10px; font-size:13px; z-index:300; box-shadow:0 8px 30px rgba(0,0,0,.35); }
+  .chg-sec { border:1px solid #e3e8f0; border-radius:10px; padding:10px 12px; margin:0 0 12px; }
+  .chg-sec h3 { margin:0 0 8px; font-size:13px; display:flex; align-items:center; gap:8px; }
 </style>
 </head>
 <body>
@@ -102,10 +112,11 @@
 
   <!-- ===== 2. Bảng làm việc ===== -->
   <div class="card">
-    <h2>2️⃣ Điều chỉnh — sửa xong bấm Xuất file Update để upload ngược lại Amazon</h2>
+    <h2>2️⃣ Điều chỉnh — mọi thay đổi gom vào tab 📋 Thay đổi, xuất 1 file bulk để upload ngược lại Amazon</h2>
     <div class="tabs">
       <button id="tabTargets" class="active btn-sm" style="padding:7px 18px">🎯 Campaigns & Targets</button>
       <button id="tabTerms" class="btn-sm" style="padding:7px 18px">🔍 Search Terms → Negative / Tạo Campaign</button>
+      <button id="tabChanges" class="btn-sm" style="padding:7px 18px">📋 Thay đổi</button>
       <button id="tabRules" class="btn-sm" style="padding:7px 18px">⚙️ Rules / Đề xuất (dry-run)</button>
       <span style="margin-left:auto;display:flex;gap:6px;align-items:center">
         <span class="hint">Sắp xếp:</span>
@@ -187,11 +198,18 @@
 <div id="promoteModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:100;align-items:center;justify-content:center">
   <div style="background:#fff;border-radius:12px;padding:20px 22px;max-width:620px;width:92%;max-height:82vh;overflow:auto;box-shadow:0 20px 60px rgba(0,0,0,.4)">
     <h3 style="margin:0 0 4px;font-size:15px">🚀 Tạo Campaign với keyword</h3>
-    <p class="sub" style="margin:0 0 12px">Mỗi search term = campaign Exact mới cho ASIN đó (tên theo rule đặt tên đã lưu). <b>Bid mặc định = CPC</b> — sửa được. Bấm tạo là <b>TẢI THẲNG FILE BULK</b> (không qua trang Tạo Campaign).</p>
+    <p class="sub" style="margin:0 0 12px">Mỗi search term = campaign Exact mới cho ASIN đó — <b>tên campaign / ad group theo rule đặt tên</b> đã lưu ở trang Tạo Campaign. <b>Bid mặc định = CPC</b> — sửa được. Bấm nút là <b>xếp vào module 📋 Thay đổi</b> (không tải file ngay) — xem nhiều search term rồi xuất 1 lần.</p>
     <div style="display:flex;gap:10px;margin-bottom:10px;align-items:flex-end;flex-wrap:wrap">
-      <div><label style="font-size:11.5px;color:#667;display:block;margin-bottom:2px">Portfolio ID (campaign mới nằm trong portfolio này)</label>
-        <input type="text" id="pmPortfolio" placeholder="VD: 16 số portfolio" style="width:200px;padding:5px 8px;border:1px solid #ccd3e0;border-radius:6px"></div>
-      <div><label style="font-size:11.5px;color:#667;display:block;margin-bottom:2px">Chế độ</label>
+      <div style="position:relative">
+        <label style="font-size:11.5px;color:#667;display:block;margin-bottom:2px">Portfolio (campaign mới nằm trong portfolio này)</label>
+        <input type="text" id="pmPfInput" placeholder="🔎 Chọn / gõ ID portfolio" autocomplete="off" style="width:250px;padding:5px 8px;border:1px solid #ccd3e0;border-radius:6px"
+          oninput="renderPmPfDD(this.value)" onfocus="renderPmPfDD(this.value)">
+        <input type="hidden" id="pmPortfolio">
+        <div id="pmPfDD" style="display:none;position:absolute;left:0;top:100%;z-index:120;background:#fff;border:1px solid #ccd3e0;border-radius:8px;max-height:230px;overflow:auto;box-shadow:0 8px 24px rgba(0,0,0,.18);min-width:280px;font-size:12.5px"></div>
+      </div>
+      <div><label style="font-size:11.5px;color:#667;display:block;margin-bottom:2px">Note / chiến lược (vào tên campaign qua {Note})</label>
+        <input type="text" id="pmNote" value="HARVEST" placeholder="VD: HARVEST" style="width:150px;padding:5px 8px;border:1px solid #ccd3e0;border-radius:6px"></div>
+      <div><label style="font-size:11.5px;color:#667;display:block;margin-bottom:2px">Chế độ campaign</label>
         <select id="pmMode" style="padding:5px 8px;border:1px solid #ccd3e0;border-radius:6px">
           <option value="single">1 campaign – 1 ad group / keyword</option>
           <option value="multi">1 campaign – nhiều ad group (mỗi keyword 1 AG)</option>
@@ -203,7 +221,7 @@
     </label>
     <div style="display:flex;gap:10px;justify-content:flex-end">
       <button class="btn-sm" onclick="closePromote()">Hủy</button>
-      <button class="btn-ok" onclick="confirmPromote()">🚀 Tạo campaign</button>
+      <button class="btn-ok" onclick="confirmPromote()">➕ Thêm vào 📋 Thay đổi</button>
     </div>
   </div>
 </div>
@@ -215,6 +233,45 @@ const pct = (v) => v === null || v === undefined ? '∞' : (v * 100).toFixed(1) 
 const money = (v) => '$' + Number(v || 0).toFixed(2);
 // YYYYMMDD → dd/mm/yyyy
 const fmtYmd = (s) => { s = String(s || ''); return /^\d{8}$/.test(s) ? `${s.slice(6, 8)}/${s.slice(4, 6)}/${s.slice(0, 4)}` : (s || '?'); };
+
+/* ===== Hộp thoại TRONG TRANG — thay alert/confirm/prompt của trình duyệt ===== */
+function dialog({ title, text, input, okLabel = 'OK', cancelLabel = 'Hủy', showCancel = true, okClass = 'btn-primary' }) {
+  return new Promise((resolve) => {
+    const wrap = document.createElement('div');
+    wrap.className = 'dlgWrap';
+    wrap.innerHTML = `<div class="dlg">
+      ${title ? `<h3>${esc(title)}</h3>` : ''}
+      <div class="txt">${text || ''}</div>
+      ${input !== undefined ? `<input type="text" id="dlgInput" style="width:100%;margin-bottom:14px" value="${esc(input)}">` : ''}
+      <div class="acts">
+        ${showCancel ? `<button class="btn-sm" data-act="cancel">${esc(cancelLabel)}</button>` : ''}
+        <button class="${okClass}" data-act="ok">${esc(okLabel)}</button>
+      </div></div>`;
+    const done = (v) => { wrap.remove(); document.removeEventListener('keydown', onKey); resolve(v); };
+    const onKey = (e) => { if (e.key === 'Escape') done(input !== undefined ? null : false); };
+    wrap.addEventListener('click', (e) => {
+      const act = e.target.dataset?.act;
+      if (act === 'ok') done(input !== undefined ? (wrap.querySelector('#dlgInput').value) : true);
+      else if (act === 'cancel' || e.target === wrap) done(input !== undefined ? null : false);
+    });
+    document.addEventListener('keydown', onKey);
+    document.body.appendChild(wrap);
+    const inp = wrap.querySelector('#dlgInput');
+    (inp || wrap.querySelector('[data-act=ok]')).focus();
+    if (inp) inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') done(inp.value); });
+  });
+}
+const alertBox = (text, title = '') => dialog({ title, text, showCancel: false, okLabel: 'Đóng' });
+const confirmBox = (text, title = '', okLabel = 'Đồng ý') => dialog({ title, text, okLabel, okClass: 'btn-ok' });
+const promptBox = (text, value = '', title = '') => dialog({ title, text, input: value, okLabel: 'Lưu' });
+let toastT = null;
+function toast(msg, ms = 2800) {
+  let el = document.querySelector('.toast');
+  if (!el) { el = document.createElement('div'); el.className = 'toast'; document.body.appendChild(el); }
+  el.innerHTML = msg;
+  clearTimeout(toastT);
+  toastT = setTimeout(() => el.remove(), ms);
+}
 
 // Co kéo độ rộng cột (kéo cạnh phải ô tiêu đề). Gọi SAU khi đã có dữ liệu để khóa bề rộng tự nhiên.
 function makeResizable(tableId) {
@@ -239,7 +296,7 @@ function makeResizable(tableId) {
   });
 }
 
-const UI_VERSION = '0.24.1';
+const UI_VERSION = '0.25.1';
 (async () => {
   try {
     const v = (await (await fetch('/api/version')).json()).version;
@@ -255,6 +312,7 @@ let tab = 'targets';
 let page = 1;
 let edits = [];      // {k, field, old, value, label}
 let negatives = [];  // {cid, agid, term, mt, name}
+let creates = [];     // campaign mới chờ xuất: {asin, keyword, bid, note, pf, pfLabel, mode, src}
 let lastRows = [];
 let sel = new Set(); // key (targets) hoặc index term đang tick
 let bulkUndo = []; // stack snapshot edits trước mỗi lần bulk (để Undo)
@@ -273,14 +331,48 @@ async function loadDatasets(pickId) {
   if (dsId) { restoreLedger(); renderChanges(); loadPortfolios(); refresh(); }
 }
 let pfList = [];
+let pfRaw = [];  // portfolio thật của dataset: {pfid, pfname, count} — dùng cho popup Tạo Campaign
 async function loadPortfolios() {
-  $('fPortfolio').value = ''; $('fPfInput').value = ''; pfList = [];
+  $('fPortfolio').value = ''; $('fPfInput').value = ''; pfList = []; pfRaw = [];
   if (!dsId) return;
   const r = await (await fetch('/api/adjust/portfolios', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: dsId }) })).json();
   if (!r.ok) return;
-  pfList = (r.portfolios || []).map((p) => ({ value: p.pfid || p.pfname, label: `${p.pfname || '(không tên)'}${p.pfid ? ' · ' + p.pfid : ''} (${p.count})` }));
+  pfRaw = r.portfolios || [];
+  pfList = pfRaw.map((p) => ({ value: p.pfid || p.pfname, label: `${p.pfname || '(không tên)'}${p.pfid ? ' · ' + p.pfid : ''} (${p.count})` }));
   if (r.none) pfList.push({ value: '__none__', label: `— Không có portfolio (${r.none}) —` });
 }
+// File bulk Create cần Portfolio ID. Dataset cũ không lưu cột "Portfolio ID" → lấy dãy số dài
+// trong TÊN portfolio (quy ước đặt tên "... - 113687439046910"). Không tìm được thì để trống, gõ tay.
+const pfIdOf = (p) => {
+  if (p.pfid) return String(p.pfid);
+  const m = String(p.pfname || '').match(/(\d{8,})\s*$/) || String(p.pfname || '').match(/(\d{8,})/);
+  return m ? m[1] : '';
+};
+// Dropdown portfolio trong popup Tạo Campaign — cùng danh sách portfolio của dataset như ô lọc ngoài
+window.renderPmPfDD = (q) => {
+  q = (q || '').toLowerCase();
+  const items = pfRaw.filter((p) => !q || String(p.pfname || '').toLowerCase().includes(q) || String(p.pfid || '').includes(q));
+  $('pmPfDD').innerHTML = `<div class="pf-item" data-id="" data-nm="">— Không portfolio —</div>` + items.map((p) => {
+    const id = pfIdOf(p);
+    return `<div class="pf-item" data-id="${esc(id)}" data-nm="${esc(p.pfname || '')}">${esc(p.pfname || '(không tên)')}
+      <span class="hint">· ${id ? esc(id) : '⚠️ chưa có ID'} (${p.count})</span></div>`;
+  }).join('')
+    + (items.length ? '' : `<div style="padding:6px 10px;color:#98a2b3">Không có portfolio khớp — gõ thẳng ID cũng được</div>`);
+  $('pmPfDD').style.display = 'block';
+};
+$('pmPfDD').addEventListener('click', (e) => {
+  const it = e.target.closest('.pf-item'); if (!it) return;
+  $('pmPortfolio').value = it.dataset.id;
+  $('pmPfInput').value = it.dataset.nm ? (it.dataset.id ? `${it.dataset.nm} · ${it.dataset.id}` : `${it.dataset.nm} · ⚠️ chưa có ID`) : '';
+  $('pmPfDD').style.display = 'none';
+});
+// Gõ tay ID portfolio (không chọn từ danh sách) vẫn nhận
+$('pmPfInput').addEventListener('change', () => {
+  const v = $('pmPfInput').value.trim();
+  if (/^\d{6,}$/.test(v)) $('pmPortfolio').value = v;
+  else if (!v) $('pmPortfolio').value = '';
+});
+document.addEventListener('click', (e) => { if (!e.target.closest('#pmPfDD') && e.target !== $('pmPfInput')) $('pmPfDD').style.display = 'none'; });
 window.openPfDD = () => { $('fPfDD').style.display = 'block'; };
 window.closePfDD = () => { $('fPfDD').style.display = 'none'; };
 window.renderPfDD = (q) => {
@@ -298,9 +390,9 @@ $('fPfDD').addEventListener('click', (e) => {
 });
 $('dsSelect').onchange = () => { dsId = $('dsSelect').value; page = 1; sel.clear(); restoreLedger(); renderChanges(); loadPortfolios(); refresh(); };
 $('btnRenameDs').onclick = async () => {
-  if (!dsId) { alert('Chưa có dataset nào'); return; }
+  if (!dsId) { alertBox('Chưa có dataset nào — hãy import file bulk trước.', '✎ Đặt tên dataset'); return; }
   const cur = ($('dsSelect').selectedOptions[0]?.text || '').replace(/^📁 /, '').split(' · ')[0];
-  const name = prompt('Tên dataset (VD: "7 ngày trước lễ", "Snapshot 20/7"):', cur);
+  const name = await promptBox('Tên dataset (VD: "7 ngày trước lễ", "Snapshot 20/7"):', cur, '✎ Đặt tên dataset');
   if (name === null) return;
   await fetch(`/api/adjust/datasets/${dsId}/rename`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name.trim() }) });
   loadDatasets(dsId);
@@ -356,12 +448,13 @@ function appendBatch(r) {
 
 // Nạp lại từ đầu (đổi dataset/tab/filter/sort) — cuộn vô cực sẽ tải tiếp
 async function refresh() {
-  const rulesMode = tab === 'rules';
-  $('filterBar').style.display = rulesMode ? 'none' : '';
-  $('actionBar').style.display = rulesMode ? 'none' : '';
-  $('pgnBar').style.display = rulesMode ? 'none' : '';
-  $('tableArea').style.maxHeight = rulesMode ? 'none' : '';
-  if (rulesMode) return renderRulesTab();
+  const plainMode = tab === 'rules' || tab === 'changes'; // 2 tab không dùng bảng dữ liệu bulk
+  $('filterBar').style.display = plainMode ? 'none' : '';
+  $('actionBar').style.display = plainMode ? 'none' : '';
+  $('pgnBar').style.display = plainMode ? 'none' : '';
+  $('tableArea').style.maxHeight = plainMode ? 'none' : '';
+  if (tab === 'rules') return renderRulesTab();
+  if (tab === 'changes') return renderChangesTab();
   if (!dsId) { $('tableArea').innerHTML = '<span class="hint">Import hoặc chọn dataset trước.</span>'; return; }
   page = 1; lastRows = []; lastCid = null; loadedGroups = 0; termGid = 0; termByKey.clear(); lastAsin = null; termAsinTotals = {};
   $('tableArea').scrollTop = 0;
@@ -386,7 +479,7 @@ async function refresh() {
 
 // Cuộn gần đáy → tải thêm (infinite scroll)
 async function loadMore() {
-  if (loadingMore || page >= totalPages || tab === 'rules' || !dsId) return;
+  if (loadingMore || page >= totalPages || tab === 'rules' || tab === 'changes' || !dsId) return;
   loadingMore = true;
   page++;
   const r = await queryPage(page);
@@ -480,7 +573,7 @@ function renderTermsInit() {
     <button class="btn-sm" style="background:#fde8e8;color:#c0392b" onclick="addNegatives('negativeExact')">🚫 Negative Exact</button>
     <button class="btn-sm" style="background:#fde8e8;color:#c0392b" onclick="addNegatives('negativePhrase')">🚫 Negative Phrase</button>
     <button class="btn-sm" style="background:#e8f5ec;color:#157a3d" onclick="promoteTerms()">🚀 Tạo Campaign (keyword)</button>
-    <span class="hint">Nhóm <b>ASIN → search term → ad group</b>: bấm ▸ xổ ad group · Tạo Campaign: bid mặc định = CPC, campaign dựng NGAY bên trang Tạo Campaign; negative nguồn (tuỳ chọn) vào file Update</span>`;
+    <span class="hint">Nhóm <b>ASIN → search term → ad group</b>: bấm ▸ xổ ad group · Negative và Tạo Campaign đều <b>xếp vào tab 📋 Thay đổi</b> (bid mặc định = CPC) — xem nhiều term nhiều lượt rồi xuất file 1 lần</span>`;
   $('tableArea').innerHTML = `<table id="tblTerms"><thead><tr>
     <th style="width:44px"><input type="checkbox" onchange="tickAll(this.checked)"></th>
     <th class="l">ASIN → Search Term → Ad Group</th>
@@ -567,7 +660,7 @@ window.applyBulkAdjust = () => {
   const field = $('bkField').value, mode = $('bkMode').value;
   const raw = parseFloat($('bkVal').value.replace(',', '.'));
   const targets = lastRows.filter(x => sel.has(x.k));
-  if (!targets.length) { alert('Chưa tick dòng nào'); return; }
+  if (!targets.length) { alertBox('Chưa tick dòng nào.', 'Bulk edit'); return; }
   bulkUndo.push(JSON.parse(JSON.stringify(edits))); // snapshot để Undo
   for (const x of targets) {
     let old, applicable;
@@ -591,18 +684,21 @@ const pickedTerms = () => [...sel].map(k => termByKey.get(k)).filter(Boolean);
 const uncheckTerms = () => { document.querySelectorAll('#tbMain input[type=checkbox]').forEach(cb => cb.checked = false); sel.clear(); };
 window.addNegatives = (mt) => {
   const picked = pickedTerms();
-  if (!picked.length) { alert('Chưa tick search term nào'); return; }
+  if (!picked.length) { alertBox('Chưa tick search term nào.', '🚫 Negative'); return; }
+  let added = 0;
   for (const x of picked) {
     if (negatives.some(n => n.cid === x.cid && n.agid === x.agid && n.term === x.term)) continue;
     negatives.push({ cid: x.cid, agid: x.agid, term: x.term, mt, name: x.name });
+    added++;
   }
   uncheckTerms(); renderChanges();
+  toast(`🚫 Đã thêm <b>${added}</b> negative ${mt === 'negativePhrase' ? 'Phrase' : 'Exact'} vào 📋 Thay đổi${added !== picked.length ? ` (${picked.length - added} đã có sẵn)` : ''}`);
 };
 let promotePicked = [];
 let promoteItems = [];
 window.promoteTerms = () => {
   const picked = pickedTerms();
-  if (!picked.length) { alert('Chưa tick search term nào'); return; }
+  if (!picked.length) { alertBox('Chưa tick search term nào.', '🚀 Tạo Campaign'); return; }
   promotePicked = picked;
   // gộp theo (asin, term): bid mặc định = CPC = tổng spend / tổng clicks của các dòng đã tick
   const byKey = {};
@@ -624,50 +720,61 @@ window.promoteTerms = () => {
   $('promoteNeg').checked = false;
   $('promoteModal').style.display = 'flex';
 };
-window.closePromote = () => { $('promoteModal').style.display = 'none'; };
+window.closePromote = () => { $('promoteModal').style.display = 'none'; $('pmPfDD').style.display = 'none'; };
+// XẾP VÀO MODULE "THAY ĐỔI" — không tải file ngay (xem nhiều search term 1 lượt rồi xuất 1 lần)
 window.confirmPromote = async () => {
-  // TẠO THẲNG FILE BULK — không qua trang Tạo Campaign (campaign mới nằm trong portfolio đã điền)
-  const items = promoteItems.map((it, i) => ({
+  const pf = $('pmPortfolio').value.trim();
+  const pfLabel = $('pmPfInput').value.trim();
+  const note = $('pmNote').value.trim();
+  const mode = $('pmMode').value;
+  const cand = promoteItems.map((it, i) => ({
     asin: it.asin, keyword: it.term,
-    bid: parseFloat(String(document.getElementById('pmBid_' + i).value).replace(',', '.')) || null
+    bid: parseFloat(String(document.getElementById('pmBid_' + i).value).replace(',', '.')) || null,
+    note, pf, pfLabel, mode
   })).filter(x => /^[A-Z0-9]{10}$/.test(x.asin));
-  const bad = promoteItems.length - items.length;
-  if (!items.length) { alert('Không nhận diện được ASIN của term nào (tên campaign nguồn không chứa ASIN)'); return; }
+  const bad = promoteItems.length - cand.length;
+  if (!cand.length) { alertBox('Không nhận diện được ASIN của term nào (tên campaign nguồn không chứa ASIN).', '🚀 Tạo Campaign'); return; }
+  let added = 0, dup = 0;
+  for (const c of cand) {
+    if (creates.some(x => x.asin === c.asin && x.keyword === c.keyword)) { dup++; continue; }
+    creates.push(c); added++;
+  }
   // Negative NGUỒN ở lại Adjust: Negative Keyword cấp AD GROUP (đúng ad group sinh ra term) — cần ID thật, chỉ Adjust có
+  let negAdded = 0;
   if ($('promoteNeg').checked) {
     for (const x of promotePicked) {
       if (!negatives.some(n => n.cid === x.cid && n.agid === x.agid && n.term === x.term)) {
         negatives.push({ cid: x.cid, agid: x.agid, term: x.term, mt: 'negativeExact', name: x.name });
+        negAdded++;
       }
     }
   }
-  const res = await fetch('/api/adjust/create-campaigns', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ items, portfolioId: $('pmPortfolio').value.trim(), campaignMode: $('pmMode').value }) });
-  if (!res.ok) {
-    let msg = 'Lỗi';
-    try { msg = (await res.json()).message; } catch {}
-    alert('❌ ' + msg + (msg.includes('API') ? '' : ' — server chạy code cũ? restart npm start'));
-    return;
-  }
-  const blob = await res.blob();
-  const el = document.createElement('a');
-  el.href = URL.createObjectURL(blob);
-  el.download = 'bulk-create-harvest-' + new Date().toISOString().slice(0, 10) + '.xlsx';
-  el.click();
   uncheckTerms(); renderChanges(); closePromote();
-  alert(`✅ Đã tải file bulk tạo ${items.length} keyword${bad ? ` (bỏ ${bad} term không nhận diện ASIN)` : ''} — upload lên Amazon Ads.` + ($('promoteNeg').checked ? '\nNegative ad group nguồn đã vào danh sách thay đổi (xuất cùng file Update).' : ''));
+  const lines = [
+    `➕ Đã xếp <b>${added}</b> campaign mới vào module <b>📋 Thay đổi</b> (tổng đang chờ: <b>${creates.length}</b>).`,
+    dup ? `• ${dup} term đã có trong danh sách — bỏ qua.` : '',
+    bad ? `• ${bad} term không nhận diện được ASIN — bỏ qua.` : '',
+    negAdded ? `• ${negAdded} negative ad group nguồn cũng đã thêm (xuất trong file Update).` : '',
+    (!pf && pfLabel) ? `• ⚠️ Portfolio đã chọn không có Portfolio ID trong dataset — campaign sẽ tạo NGOÀI portfolio. Gõ thẳng ID vào ô Portfolio nếu cần.` : '',
+    `<br>Chọn tiếp search term khác rồi vào tab <b>📋 Thay đổi</b> xuất 1 file bulk cho tất cả.`
+  ].filter(Boolean).join('<br>');
+  const go = await dialog({ title: '✅ Đã thêm vào Thay đổi', text: lines,
+    okLabel: '📋 Mở tab Thay đổi', cancelLabel: 'Tiếp tục chọn term', okClass: 'btn-ok' });
+  if (go) setTab('changes');
 };
 
 /* ===== Panel thay đổi + export ===== */
-function saveLedger() { if (dsId) localStorage.setItem('ppcw_adj_' + dsId, JSON.stringify({ edits, negatives })); }
+function saveLedger() { if (dsId) localStorage.setItem('ppcw_adj_' + dsId, JSON.stringify({ edits, negatives, creates })); }
 function restoreLedger() {
-  try { const p = JSON.parse(localStorage.getItem('ppcw_adj_' + dsId)); edits = p.edits || []; negatives = p.negatives || []; }
-  catch { edits = []; negatives = []; }
+  try { const p = JSON.parse(localStorage.getItem('ppcw_adj_' + dsId)); edits = p.edits || []; negatives = p.negatives || []; creates = p.creates || []; }
+  catch { edits = []; negatives = []; creates = []; }
 }
 window.toggleChg = () => { chgHidden = !chgHidden; renderChanges(); };
 function renderChanges() {
   saveLedger();
-  const n = edits.length + negatives.length;
+  const n = edits.length + negatives.length + creates.length;
+  $('tabChanges').textContent = `📋 Thay đổi${n ? ' (' + n + ')' : ''}`;
+  if (tab === 'changes') renderChangesTab();
   if (!n) { $('chgPanel').style.display = 'none'; return; }
   $('chgPanel').style.display = 'block';
   if (chgHidden) { // đã ẩn → chỉ hiện nút nhỏ để mở lại
@@ -679,15 +786,90 @@ function renderChanges() {
   const FIELD_LB = { bid: 'Bid', bud: 'Budget', pct: 'Placement %', st: 'State', agbid: 'Ad Group Bid', name: 'Tên Campaign', agname: 'Tên Ad Group' };
   const warns = edits.filter(e => e.warn).length;
   $('chgPanel').innerHTML = `<h3>📋 Thay đổi (${n})${warns ? ` · <span style="color:#ffb3b3">⚠️ ${warns} cảnh báo</span>` : ''} <span class="undo" style="float:right;cursor:pointer" onclick="toggleChg()" title="Ẩn bảng">🗕 Ẩn</span></h3>` +
-    `<div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
-      <button class="btn-ok" style="padding:6px 14px" onclick="doExport()">💾 Lưu & Tải file Update</button>
+    `<div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
+      <button class="btn-ok" style="padding:6px 14px" onclick="setTab('changes')">📋 Mở module Thay đổi</button>
+      <button class="btn-sm" style="padding:6px 12px" onclick="doExport()">📦 Xuất file bulk</button>
       <span class="msg" id="chgExportMsg"></span>
     </div>` +
+    creates.map((c, i) => `<div class="it"><span class="undo" onclick="removeCreate(${i})">✕</span>
+      <span><span class="badge" style="background:#334;color:#9fd8b0">Create</span> 🚀 <b>${esc(c.keyword)}</b> · ${esc(c.asin)}${c.bid ? ' · $' + c.bid : ''}${c.note ? ' · ' + esc(c.note) : ''}</span></div>`).join('') +
     edits.map((e, i) => `<div class="it"><span class="undo" onclick="undoEdit(${i})">✕</span>
       <span>${FIELD_LB[e.field] || e.field}: <b>${esc(e.old)}</b> → <b style="color:#7ef0a8">${esc(e.value)}</b> · ${esc(e.label)}${e.warn ? ` <span style="color:#ffb3b3" title="${esc(e.warn)}">⚠️</span>` : ''}</span></div>`).join('') +
     negatives.map((g, i) => `<div class="it"><span class="undo" onclick="undoNeg(${i})">✕</span>
       <span><span class="badge" style="background:#334;color:#9fd8b0">Create</span> 🚫 ${g.mt === 'negativePhrase' ? 'Phrase' : 'Exact'}: <b>${esc(g.term)}</b> · ${esc((g.name || '').slice(0, 38))}</span></div>`).join('');
 }
+/* ===== MODULE "THAY ĐỔI" — ngang cấp Campaigns & Targets / Search Terms =====
+   Gom mọi thứ đang chờ: sửa bid/budget/state · negative · campaign mới từ search term.
+   Xem nhiều search term nhiều lượt → xuất file 1 lần (không tải file liên tục). */
+function renderChangesTab() {
+  const area = $('tableArea');
+  if (!dsId) { area.innerHTML = '<span class="hint">Chọn dataset ở tab Campaigns & Targets trước.</span>'; return; }
+  const FIELD_LB = { bid: 'Bid', bud: 'Budget', pct: 'Placement %', st: 'State', agbid: 'Ad Group Bid', name: 'Tên Campaign', agname: 'Tên Ad Group' };
+  const editRows = edits.map((e, i) => `<tr>
+    <td><span class="undo" style="color:#c0392b;cursor:pointer;font-weight:700" onclick="undoEdit(${i})">✕</span></td>
+    <td>${esc(String(e.k || '').split('|')[0])}</td>
+    <td class="l" style="max-width:320px;overflow:hidden;text-overflow:ellipsis" title="${esc(e.label)}">${esc(e.label)}</td>
+    <td>${FIELD_LB[e.field] || e.field}</td>
+    <td><span class="diff-old">${esc(e.old)}</span> → <span class="diff-new">${esc(e.value)}</span></td>
+    <td>${e.warn ? `<span style="color:#b12727" title="${esc(e.warn)}">⚠️ ${esc(e.warn)}</span>` : ''}</td></tr>`).join('');
+  const negRows = negatives.map((g, i) => `<tr>
+    <td><span class="undo" style="color:#c0392b;cursor:pointer;font-weight:700" onclick="undoNeg(${i})">✕</span></td>
+    <td>${g.mt === 'negativePhrase' ? 'Phrase' : 'Exact'}</td>
+    <td class="l"><b>${esc(g.term)}</b></td>
+    <td class="l" style="max-width:420px;overflow:hidden;text-overflow:ellipsis" title="${esc(g.name)}">${esc(g.name || '')}</td></tr>`).join('');
+  const crRows = creates.map((c, i) => `<tr>
+    <td><span class="undo" style="color:#c0392b;cursor:pointer;font-weight:700" onclick="removeCreate(${i})">✕</span></td>
+    <td><b>${esc(c.asin)}</b></td>
+    <td class="l"><b>${esc(c.keyword)}</b></td>
+    <td><input type="text" inputmode="decimal" style="width:66px" value="${c.bid ?? ''}" placeholder="—" onchange="editCreate(${i},'bid',this.value)"></td>
+    <td><input type="text" style="width:110px" value="${esc(c.note || '')}" onchange="editCreate(${i},'note',this.value)"></td>
+    <td class="hint" style="max-width:220px;overflow:hidden;text-overflow:ellipsis" title="${esc(c.pfLabel || c.pf || '')}">${esc(c.pfLabel || c.pf || '—')}</td>
+    <td class="hint">${c.mode === 'multi' ? '1 camp – nhiều AG' : '1 camp – 1 AG'}</td></tr>`).join('');
+  area.innerHTML = `
+    <div class="statgrid">
+      <div class="stat"><b>${edits.length}</b><span>Sửa (Update)</span></div>
+      <div class="stat"><b>${negatives.length}</b><span>Negative (Create)</span></div>
+      <div class="stat"><b>${creates.length}</b><span>Campaign mới (Create)</span></div>
+    </div>
+    <div class="bulkbar">
+      <button class="btn-ok" style="padding:9px 18px" onclick="exportAll()" ${edits.length || negatives.length || creates.length ? '' : 'disabled'}>📦 Xuất file bulk (tất cả thay đổi)</button>
+      <span class="hint">1 file duy nhất: dòng Update (sửa) + dòng Create (negative + campaign mới) — Amazon đọc theo cột Operation</span>
+      <span style="margin-left:auto"></span>
+      <button class="btn-sm" style="background:#fde8e8;color:#c0392b" onclick="clearChanges()">🗑 Xoá toàn bộ danh sách</button>
+      <span class="msg" id="chgTabMsg"></span>
+    </div>
+    <div class="chg-sec">
+      <h3>🚀 Campaign mới từ search term <span class="badge">${creates.length}</span>
+        <span class="hint" style="font-weight:400">tên campaign / ad group dựng theo <b>rule đặt tên</b> ở trang Tạo Campaign · sửa Bid / Note ngay tại đây · xuất chung 1 file với phần sửa &amp; negative</span></h3>
+      ${creates.length ? `<div class="scroll" style="max-height:320px"><table><thead><tr>
+        <th style="width:28px"></th><th>ASIN</th><th class="l">Keyword (search term)</th><th>Bid</th><th>Note</th><th>Portfolio</th><th>Chế độ</th>
+      </tr></thead><tbody>${crRows}</tbody></table></div>` : '<span class="hint">Chưa có — sang tab 🔍 Search Terms, tick term rồi bấm 🚀 Tạo Campaign.</span>'}
+    </div>
+    <div class="chg-sec">
+      <h3>✍️ Sửa bid / budget / state / tên <span class="badge">${edits.length}</span></h3>
+      ${edits.length ? `<div class="scroll" style="max-height:300px"><table><thead><tr>
+        <th style="width:28px"></th><th>Entity</th><th class="l">Đối tượng</th><th>Trường</th><th>Cũ → Mới</th><th>Cảnh báo</th>
+      </tr></thead><tbody>${editRows}</tbody></table></div>` : '<span class="hint">Chưa có — sửa ở tab 🎯 Campaigns & Targets.</span>'}
+    </div>
+    <div class="chg-sec">
+      <h3>🚫 Negative keyword (cấp ad group) <span class="badge">${negatives.length}</span></h3>
+      ${negatives.length ? `<div class="scroll" style="max-height:300px"><table><thead><tr>
+        <th style="width:28px"></th><th>Loại</th><th class="l">Term</th><th class="l">Ad group nguồn</th>
+      </tr></thead><tbody>${negRows}</tbody></table></div>` : '<span class="hint">Chưa có — tick term ở tab 🔍 Search Terms rồi bấm 🚫 Negative.</span>'}
+    </div>`;
+}
+window.editCreate = (i, field, v) => {
+  if (!creates[i]) return;
+  creates[i][field] = field === 'bid' ? (parseFloat(String(v).replace(',', '.')) || null) : String(v).trim();
+  renderChanges();
+};
+window.removeCreate = (i) => { creates.splice(i, 1); renderChanges(); };
+window.clearChanges = async () => {
+  if (!await confirmBox('Xoá toàn bộ danh sách đang chờ (sửa + negative + campaign mới)? Không thể hoàn tác.', '🗑 Xoá danh sách', 'Xoá hết')) return;
+  edits = []; negatives = []; creates = []; bulkUndo = [];
+  renderChanges(); refresh();
+  toast('🗑 Đã xoá toàn bộ danh sách thay đổi');
+};
 window.undoEdit = (i) => {
   const e = edits[i]; edits.splice(i, 1); renderChanges();
   if (e) document.querySelectorAll(`#tbMain [data-k="${CSS.escape(e.k)}"][data-field="${e.field}"]`).forEach(el => {
@@ -697,28 +879,45 @@ window.undoEdit = (i) => {
 };
 window.undoNeg = (i) => { negatives.splice(i, 1); renderChanges(); };
 
+// XUẤT GỘP: 1 file bulk cho TẤT CẢ thay đổi đang chờ — sửa (Update) + negative + campaign mới (Create).
+// Mọi nút xuất trong Adjust (module Thay đổi, bảng đen, thanh dưới bảng) đều gọi hàm này.
 async function doExport() {
   const setMsg = (cls, txt) => {
-    for (const id of ['exportMsg', 'chgExportMsg']) { const el = $(id); if (el) { el.className = 'msg ' + cls; el.textContent = txt; } }
+    for (const id of ['exportMsg', 'chgExportMsg', 'chgTabMsg']) { const el = $(id); if (el) { el.className = 'msg ' + cls; el.textContent = txt; } }
   };
-  if (!edits.length && !negatives.length) { setMsg('err', '❌ Chưa có thay đổi nào'); return; }
+  if (!edits.length && !negatives.length && !creates.length) { setMsg('err', '❌ Chưa có thay đổi nào'); return; }
   const warns = edits.filter(e => e.warn).length;
-  if (warns && !confirm(`Có ${warns} giá trị ngoài ngưỡng an toàn (⚠️). Vẫn xuất file?`)) return;
+  if (warns && !await confirmBox(`Có <b>${warns}</b> giá trị ngoài ngưỡng an toàn (⚠️). Vẫn xuất file?`, '⚠️ Kiểm tra lại', 'Vẫn xuất')) return;
   setMsg('', '⏳ Đang tạo file...');
-  const res = await fetch('/api/adjust/export', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ id: dsId, edits, negatives }) });
-  if (!res.ok) { const e = await res.json().catch(() => ({})); setMsg('err', '❌ ' + (e.message || res.status)); return; }
+  const res = await fetch('/api/adjust/export-all', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id: dsId, edits, negatives, creates }) });
+  if (!res.ok) {
+    const e = await res.json().catch(() => ({}));
+    setMsg('err', '❌ ' + (e.message || res.status));
+    alertBox(esc(e.message || ('Lỗi ' + res.status)) + '<br><span class="hint">Nếu lỗi lạ: server có thể đang chạy code cũ — restart <b>npm start</b>.</span>', '❌ Không xuất được file');
+    return;
+  }
   const info = JSON.parse(res.headers.get('X-Adjust-Info') || '{}');
   const blob = await res.blob();
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = (res.headers.get('Content-Disposition') || '').match(/filename="(.+)"/)?.[1] || 'bulk-update.xlsx';
+  a.download = (res.headers.get('Content-Disposition') || '').match(/filename="(.+)"/)?.[1] || 'bulk-adjust.xlsx';
   a.click();
-  setMsg('ok', `✅ ${info.rows} dòng Update — upload vào Amazon Ads (Bulk operations)`);
+  setMsg('ok', `✅ ${info.rows} dòng (${info.updateRows} Update + ${info.createRows} Create)`);
   loadAudit(); // cập nhật nhật ký
+  const clear = await dialog({ title: '✅ Đã tải file bulk',
+    text: `<b>${info.rows}</b> dòng trong 1 file — upload vào Amazon Ads (Bulk operations):<br>
+      • <b>${info.updateRows}</b> dòng Update (${edits.length} sửa) + Create negative (${negatives.length})<br>
+      • <b>${info.createRows}</b> dòng Create campaign mới (${info.campaigns || 0} campaign / ${creates.length} keyword)
+      ${info.missing && info.missing.length ? `<br>• ⚠️ Cột không có trong header dataset, đã bỏ: ${esc(info.missing.join(', '))}` : ''}
+      <br><br>Xoá danh sách thay đổi đang chờ?`,
+    okLabel: '🗑 Xoá danh sách', cancelLabel: 'Giữ lại', okClass: 'btn-ok' });
+  if (clear) { edits = []; negatives = []; creates = []; bulkUndo = []; renderChanges(); refresh(); toast('🗑 Đã xoá danh sách thay đổi'); }
 }
 window.doExport = doExport;
+window.exportAll = doExport;
 $('btnExport').onclick = doExport;
+$('btnExport').textContent = '📦 Xuất file bulk (tất cả thay đổi)';
 
 /* ===== Tab Rules / Đề xuất (dry-run) ===== */
 let rulesCache = [];
@@ -781,12 +980,12 @@ window.toggleRule = async (id, on) => {
   const r = rulesCache.find(x => x.id === id); if (r) r.enabled = on; renderRuleList();
 };
 window.deleteRule = async (id) => {
-  if (!confirm('Xóa rule này?')) return;
+  if (!await confirmBox('Xoá rule này?', '⚙️ Rules', 'Xoá')) return;
   await fetch('/api/adjust/rules/' + id, { method: 'DELETE' });
   rulesCache = rulesCache.filter(x => x.id !== id); renderRuleList();
 };
 window.resetRules = async () => {
-  if (!confirm('Khôi phục Rule Set v1 mặc định (mất chỉnh sửa rule)?')) return;
+  if (!await confirmBox('Khôi phục Rule Set v1 mặc định (mất chỉnh sửa rule)?', '↺ Reset rules', 'Khôi phục')) return;
   const r = await (await fetch('/api/adjust/rules/reset', { method: 'POST' })).json();
   rulesCache = r.rules; renderRuleList();
 };
@@ -860,13 +1059,15 @@ window.exportProps = async () => {
 /* ===== Tab / filter / phân trang ===== */
 function setTab(t) {
   tab = t; page = 1; sel.clear();
-  for (const [id, name] of [['tabTargets', 'targets'], ['tabTerms', 'terms'], ['tabRules', 'rules']]) {
+  for (const [id, name] of [['tabTargets', 'targets'], ['tabTerms', 'terms'], ['tabChanges', 'changes'], ['tabRules', 'rules']]) {
     $(id).classList.toggle('active', name === t);
   }
   refresh();
 }
+window.setTab = setTab;
 $('tabTargets').onclick = () => setTab('targets');
 $('tabTerms').onclick = () => setTab('terms');
+$('tabChanges').onclick = () => setTab('changes');
 $('tabRules').onclick = () => setTab('rules');
 $('btnFilter').onclick = () => { page = 1; refresh(); };
 $('btnClearFilter').onclick = () => { $('fQ').value = ''; $('fEntity').querySelectorAll('input').forEach(c => c.checked = false); updateEntityLabel(); $('fPortfolio').value = ''; $('fPfInput').value = ''; $('fState').value = ''; $('fMetric').value = ''; $('fMin').value = ''; $('fMax').value = ''; page = 1; refresh(); };
@@ -910,10 +1111,12 @@ async function loadAudit() {
       + (e.detail?.negatives || []).map((n) => {
         const asin = ((n.name || '').match(/B0[A-Z0-9]{8}/) || [''])[0];
         return `<div class="hint">• <b>${esc(asin || '—')}</b> · Negative Keyword (Create) · ${esc((n.name || '').slice(0, 40))} — 🚫 ${n.mt === 'negativePhrase' ? 'Phrase' : 'Exact'}: <b>${esc(n.term)}</b></div>`;
-      }).join('');
+      }).join('')
+      + (e.detail?.creates || []).map((c) =>
+        `<div class="hint">• <b>${esc(c.asin || '—')}</b> · Campaign mới (Create) · 🚀 <b>${esc(c.keyword)}</b>${c.bid ? ' — bid <b>' + esc(c.bid) + '</b>' : ''}${c.note ? ' · ' + esc(c.note) : ''}${c.pf ? ' · pf ' + esc(c.pf) : ''}</div>`).join('');
     return `<div class="subcard" style="margin:6px 0;padding:8px 10px">
       <div style="cursor:pointer" onclick="const d=this.nextElementSibling;d.style.display=d.style.display==='none'?'block':'none'">
-        <b>${when}</b> · ${src} · <b>${e.edits || 0}</b> sửa + <b>${e.negatives || 0}</b> negative · <span class="hint">${esc(e.dataset || '')}</span> <span class="hint">▸ chi tiết</span>
+        <b>${when}</b> · ${src} · <b>${e.edits || 0}</b> sửa + <b>${e.negatives || 0}</b> negative${e.creates ? ` + <b>${e.creates}</b> campaign mới` : ''} · <span class="hint">${esc(e.dataset || '')}</span> <span class="hint">▸ chi tiết</span>
       </div>
       <div style="display:none;margin-top:6px;border-top:1px solid #eef1f7;padding-top:6px">${dets || '<span class="hint">—</span>'}</div>
     </div>`;

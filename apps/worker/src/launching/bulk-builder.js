@@ -245,21 +245,26 @@ export function planCampaigns(input) {
     .filter((kw) => kw.text);
 
   if (campaignMode === "multi") {
+    // bid của 1 keyword theo match type (exact = bid gốc; phrase/broad = suy ra từ bid gốc)
+    const bidFor = (matchType, kw) => matchType === "exact"
+      ? r2(exactBase(kw))
+      : r2(derived(matchType === "phrase" ? phrase : broad, exactBase(kw)));
     const mkMulti = (matchType, kws, date, portfolio, note) => {
       if (!kws.length) return;
       const label = kws.length > 1 ? `${kws[0].text} +${kws.length - 1}` : kws[0].text;
+      // {Bid} trong tên campaign = bid ĐÚNG match type của keyword đầu (không lấy bid Exact cho campaign Phrase/Broad)
+      const headBid = bidFor(matchType, kws[0]);
       const name = renderName(naming.kw, { ...baseCtx, Keyword: label,
         MatchType: matchType[0].toUpperCase() + matchType.slice(1),
-        Bid: r2(exactBase(kws[0])).toFixed(2), StartDate: date, Note: note });
+        Bid: headBid.toFixed(2), StartDate: date, Note: note });
       push({
         type: `SP_KW_${matchType.toUpperCase()}`, name,
-        keyword: label, matchType, bid: r2(exactBase(kws[0])), budget: Number(camp.dailyBudget),
+        keyword: label, matchType, bid: headBid, budget: Number(camp.dailyBudget),
         portfolioId: portfolio, startDateBulk: date, endDateBulk: "", note, ...campLevel, ...productLevel,
-        adGroups: kws.map((kw) => {
-          const b = matchType === "exact" ? r2(exactBase(kw)) : r2(derived(matchType === "phrase" ? phrase : broad, exactBase(kw)));
-          return { name: kw.text, defaultBid: Number(camp.adGroupDefaultBid) || d.adGroupDefaultBid,
-            targets: [{ kind: "kw", text: kw.text, mt: matchType, bid: b }], negatives: [], negPt: [] };
-        })
+        adGroups: kws.map((kw) => ({
+          name: kw.text, defaultBid: Number(camp.adGroupDefaultBid) || d.adGroupDefaultBid,
+          targets: [{ kind: "kw", text: kw.text, mt: matchType, bid: bidFor(matchType, kw) }], negatives: [], negPt: []
+        }))
       });
     };
     if (exact.on) mkMulti("exact", kwListClean, exactDate, pf("exact"), exact.note || "");

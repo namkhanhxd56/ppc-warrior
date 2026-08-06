@@ -227,7 +227,7 @@
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;');
 
-const UI_VERSION = '0.24.1'; // PHẢI khớp APP_VERSION server.js
+const UI_VERSION = '0.25.1'; // PHẢI khớp APP_VERSION server.js
 (async () => {
   try {
     const v = (await (await fetch('/api/version')).json()).version;
@@ -1243,11 +1243,20 @@ async function runLibScan(comps) {
   const res = await fetch('/api/competitor-library/scan', { method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ asins: comps }) });
   const reader = res.body.getReader(); const dec = new TextDecoder();
+  let buf = '';
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
-    $('logs').textContent += dec.decode(value);
+    const t = dec.decode(value);
+    buf += t;
+    $('logs').textContent += t;
     $('logs').scrollTop = $('logs').scrollHeight;
+  }
+  // Chế độ queue (Railway): server trả JOB_ID — chờ agent trên máy cá nhân chạy xong
+  const jm = buf.match(/JOB_ID:([\w-]+)/);
+  if (jm) {
+    $('libMsg').textContent = '⏳ chờ agent quét (job ' + jm[1] + ')...';
+    await pollJob(jm[1]);
   }
   $('libMsg').textContent = '✅ xong';
   loadCompLib();

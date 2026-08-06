@@ -18,7 +18,7 @@ import { evaluateAsin } from "./src/data/evaluate.js";
 import * as store from "./src/db/file-store.js";
 
 dotenv.config();
-export const APP_VERSION = "0.24.1"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
+export const APP_VERSION = "0.25.1"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
 
 // RUN_MODE:
 // - "local" (mặc định): bấm Kiểm tra là scrape NGAY trên máy này (dùng 1 người, chạy local)
@@ -173,10 +173,25 @@ app.post("/api/agent/result", (req, res) => {
     return res.status(400).json({ ok: false, message: "run không hợp lệ" });
   }
   const runId = store.importRunResult(run);
-  store.saveDailyRanks(run.asin, run.checkedAt || new Date().toISOString(), run.results);
+  if (req.body.competitorMode) {
+    store.saveCompetitorAgg(run.asin, req.body.dateKey || String(run.checkedAt || "").slice(0, 10), run.results);
+  } else {
+    store.saveDailyRanks(run.asin, run.checkedAt || new Date().toISOString(), run.results, req.body.dateKey || null);
+  }
   if (jobId) store.completeJob(jobId, runId);
   res.json({ ok: true, runId });
 });
+// Agent đẩy kết quả quét Competitor Library (ảnh/title lần đầu, Sale + giá theo ngày)
+app.post("/api/agent/lib-result", (req, res) => {
+  const { jobId, items } = req.body || {};
+  for (const it of items || []) {
+    if (!/^[A-Z0-9]{10}$/.test(String(it.asin || ""))) continue;
+    store.compLibSaveScan(it.asin, { title: it.title, image: it.image, sales: it.sales, price: it.price, date: it.date || new Date().toISOString().slice(0, 10) });
+  }
+  if (jobId) store.completeJob(jobId, null);
+  res.json({ ok: true, saved: (items || []).length });
+});
+
 app.post("/api/agent/fail", (req, res) => {
   const { jobId, error } = req.body || {};
   if (jobId) store.failJob(jobId, error || "unknown");
@@ -303,40 +318,77 @@ app.post("/api/launch/h10", (req, res, next) => uploadMw.single("file")(req, res
 // Preview: lập danh sách campaign PLAN — UI hiển thị bảng CHỈNH SỬA ĐƯỢC (bid, budget,
 // portfolio, note) trước khi export
 // ADJUST → TẠO FILE BULK TRỰC TIẾP (search term thăng cấp thành campaign Exact, bid = CPC, kèm portfolio)
+function buildHarvestCreateRows(items, opts = {}) {
+  const { portfolioId, campaignMode, note } = opts;
+  if (!Array.isArray(items) || !items.length) throw new Error("Không có keyword nào");
+  const saved = store.getLaunchSettings();
+  // Mỗi item mang note/portfolio/chế độ RIÊNG (module "Thay đổi" gom nhiều lượt chọn term);
+  // thiếu thì lấy giá trị chung của request → tương thích cách gọi cũ.
+  const dfPf = String(portfolioId || "").trim();
+  const dfNote = note === undefined ? "HARVEST" : String(note || "");
+  const dfMode = campaignMode === "multi" ? "multi" : "single";
+  const groups = new Map(); // asin|note|pf|mode → items[]
+  for (const it of items) {
+    const asin = String(it.asin || "").toUpperCase();
+    if (!/^[A-Z0-9]{10}$/.test(asin)) continue;
+    const pf = it.portfolioId === undefined ? dfPf : String(it.portfolioId || "").trim();
+    const nt = it.note === undefined ? dfNote : String(it.note || "");
+    const md = it.campaignMode ? (it.campaignMode === "multi" ? "multi" : "single") : dfMode;
+    const key = [asin, nt, pf, md].join("");
+    if (!groups.has(key)) groups.set(key, { asin, note: nt, pf, mode: md, list: [] });
+    groups.get(key).list.push(it);
+  }
+  if (!groups.size) throw new Error("Không nhận diện được ASIN nào");
+  const allRows = [];
+  let total = 0;
+  for (const g of groups.values()) {
+    const asin = g.asin;
+    const prof = saved.products?.[asin] || {};
+    const input = {
+      info: { sku: prof.sku || asin, asin, startDate: new Date().toISOString().slice(0, 10), manager: prof.manager || saved.manager || "", category: prof.category || "" },
+      keywords: g.list.map((x) => ({ text: x.keyword, bid: x.bid || null })),
+      naming: { kw: saved.nameKw ? String(saved.nameKw).replace(/\{Name\}/g, "{NameID}") : undefined }, // template cũ còn {Name} → quy về {NameID}
+      portfolios: { exact: g.pf },
+      bidRule: { mode: "fixed", fixedBid: Number(saved.fixedBid) || 0.6, minBid: Number(saved.minBid) || 0.15 },
+      matches: { exact: { on: true, levels: 1, step: 0.02, note: g.note }, phrase: { on: false }, broad: { on: false } },
+      campaignMode: g.mode
+    };
+    const { plans, trackingKeywords } = planCampaigns(input);
+    allRows.push(...buildRowsFromPlans(plans, input));
+    store.upsertKeywords(asin, trackingKeywords.map((k) => k.keyword || k), "PPC", "adjust-harvest");
+    total += plans.length;
+  }
+  return { rows: allRows, campaigns: total };
+}
+
+/** Đổi tên cột dòng Create (BULK_HEADER: "Campaign Id") sang header THẬT của dataset
+ *  (file bulk Amazon tải về dùng "Campaign ID") để Update + Create nằm CHUNG 1 sheet.
+ *  Trả {rows, missing} — missing = cột có giá trị nhưng header dataset không có. */
+function remapToDatasetHeader(rows, header) {
+  const norm = (s) => String(s).toLowerCase().replace(/\s*\(read only\)\s*/g, "").replace(/\s+/g, " ").trim();
+  const byNorm = new Map(header.map((h) => [norm(h), h]));
+  const missing = new Set();
+  const out = rows.map((r) => {
+    const o = Object.fromEntries(header.map((h) => [h, ""]));
+    for (const [k, v] of Object.entries(r)) {
+      if (v === "" || v === null || v === undefined) continue;
+      const col = byNorm.get(norm(k));
+      if (col) o[col] = v; else missing.add(k);
+    }
+    return o;
+  });
+  return { rows: out, missing: [...missing] };
+}
+
+// Chỉ dòng Create campaign mới (không kèm sửa/negative) — header 27 cột chuẩn template
 app.post("/api/adjust/create-campaigns", (req, res) => {
   try {
-    const { items, portfolioId, campaignMode } = req.body || {};
-    if (!Array.isArray(items) || !items.length) throw new Error("Không có keyword nào");
-    const saved = store.getLaunchSettings();
-    const byAsin = {};
-    for (const it of items) {
-      const asin = String(it.asin || "").toUpperCase();
-      if (!/^[A-Z0-9]{10}$/.test(asin)) continue;
-      (byAsin[asin] = byAsin[asin] || []).push(it);
-    }
-    if (!Object.keys(byAsin).length) throw new Error("Không nhận diện được ASIN nào");
-    const allRows = [];
-    let total = 0;
-    for (const [asin, list] of Object.entries(byAsin)) {
-      const prof = saved.products?.[asin] || {};
-      const input = {
-        info: { sku: prof.sku || asin, asin, startDate: new Date().toISOString().slice(0, 10), manager: prof.manager || saved.manager || "", category: prof.category || "" },
-        keywords: list.map((x) => ({ text: x.keyword, bid: x.bid || null })),
-        naming: { kw: saved.nameKw ? String(saved.nameKw).replace(/\{Name\}/g, "{NameID}") : undefined }, // template cũ còn {Name} → quy về {NameID}
-        portfolios: { exact: String(portfolioId || "").trim() },
-        bidRule: { mode: "fixed", fixedBid: Number(saved.fixedBid) || 0.6, minBid: Number(saved.minBid) || 0.15 },
-        matches: { exact: { on: true, levels: 1, step: 0.02, note: "HARVEST" }, phrase: { on: false }, broad: { on: false } },
-        campaignMode: campaignMode === "multi" ? "multi" : "single"
-      };
-      const { plans, trackingKeywords } = planCampaigns(input);
-      allRows.push(...buildRowsFromPlans(plans, input));
-      store.upsertKeywords(asin, trackingKeywords.map((k) => k.keyword || k), "PPC", "adjust-harvest");
-      total += plans.length;
-    }
+    const { items, portfolioId, campaignMode, note } = req.body || {};
+    const { rows, campaigns } = buildHarvestCreateRows(items, { portfolioId, campaignMode, note });
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(allRows, { header: BULK_HEADER }), "Sponsored Products Campaigns");
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows, { header: BULK_HEADER }), "Sponsored Products Campaigns");
     const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
-    store.saveExportSnapshot({ source: "adjust-harvest", campaigns: total, rows: allRows.length }, buf);
+    store.saveExportSnapshot({ source: "adjust-harvest", campaigns, rows: rows.length }, buf);
     res.setHeader("Content-Disposition", `attachment; filename="bulk-create-harvest-${new Date().toISOString().slice(0, 10)}.xlsx"`);
     res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
     res.send(buf);
@@ -577,6 +629,47 @@ app.post("/api/adjust/export", (req, res) => {
     if (!ds) throw new Error("Dataset không tồn tại");
     const { buf, rowCount } = writeUpdateWorkbook(ds, edits, negatives, id, "manual");
     sendWorkbook(res, buf, rowCount, id);
+  } catch (e) {
+    res.status(400).json({ ok: false, message: e.message });
+  }
+});
+
+// XUẤT GỘP — 1 file duy nhất cho toàn bộ module "Thay đổi":
+// dòng Update (sửa bid/budget/state/tên) + dòng Create (negative + campaign mới từ search term).
+// Amazon đọc theo cột Operation nên Update và Create nằm chung 1 sheet được.
+app.post("/api/adjust/export-all", (req, res) => {
+  try {
+    const { id, edits, negatives, creates } = req.body || {};
+    const ds = loadDataset(id);
+    if (!ds) throw new Error("Dataset không tồn tại");
+    const updateRows = buildUpdateRows(ds.header, ds.byKey, edits, negatives);
+    let createRows = [], campaigns = 0, missing = [];
+    if (Array.isArray(creates) && creates.length) {
+      const built = buildHarvestCreateRows(creates.map((c) => ({
+        asin: c.asin, keyword: c.keyword, bid: c.bid || null,
+        note: c.note, portfolioId: c.pf, campaignMode: c.mode
+      })));
+      campaigns = built.campaigns;
+      const m = remapToDatasetHeader(built.rows, ds.header);
+      createRows = m.rows; missing = m.missing;
+    }
+    const rows = [...updateRows, ...createRows];
+    if (!rows.length) throw new Error("Không có thay đổi nào để xuất");
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows, { header: ds.header }), "Sponsored Products Campaigns");
+    const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
+    fs.mkdirSync(ADJUST_DIR, { recursive: true });
+    const audit = { at: new Date().toISOString(), dataset: id, source: "manual",
+      edits: (edits || []).length, negatives: (negatives || []).length, creates: (creates || []).length,
+      detail: { edits, negatives, creates } };
+    fs.appendFileSync(`${ADJUST_DIR}/audit.jsonl`, JSON.stringify(audit) + "\n");
+    if (campaigns) store.saveExportSnapshot({ source: "adjust-all", campaigns, rows: createRows.length }, buf);
+    res.setHeader("Content-Disposition",
+      `attachment; filename="bulk-adjust-${id}-${new Date().toISOString().slice(0, 10)}.xlsx"`);
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("X-Adjust-Info", JSON.stringify({ rows: rows.length,
+      updateRows: updateRows.length, createRows: createRows.length, campaigns, missing }));
+    res.send(buf);
   } catch (e) {
     res.status(400).json({ ok: false, message: e.message });
   }
@@ -956,6 +1049,14 @@ app.post("/api/competitor-library/scan", async (req, res) => {
   const log = (m) => { try { res.write(m + "\n"); } catch {} };
   const asins = (req.body?.asins || []).map((a) => String(a).trim().toUpperCase()).filter((a) => /^[A-Z0-9]{10}$/.test(a));
   if (!asins.length) { log("🚨 Chưa chọn competitor nào"); return res.end(); }
+  // Chế độ queue (Railway): KHÔNG scrape trên server (IP datacenter bị Amazon nghi bot) —
+  // xếp job cho agent trên máy cá nhân, kết quả đẩy về /api/agent/lib-result
+  if (RUN_MODE === "queue") {
+    const job = store.enqueueJob({ kind: "libscan", asins, zip: store.getWorkerConfig().zip });
+    log(`📨 Đã xếp job quét ${asins.length} competitor — agent trên máy cá nhân sẽ chạy.`);
+    log(`JOB_ID:${job.id}`);
+    return res.end();
+  }
   if (running) { log("Đang có phiên chạy — bấm Dừng trước."); return res.end(); }
   running = true; stopFlag = false;
   let browser = null;

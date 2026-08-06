@@ -38,6 +38,7 @@ async function runJob(job) {
     console.log("  " + line);
     api("/api/agent/log", { jobId: job.id, line }).catch(() => {});
   };
+  if (job.payload?.kind === "libscan") return runLibScanJob(job, send);
   let browser = null;
   try {
     const p = job.payload;
@@ -58,13 +59,56 @@ async function runJob(job) {
 
     // Đẩy nguyên bản run (đã lưu local làm bản dự phòng) lên server cho team xem
     const run = store.getRunResult(runId);
-    const r = await api("/api/agent/result", { jobId: job.id, run });
+    const r = await api("/api/agent/result", { jobId: job.id, run, dateKey: p.dateKey || null, competitorMode: !!p.competitorMode });
     send(`📤 Đã đẩy kết quả lên server (run ${r.runId})`);
   } catch (e) {
     console.error("  🚨 " + e.message);
     await api("/api/agent/fail", { jobId: job.id, error: e.message }).catch(() => {});
   } finally {
     if (browser) { try { await browser.close(); } catch {} }
+  }
+}
+
+/* Job quét Competitor Library: mở trang /dp/ từng ASIN — ảnh/title (server chỉ lưu lần đầu),
+   Sale "bought in past month" + GIÁ (lưu theo ngày) → đẩy về /api/agent/lib-result */
+async function runLibScanJob(job, send) {
+  let browser = null;
+  try {
+    const { asins, zip } = job.payload;
+    send(`🖥 Agent "${NAME}" nhận job LIBRARY: quét ${asins.length} competitor`);
+    browser = await launchBrowser();
+    const page = await newCleanPage(browser, loadCookies());
+    await ensureZipLocation(page, zip, send);
+    const today = new Date().toISOString().slice(0, 10);
+    const items = [];
+    for (let i = 0; i < asins.length; i++) {
+      const a = asins[i];
+      try {
+        await page.goto(`https://www.amazon.com/dp/${a}`, { waitUntil: "domcontentloaded", timeout: 30000 });
+        await new Promise((r) => setTimeout(r, 1200 + Math.random() * 800));
+        const info = await page.evaluate(() => {
+          const title = document.querySelector("#productTitle")?.textContent.trim() || null;
+          const image = document.querySelector("#landingImage")?.getAttribute("src") || document.querySelector("#imgTagWrapperId img")?.getAttribute("src") || null;
+          const m = document.body.innerText.match(/([0-9.,]+[KkMm]?\+?)\s+bought in past month/);
+          const price = document.querySelector("#corePriceDisplay_desktop_feature_div .a-price .a-offscreen")?.textContent.trim()
+            || document.querySelector("#apex_desktop .a-price .a-offscreen")?.textContent.trim()
+            || document.querySelector(".a-price .a-offscreen")?.textContent.trim() || null;
+          return { title, image, sales: m ? m[1] : null, price };
+        });
+        items.push({ asin: a, ...info, date: today });
+        send(`🔍 [${i + 1}/${asins.length}] ${a} → Sale: ${info.sales || "_"} · Giá: ${info.price || "_"}`);
+      } catch (e) {
+        send(`⚠️ [${i + 1}/${asins.length}] ${a} lỗi: ${e.message}`);
+      }
+      await new Promise((r) => setTimeout(r, 800 + Math.random() * 700));
+    }
+    const r = await api("/api/agent/lib-result", { jobId: job.id, items });
+    send(`📤 Đã đẩy ${r.saved} kết quả Library lên server`);
+  } catch (e) {
+    console.error("  🚨 " + e.message);
+    await api("/api/agent/fail", { jobId: job.id, error: e.message }).catch(() => {});
+  } finally {
+    if (browser) { try { await Promise.race([browser.close(), new Promise((r) => setTimeout(r, 5000))]); } catch {} }
   }
 }
 

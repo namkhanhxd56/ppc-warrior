@@ -242,14 +242,6 @@
       </div>
     </fieldset>
 
-    <div class="row" style="margin:4px 0 10px;align-items:center">
-      <label style="margin:0" title="single: mỗi keyword (× mỗi mức bid) = 1 campaign riêng — như từ trước tới nay. multi: TẤT CẢ keyword vào 1 campaign, mỗi keyword 1 ad group (bid riêng từng keyword, KHÔNG áp thang bid)">Chế độ campaign</label>
-      <select id="campaignMode" style="max-width:330px">
-        <option value="single">1 campaign – 1 ad group (mặc định)</option>
-        <option value="multi">1 campaign – nhiều ad group (mỗi keyword 1 ad group)</option>
-      </select>
-      <span class="hint">multi: bỏ qua thang bid (số mức/bước nhảy) — mỗi keyword dùng bid gốc của nó</span>
-    </div>
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(285px,1fr));gap:12px">
       <div class="mt-box" id="boxExact">
         <h3><input type="checkbox" id="onExact" checked> Exact</h3>
@@ -503,6 +495,22 @@
     </div>
   </div>
 
+  <!-- ===== Chế độ campaign — CHUNG cho mọi mục ở 3 (tách khỏi 3.1 ngày 05/08) ===== -->
+  <div class="card">
+    <h2>🔀 Chế độ campaign <span class="hint" style="font-weight:400">(chung — đứng ngoài 3.1/3.2/3.3)</span></h2>
+    <div class="row" style="margin:4px 0 0;align-items:center">
+      <select id="campaignMode" style="max-width:330px">
+        <option value="single">1 campaign – 1 ad group (mặc định)</option>
+        <option value="multi">1 campaign – nhiều ad group (mỗi keyword 1 ad group)</option>
+      </select>
+      <span class="hint" style="flex:1;min-width:260px">
+        <b>single</b>: mỗi keyword × mỗi mức bid = 1 campaign riêng (như từ trước tới nay).<br>
+        <b>multi</b>: TẤT CẢ keyword vào 1 campaign, mỗi keyword 1 ad group với bid riêng — <b>bỏ qua thang bid</b> (số mức / bước nhảy).
+      </span>
+    </div>
+    <div class="hint" style="margin-top:8px">Tác dụng trên campaign <b>keyword SP</b> (Exact / Phrase / Broad ở 3.1) và cũng được trang <b>Adjust</b> dùng khi tạo campaign từ search term. Product Targeting, Auto, SB, SD luôn 1 campaign – 1 ad group.</div>
+  </div>
+
   <!-- ===== 4. Tên campaign ===== -->
   <div class="card">
     <h2>4️⃣ Tên campaign</h2>
@@ -550,7 +558,7 @@ const TYPE_LABEL = { SP_KW_EXACT:'Exact', SP_KW_PHRASE:'Phrase', SP_KW_BROAD:'Br
 const STRATEGIES = ['Dynamic bids - down only','Dynamic bids - up and down','Fixed bid'];
 
 /* ===== Cảnh báo server chạy code cũ ===== */
-const UI_VERSION = '0.24.1';
+const UI_VERSION = '0.25.1';
 (async () => {
   try {
     const v = (await (await fetch('/api/version')).json()).version;
@@ -651,7 +659,7 @@ const SAVE_FIELDS = ['sku','asin','category','manager','nameKw','namePt','namePt
   'bidSdPt','stepSdPt','bidSdPtG','stepSdPtG','groupNameSdPt','pfSdPt','pfSdPtG','pfSdRem','noteSdPt','noteSdPtG','noteSdRem',
   'pfGlobal','pfExact','pfPhrase','pfBroad','pfPt','pfAuto',
   'noteExact','notePhrase','noteBroad','notePt','notePtG','noteAuto','groupNamePt','pfPtG',
-  'bidMode','h10Type','bidMultiplier','maxBidCap','defaultBid','fixedBid','minBid',
+  'campaignMode','bidMode','h10Type','bidMultiplier','maxBidCap','defaultBid','fixedBid','minBid',
   'modePhrase','ratioPhrase','valuePhrase','wordLimitPhrase','offsetPhrase',
   'modeBroad','ratioBroad','valueBroad','wordLimitBroad','offsetBroad',
   'dailyBudget','autoDailyBudget','biddingStrategy','placementTop','placementProductPage','placementRestOfSearch','placementAmazonBusiness',
