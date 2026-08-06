@@ -142,7 +142,11 @@ app.post("/api/agent-tokens", (req, res) => {
   const u = auth.getSession(auth.parseCookie(req));
   if (!u) return res.status(401).json({ error: "Chưa đăng nhập" });
   const token = auth.createAgentToken(u.name, req.body?.label);
-  const base = `${req.protocol}://${req.get("host")}`;
+  // PHẢI đọc x-forwarded-proto: sau proxy Railway, req.protocol = "http" → lệnh cài sinh ra
+  // SERVER_URL=http://... → Railway trả 301 sang https → fetch đổi POST thành GET → agent
+  // nhận HTTP 404 ở /api/agent/poll (đã gặp thật 06/08/2026).
+  const proto = String(req.headers["x-forwarded-proto"] || req.protocol).split(",")[0].trim();
+  const base = `${proto}://${req.get("host")}`;
   res.json({ ok: true, token,
     command: `curl -fsSL "${base}/setup-agent.sh" | bash -s -- "${base}" "${token}"` });
 });

@@ -17,7 +17,19 @@ import * as store from "./src/db/file-store.js";
 
 dotenv.config();
 
-const SERVER = String(process.env.SERVER_URL || "").replace(/\/+$/, "");
+// SERVER_URL http:// tới host thật → Railway trả 301 sang https, và fetch đổi POST thành GET
+// khi đi theo redirect ⇒ mọi endpoint agent (chỉ có app.post) trả HTTP 404. Nâng lên https
+// và NÓI RÕ, không sửa ngầm.
+const SERVER = (() => {
+  let s = String(process.env.SERVER_URL || "").replace(/\/+$/, "");
+  const local = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i.test(s);
+  if (s.startsWith("http://") && !local) {
+    s = s.replace(/^http:\/\//, "https://");
+    console.log(`⚠️  SERVER_URL dùng http:// → tự chuyển sang ${s}`);
+    console.log("    (http bị redirect 301 sang https, POST biến thành GET → agent nhận 404). Sửa .env cho gọn.");
+  }
+  return s;
+})();
 const PASSWORD = process.env.WORKER_PASSWORD || "";
 // HỆ THỐNG USER: agent đăng nhập bằng TÀI KHOẢN THẬT (AGENT_USER/AGENT_PASSWORD)
 // → job + dữ liệu vào ĐÚNG PHÂN VÙNG của user đó trên server. Chưa có user: fallback WORKER_PASSWORD cũ.
@@ -37,6 +49,9 @@ const headers = {
 
 async function api(path, body) {
   const r = await fetch(SERVER + path, { method: "POST", headers, body: JSON.stringify(body || {}) });
+  // Bị redirect = URL sai (http→https, thiếu/thừa đường dẫn): fetch đi theo 301 nhưng ĐỔI POST
+  // thành GET nên server trả 404 — báo đúng nguyên nhân thay vì để user đoán mò.
+  if (r.redirected) throw new Error(`${path} → bị redirect sang ${r.url} (HTTP ${r.status}) — sửa SERVER_URL trong .env thành đúng địa chỉ cuối`);
   if (!r.ok) throw new Error(`${path} → HTTP ${r.status}`);
   return r.json();
 }
