@@ -21,7 +21,7 @@ import * as auth from "./src/auth.js";
 import { als, runAsUser, userDataDir } from "./src/db/user-context.js";
 
 dotenv.config();
-export const APP_VERSION = "0.27.1"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
+export const APP_VERSION = "0.28.0"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
 
 // RUN_MODE:
 // - "local" (mặc định): bấm Kiểm tra là scrape NGAY trên máy này (dùng 1 người, chạy local)
@@ -311,6 +311,18 @@ app.post("/api/check", async (req, res) => {
 });
 
 /* ===== Job queue: UI theo dõi + agent kéo job ===== */
+/* ⏩ CONTINUE: server tự tính phần còn thiếu của CỘT DỞ DANG GẦN NHẤT.
+   Trước đây chỉ trình duyệt biết ô nào trống (UI tự lọc), nên nếu không ai mở web thì
+   phiên đứt dở nằm đó mãi. Giờ server là nguồn sự thật duy nhất — dùng chung logic với
+   cơ chế thu hồi job treo. Chỉ xét cột dở dang gần nhất (không truy các cột cũ hơn). */
+app.get("/api/continue-targets", (req, res) => {
+  const dateKey = String(req.query.dateKey || "") || store.latestIncompleteSession();
+  if (!dateKey) return res.json({ ok: true, dateKey: null, targets: [], message: "Không có cột nào còn ô trống" });
+  const targets = store.missingTargets(dateKey);
+  const kws = targets.reduce((n, t) => n + t.kws.length, 0);
+  res.json({ ok: true, dateKey, targets, asinCount: targets.length, kwCount: kws });
+});
+
 app.get("/api/jobs", (req, res) => res.json(store.listJobs()));
 app.get("/api/jobs/:id", (req, res) => {
   const j = store.getJob(req.params.id);
@@ -325,6 +337,13 @@ app.post("/api/agent/poll", (req, res) => {
 app.post("/api/agent/log", (req, res) => {
   const { jobId, line } = req.body || {};
   if (jobId && line) store.appendJobLog(jobId, String(line).slice(0, 500));
+  res.json({ ok: true });
+});
+// LÔ LOG: agent gom nhiều dòng gửi 1 lần (1 request + 1 lần ghi jobs.json thay vì mỗi dòng
+// một request). Mỗi lần gọi cũng là heartbeat của job.
+app.post("/api/agent/logs", (req, res) => {
+  const { jobId, lines } = req.body || {};
+  if (jobId && Array.isArray(lines)) store.appendJobLogs(jobId, lines.slice(0, 200));
   res.json({ ok: true });
 });
 app.post("/api/agent/result", (req, res) => {

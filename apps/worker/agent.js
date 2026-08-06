@@ -56,12 +56,32 @@ async function api(path, body) {
   return r.json();
 }
 
-async function runJob(job) {
+/* GOM LOG: trước đây mỗi dòng log là 1 request tới server (200 keyword ⇒ ~250-300 request
+   × ~0,42s RTT tới Railway ≈ 100 giây, và server rewrite cả jobs.json mỗi dòng).
+   Giờ đệm lại, gửi khi đủ 10 dòng hoặc quá 5 giây, và flush khi job kết thúc.
+   Mỗi lần gửi cũng là heartbeat để server biết job còn sống. */
+function makeLogger(jobId) {
+  let buf = [];
+  let timer = null;
+  const flush = () => {
+    if (timer) { clearTimeout(timer); timer = null; }
+    if (!buf.length) return Promise.resolve();
+    const lines = buf; buf = [];
+    return api("/api/agent/logs", { jobId, lines }).catch(() => {});
+  };
   const send = (line) => {
     console.log("  " + line);
-    api("/api/agent/log", { jobId: job.id, line }).catch(() => {});
+    buf.push(line);
+    if (buf.length >= 10) { flush(); return; }
+    if (!timer) timer = setTimeout(flush, 5000);
   };
-  if (job.payload?.kind === "libscan") return runLibScanJob(job, send);
+  return { send, flush };
+}
+
+async function runJob(job) {
+  const logger = makeLogger(job.id);
+  const send = logger.send;
+  if (job.payload?.kind === "libscan") return runLibScanJob(job, logger);
   let browser = null;
   try {
     const p = job.payload;
@@ -86,15 +106,19 @@ async function runJob(job) {
     send(`📤 Đã đẩy kết quả lên server (run ${r.runId})`);
   } catch (e) {
     console.error("  🚨 " + e.message);
+    send("🚨 " + e.message);
+    await logger.flush(); // log lỗi phải lên server TRƯỚC khi báo fail
     await api("/api/agent/fail", { jobId: job.id, error: e.message }).catch(() => {});
   } finally {
+    await logger.flush(); // đừng để mất mấy dòng còn trong đệm
     if (browser) { try { await browser.close(); } catch {} }
   }
 }
 
 /* Job quét Competitor Library: mở trang /dp/ từng ASIN — ảnh/title (server chỉ lưu lần đầu),
    Sale "bought in past month" + GIÁ (lưu theo ngày) → đẩy về /api/agent/lib-result */
-async function runLibScanJob(job, send) {
+async function runLibScanJob(job, logger) {
+  const send = logger.send;
   let browser = null;
   try {
     const { asins, zip } = job.payload;
@@ -129,8 +153,11 @@ async function runLibScanJob(job, send) {
     send(`📤 Đã đẩy ${r.saved} kết quả Library lên server`);
   } catch (e) {
     console.error("  🚨 " + e.message);
+    send("🚨 " + e.message);
+    await logger.flush();
     await api("/api/agent/fail", { jobId: job.id, error: e.message }).catch(() => {});
   } finally {
+    await logger.flush();
     if (browser) { try { await Promise.race([browser.close(), new Promise((r) => setTimeout(r, 5000))]); } catch {} }
   }
 }

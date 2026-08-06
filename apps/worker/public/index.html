@@ -222,7 +222,7 @@
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;');
 
-const UI_VERSION = '0.27.1'; // PHẢI khớp APP_VERSION server.js
+const UI_VERSION = '0.28.0'; // PHẢI khớp APP_VERSION server.js
 (async () => {
   try {
     const v = (await (await fetch('/api/version')).json()).version;
@@ -840,16 +840,14 @@ $('btnRun').onclick = () => {
   if (!targets.length) return alert('Không có ASIN/keyword nào đang bật theo dõi');
   runTargets(targets, sessionLabel());
 };
-$('btnContinue').onclick = () => {
-  const last = T.sessions[T.sessions.length - 1];
-  if (!last) return alert('Chưa có phiên nào — dùng Run');
-  // chỉ chạy phần THIẾU của phiên gần nhất
-  const targets = enabledTargets().map((t) => {
-    const a = T.asins.find((x) => x.asin === t.asin);
-    return { ...t, kws: t.kws.filter((kw) => !(a.keywords.find((k) => k.kw === kw)?.series[last])) };
-  }).filter((t) => t.kws.length);
-  if (!targets.length) return alert(`Phiên "${last}" đã đủ dữ liệu — không có gì để chạy tiếp`);
-  runTargets(targets, last);
+// ⏩ Continue: SERVER tính phần còn thiếu của CỘT DỞ DANG GẦN NHẤT (nhãn phiên mới nhất
+// mà vẫn còn ô trống) — không phải "phiên mới nhất" như trước, vì bấm ▶ của 1 ASIN lẻ tạo
+// cột mới và làm Continue nhắm sai cột. Cùng logic với cơ chế thu hồi job treo bên server.
+$('btnContinue').onclick = async () => {
+  const r = await (await fetch('/api/continue-targets')).json();
+  if (!r.dateKey || !r.targets.length) return alert('Không có cột nào còn ô trống — dùng ▶ Run để tạo phiên mới');
+  $('status').textContent = `Tiếp tục cột "${r.dateKey}": ${r.asinCount} ASIN · ${r.kwCount} keyword còn thiếu`;
+  runTargets(r.targets, r.dateKey);
 };
 window.runAsin = (asin) => {
   const t = enabledTargets().find((x) => x.asin === asin);

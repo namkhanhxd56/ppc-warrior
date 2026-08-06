@@ -363,6 +363,47 @@ export function getTrackingTable() {
   return { asins: rows, sessions: t.sessions, config: t.config };
 }
 
+/* ===== CÒN THIẾU GÌ Ở MỘT CỘT (phiên) — nguồn sự thật phía SERVER =====
+   Trước đây chỉ trình duyệt biết ô nào trống (UI tự lọc rồi gọi Run), nên server/agent
+   không thể tự chạy tiếp khi job đứt. Đưa phép tính này về server để dùng ở 2 chỗ:
+   ⏩ Continue và thu hồi job treo (dựng lại payload = đúng phần còn thiếu).
+   Ô "trống" = chưa có bản ghi trong daily[asin][kw][dateKey]. Keyword LỖI không được
+   saveDailyRanks ghi → tính là trống (sẽ chạy lại). "Ngoài 150" hay ToS "?" là kết quả
+   THẬT (có bản ghi) → tính là đã xong. */
+
+/** Keyword của 1 ASIN còn trống ở cột dateKey (giữ nguyên thứ tự đầu vào). */
+export function missingKeywords(asin, keywords, dateKey) {
+  const daily = readJson(DAILY_FILE(), {})[String(asin).toUpperCase()] || {};
+  return (keywords || []).filter((kw) => !daily[kw]?.[dateKey]);
+}
+
+/** Danh sách ASIN/keyword còn trống ở cột dateKey — cùng thứ tự + cùng bộ lọc như bảng UI. */
+export function missingTargets(dateKey) {
+  if (!dateKey) return [];
+  const { asins } = getTrackingTable();
+  return asins
+    .filter((a) => a.enabled)
+    .map((a) => ({
+      asin: a.asin,
+      trackParent: a.trackParent,
+      saveCompetitor: a.saveCompetitor,
+      adsScan: a.adsScan,
+      kws: a.keywords.filter((k) => k.enabled && !k.series[dateKey]).map((k) => k.kw)
+    }))
+    .filter((t) => t.kws.length);
+}
+
+/** Cột DỞ DANG gần nhất = nhãn phiên mới nhất mà vẫn còn ô trống.
+    Khác "phiên mới nhất" nói chung: bấm ▶ của 1 ASIN lẻ tạo cột mới, không được để
+    cột đó chiếm chỗ cột đang làm dở. Không tìm thấy → null (không có gì để tiếp). */
+export function latestIncompleteSession() {
+  const { sessions } = getTrackingTable();
+  for (let i = sessions.length - 1; i >= 0; i--) {
+    if (missingTargets(sessions[i]).length) return sessions[i];
+  }
+  return null;
+}
+
 /** Job daily từ bảng theo dõi: ASIN có ⏰ daily=true (và đang bật theo dõi), tuần tự từ trên xuống. */
 export function trackingDailyJobs() {
   const t = getTracking();
@@ -777,33 +818,83 @@ export function enqueueJob(payload) {
   return job;
 }
 
+// Mất heartbeat bao lâu thì coi là agent chết. Trước đây là "running > 30 phút" — sai với
+// ASIN nhiều keyword: 200 keyword × ~6s ≈ 20 phút, cộng reload/quét bù là vượt 30 phút rất
+// dễ → job đang chạy bình thường bị phát lại và quét TRÙNG. Giờ đo bằng heartbeat thật
+// (agent gửi log/kết quả → cập nhật lastSeen), nên job chạy bao lâu cũng được.
+const JOB_STALE_MS = 5 * 60000;
+
+/** Agent xin job kế tiếp.
+ *  KHÔNG cần lock: hàm này đồng bộ hoàn toàn (readFileSync/writeFileSync, không await) nên
+ *  trong 1 tiến trình Node nó không thể bị chen ngang → 2 agent không thể cùng giành 1 job.
+ *  ⚠️ Nếu sau này Railway scale ≥2 replica (2 tiến trình chung volume) thì điều này KHÔNG
+ *  còn đúng — lúc đó phải thêm lock file (O_EXCL) hoặc chuyển hàng đợi sang Postgres. */
 export function claimNextJob(agentName) {
   const jobs = readJobs();
   const now = Date.now();
+  let dirty = false;
+
+  // 1. Thu hồi job mất heartbeat — dựng lại payload = ĐÚNG PHẦN CÒN THIẾU (không quét trùng)
   for (const j of jobs) {
-    if (j.status === "running" && j.startedAt && now - new Date(j.startedAt).getTime() > 30 * 60000) {
-      j.status = "pending"; j.agent = null;
-      j.logs.push("⚠️ Job treo quá 30 phút — trả lại hàng đợi");
+    if (j.status !== "running") continue;
+    const beat = new Date(j.lastSeen || j.startedAt || 0).getTime();
+    if (now - beat <= JOB_STALE_MS) continue;
+    dirty = true;
+    const p = j.payload || {};
+    const resumable = p.dateKey && p.asin && Array.isArray(p.keywords);
+    const left = resumable ? missingKeywords(p.asin, p.keywords, p.dateKey) : (p.keywords || []);
+    if (resumable && !left.length) {
+      j.status = "done"; j.finishedAt = new Date().toISOString();
+      j.logs.push("✅ Mất heartbeat nhưng cột đã đủ dữ liệu — coi như xong, không quét lại");
+      continue;
     }
+    const skipped = (p.keywords || []).length - left.length;
+    j.payload = { ...p, keywords: left };
+    j.status = "pending"; j.agent = null; j.startedAt = null; j.lastSeen = null;
+    j.logs.push(`⚠️ Mất heartbeat >${JOB_STALE_MS / 60000} phút — trả lại hàng đợi với ${left.length} keyword còn thiếu`
+      + (skipped > 0 ? ` (bỏ ${skipped} keyword đã có dữ liệu)` : ""));
   }
+
+  // 2. SINGLE-FLIGHT: đang có job chạy (còn heartbeat) → không phát job cho agent nào khác.
+  //    Nhiều agent vẫn cắm được nhưng chỉ 1 cái làm việc tại một thời điểm — tránh quét
+  //    song song và tránh 2 agent cùng đọc-sửa-ghi daily-rank.json.
+  if (jobs.some((j) => j.status === "running")) {
+    if (dirty) writeJobs(jobs);
+    return null;
+  }
+
   const job = jobs.find((j) => j.status === "pending");
-  if (job) {
-    job.status = "running";
-    job.agent = agentName || "?";
-    job.startedAt = new Date().toISOString();
+  // 3. Hàng đợi rỗng → KHÔNG ghi file. Trước đây mọi lần poll đều rewrite jobs.json:
+  //    4 lần/phút/agent = ~5.760 lượt ghi volume Railway mỗi ngày dù không có việc gì.
+  if (!job) {
+    if (dirty) writeJobs(jobs);
+    return null;
   }
+
+  job.status = "running";
+  job.agent = agentName || "?";
+  job.startedAt = new Date().toISOString();
+  job.lastSeen = job.startedAt;
   writeJobs(jobs);
-  return job || null;
+  return job;
 }
 
-export function appendJobLog(id, line) {
+/** Ghi NHIỀU dòng log trong 1 lần đọc-ghi file + cập nhật heartbeat.
+ *  Agent gom log rồi gửi theo lô: 200 keyword trước đây là ~250-300 request và ~250-300 lần
+ *  rewrite jobs.json trên volume Railway; giờ còn ~40. Mỗi lần ghi cũng là 1 nhịp heartbeat
+ *  nên job dài bao lâu cũng không bị coi là treo. */
+export function appendJobLogs(id, lines) {
+  const arr = (Array.isArray(lines) ? lines : [lines]).filter((l) => l != null);
+  if (!arr.length) return;
   const jobs = readJobs();
   const j = jobs.find((x) => x.id === id);
   if (!j) return;
-  j.logs.push(line);
+  for (const l of arr) j.logs.push(String(l).slice(0, 500));
   if (j.logs.length > 500) j.logs = j.logs.slice(-400);
+  j.lastSeen = new Date().toISOString(); // heartbeat
   writeJobs(jobs);
 }
+export function appendJobLog(id, line) { appendJobLogs(id, [line]); } // giữ cho agent bản cũ
 
 export function completeJob(id, runId) {
   const jobs = readJobs();
