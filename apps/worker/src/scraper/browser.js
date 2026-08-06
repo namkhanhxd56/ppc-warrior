@@ -53,6 +53,9 @@ export async function launchBrowser() {
   if (headful) args.push("--window-position=-2400,-2400"); // ngoài màn hình — chạy ngầm
 
   const opts = {
+    // HEADFUL=0/không đặt → HEADLESS THẾ HỆ MỚI (puppeteer 22+): cùng engine Chrome thật,
+    // fingerprint gần headful — chạy NGẦM HOÀN TOÀN (không cửa sổ, không icon Dock).
+    // HEADFUL=1: an toàn chống bot nhất (cửa sổ thật ngoài màn hình) — nếu "?" nhiều hãy bật lại.
     headless: !headful,
     args,
     defaultViewport: null // dùng kích thước cửa sổ thật thay vì 800x600 mặc định (dấu hiệu bot)
@@ -62,7 +65,7 @@ export async function launchBrowser() {
   try {
     const b = await puppeteerExtra.launch({ ...opts, channel });
     console.log(`🌐 Browser: Google Chrome thật (channel=${channel}) + stealth plugin` +
-      (headful ? " · headful ngoài màn hình" : " · headless") +
+      (headful ? " · headful ngoài màn hình" : " · headless MỚI (vô hình hoàn toàn)") +
       (profileDir ? ` · profile bền vững ${profileDir}` : " · phiên sạch"));
     return b;
   } catch {
