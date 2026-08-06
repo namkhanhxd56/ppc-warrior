@@ -1217,7 +1217,8 @@ app.get("/api/history/:asin", (req, res) => {
   res.json({ asin, image, keywords, columns });
 });
 
-const srv = app.listen(PORT, () =>
+console.log(`▶ boot: PORT=${process.env.PORT || "(trống)"} WORKER_PORT=${process.env.WORKER_PORT || "(trống)"} RUN_MODE=${RUN_MODE} node=${process.version}`);
+const srv = app.listen(PORT, "0.0.0.0", () =>
   console.log(`🚀 PPC Warrior Worker v${APP_VERSION}: http://localhost:${PORT}`)
 );
 srv.on("error", (e) => {

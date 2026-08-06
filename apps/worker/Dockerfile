@@ -33,4 +33,6 @@ ENV RUN_MODE=queue \
 # Muốn server tự scrape (không khuyến nghị — IP datacenter): đổi Variables RUN_MODE=local
 
 EXPOSE 3100
-CMD ["bash", "-c", "xvfb-run -a --server-args='-screen 0 1366x900x24' node server.js"]
+# Chạy node TRỰC TIẾP (log ra thẳng Deploy Logs — xvfb-run từng nuốt log trên Railway);
+# Xvfb chạy nền làm display dự phòng (RUN_MODE=queue không mở Chrome trên server)
+CMD ["bash", "-c", "(Xvfb :99 -screen 0 1366x900x24 -nolisten tcp &) && export DISPLAY=:99 && exec node server.js"]
