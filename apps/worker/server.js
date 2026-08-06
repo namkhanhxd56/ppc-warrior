@@ -255,6 +255,9 @@ app.post("/api/agent/result", (req, res) => {
   } else {
     store.saveDailyRanks(run.asin, run.checkedAt || new Date().toISOString(), run.results, req.body.dateKey || null);
   }
+  // Ảnh ASIN agent chụp từ SERP — trước đây chỉ ghi ở store MÁY AGENT nên bảng trên server
+  // (Railway/queue) không có ảnh; giờ ghi vào tracking của server (chỉ điền khi chưa có)
+  if (run.image) store.trackingSetImage(run.asin, run.image);
   if (jobId) store.completeJob(jobId, runId);
   res.json({ ok: true, runId });
 });
