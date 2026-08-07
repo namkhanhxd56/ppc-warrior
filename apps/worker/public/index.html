@@ -134,6 +134,8 @@
       <div style="max-width:120px"><label style="margin:0 0 2px">Số trang</label><input type="number" id="maxPages" value="3" min="1" max="5" style="width:100%"></div>
       <div style="max-width:170px"><label style="margin:0 0 2px">Zip code</label>
         <div style="display:flex;gap:4px"><input type="text" id="zipInput" maxlength="5" style="width:70px"><button class="btn-sm" id="btnSetZip" title="Lưu zip — tự kiểm tra & đặt NGẦM trong lúc chạy, không mở trình duyệt">💾</button></div></div>
+      <label class="chk" style="margin:0;white-space:nowrap" title="Tắt = bỏ quét ToS/RoS cho CẢ lượt chạy này → nhanh hơn nhiều (mỗi trang bớt tới ~3,9s), organic rank không đổi. Cột ads sẽ hiện '_'. Không đụng tới cài đặt 📢 riêng của từng ASIN.">
+        <input type="checkbox" id="adsScanRun" checked> 📢 Quét ads</label>
       <button class="btn-run" id="btnRun" title="Check từ đầu — tạo phiên (cột ngày/giờ) MỚI">▶ Run</button>
       <button class="btn-cont" id="btnContinue" title="Chạy nối tiếp phiên gần nhất (khi Run bị dừng đột ngột) — không tạo cột mới">⏩ Continue</button>
       <button class="btn-stop" id="btnStop">⏹ Dừng</button>
@@ -223,7 +225,7 @@
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;');
 
-const UI_VERSION = '0.28.3'; // PHẢI khớp APP_VERSION server.js
+const UI_VERSION = '0.28.4'; // PHẢI khớp APP_VERSION server.js
 (async () => {
   try {
     const v = (await (await fetch('/api/version')).json()).version;
@@ -438,6 +440,11 @@ function renderTable() {
   };
 
   // Cố định 4 cột trái: ASIN | Keyword | Volume | Phân loại (sticky left cộng dồn bề rộng)
+  // ⚠️ left tính từ ui.colW nên bảng PHẢI rộng đúng bằng tổng colgroup. Không đặt width thì
+  // table-layout:fixed sẽ CO các cột lại khi không đủ chỗ (đo thật: yêu cầu 96/200/64 →
+  // render 79/87/56) trong khi left vẫn là 0/96/296 ⇒ cột hở và chồng lên nhau. Càng nhiều
+  // cột phiên càng co nhiều, nên lỗi chỉ lộ ra khi bảng dài ngày.
+  const tableW = ui.colW.asin + ui.colW.kw + ui.colW.vol + ui.colW.tag + ui.colW.loai + sessions.length * ui.dateW;
   const L = { asin: 0, kw: ui.colW.asin, vol: ui.colW.asin + ui.colW.kw, tag: ui.colW.asin + ui.colW.kw + ui.colW.vol };
   const stick = (k, z) => `position:sticky;left:${L[k]}px;z-index:${z};background:#fff`;
   // Header
@@ -551,7 +558,7 @@ function renderTable() {
   }
 
   wrap.innerHTML = T.asins.length
-    ? `<table class="track tin">${cols}${head}<tbody>${body}</tbody></table>`
+    ? `<table class="track tin" style="width:${tableW}px">${cols}${head}<tbody>${body}</tbody></table>`
     : '<div style="padding:20px;color:var(--mut)">Chưa có ASIN nào — thêm ở mục "➕ Thêm ASIN + keywords" hoặc chạy check lần đầu.</div>';
   wrap.scrollLeft = keepL; wrap.scrollTop = keepT;
   bindResizers();
@@ -575,6 +582,9 @@ function bindResizers() {
           if (i < 5) col.style.width = ui.colW[fixed[i]] + 'px';
           else col.style.width = ui.dateW + 'px';
         });
+        // Bảng phải rộng đúng tổng cột, nếu không trình duyệt co cột lại và các cột dính lệch
+        const tbl = document.querySelector('.track');
+        if (tbl) tbl.style.width = [...colEls].reduce((n, c) => n + parseFloat(c.style.width || 0), 0) + 'px';
       };
       const up = () => { document.removeEventListener('mousemove', move); document.removeEventListener('mouseup', up); saveUi(); renderTable(); };
       document.addEventListener('mousemove', move);
@@ -796,9 +806,14 @@ function sessionLabel() {
   const p = (n) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
+// Ô 📢 ở đầu mục Run là CÔNG TẮC TỔNG của lượt chạy: tắt là cả lượt không quét ads, kể cả
+// ASIN đang bật 📢 riêng. Bật thì quyền quyết định trả về từng ASIN (⚙️ của ASIN đó).
+const runAdsScan = () => $('adsScanRun') ? $('adsScanRun').checked : true;
 function enabledTargets() {
+  const master = runAdsScan();
   return T.asins.filter((a) => a.enabled !== false)
-    .map((a) => ({ asin: a.asin, trackParent: a.trackParent, saveCompetitor: a.saveCompetitor, adsScan: a.adsScan !== false,
+    .map((a) => ({ asin: a.asin, trackParent: a.trackParent, saveCompetitor: a.saveCompetitor,
+      adsScan: master && a.adsScan !== false,
       kws: a.keywords.filter((k) => k.enabled !== false).map((k) => k.kw) }))
     .filter((t) => t.kws.length);
 }
@@ -853,8 +868,11 @@ $('btnRun').onclick = () => {
 $('btnContinue').onclick = async () => {
   const r = await (await fetch('/api/continue-targets')).json();
   if (!r.dateKey || !r.targets.length) return alert('Không có cột nào còn ô trống — dùng ▶ Run để tạo phiên mới');
-  $('status').textContent = `Tiếp tục cột "${r.dateKey}": ${r.asinCount} ASIN · ${r.kwCount} keyword còn thiếu`;
-  runTargets(r.targets, r.dateKey);
+  // Server trả cờ adsScan theo từng ASIN — công tắc tổng 📢 vẫn phải được tôn trọng
+  const master = runAdsScan();
+  const targets = r.targets.map((t) => ({ ...t, adsScan: master && t.adsScan !== false }));
+  $('status').textContent = `Tiếp tục cột "${r.dateKey}": ${r.asinCount} ASIN · ${r.kwCount} keyword còn thiếu${master ? '' : ' · KHÔNG quét ads'}`;
+  runTargets(targets, r.dateKey);
 };
 window.runAsin = (asin) => {
   const t = enabledTargets().find((x) => x.asin === asin);
@@ -1339,10 +1357,12 @@ window.__delUser = async (name) => {
     const chip = document.createElement('a');
     chip.href = '/user';
     chip.title = 'Tài khoản · agent · đăng xuất';
-    chip.style.cssText = 'margin-left:12px;font-size:12px;text-decoration:none;color:#fff;font-weight:700;'
+    // Chỉ trang Check Ranking có #status (mang margin-left:auto). Các trang khác không có nên
+    // chip phải TỰ đẩy sang phải, không thì nó dính ngay sau menu — đổi tab là nhảy chỗ.
+    chip.style.cssText = `${st ? 'margin-left:12px' : 'margin-left:auto'};font-size:12px;text-decoration:none;color:#fff;font-weight:700;`
       + `background:${me.user.role === 'admin' ? '#e5a400' : '#2455e6'};border-radius:9px;padding:3px 12px`;
     chip.textContent = '👤 ' + me.user.name + (me.actAs && me.actAs !== me.user.name ? ' → 📁' + me.actAs : '');
-    (st ? st.parentNode : document.querySelector('header'))?.appendChild(chip);
+    document.querySelector('header')?.appendChild(chip); // luôn cùng 1 chỗ: cuối header
   } catch {}
 })();
 </script>

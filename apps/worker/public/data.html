@@ -134,7 +134,7 @@
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const money = (v) => '$' + Number(v || 0).toFixed(2);
-const UI_VERSION = '0.28.3';
+const UI_VERSION = '0.28.4';
 (async () => {
   try { const v = (await (await fetch('/api/version')).json()).version; if (v !== UI_VERSION) throw new Error(v); }
   catch (e) { $('verWarn').style.display = 'block'; $('verWarn').textContent = `⚠️ Server phiên bản cũ (${e.message}) — hãy restart (npm start).`; }
@@ -296,6 +296,23 @@ function renderSignals(ev) {
 }
 
 loadAsins(); loadImports();
+
+/* ===== USER (góc phải header → trang /user) — trang Data trước đây THIẾU khối này nên
+   đổi sang tab Data là mất luôn tên tài khoản ===== */
+(async () => {
+  try {
+    const me = await (await fetch('/api/auth/me')).json();
+    if (!me.user) return; // chế độ local 1 người — không hiện
+    const st = document.getElementById('status');
+    const chip = document.createElement('a');
+    chip.href = '/user';
+    chip.title = 'Tài khoản · agent · đăng xuất';
+    chip.style.cssText = `${st ? 'margin-left:12px' : 'margin-left:auto'};font-size:12px;text-decoration:none;color:#fff;font-weight:700;`
+      + `background:${me.user.role === 'admin' ? '#e5a400' : '#2455e6'};border-radius:9px;padding:3px 12px`;
+    chip.textContent = '👤 ' + me.user.name + (me.actAs && me.actAs !== me.user.name ? ' → 📁' + me.actAs : '');
+    document.querySelector('header')?.appendChild(chip);
+  } catch {}
+})();
 </script>
 </body>
 </html>
