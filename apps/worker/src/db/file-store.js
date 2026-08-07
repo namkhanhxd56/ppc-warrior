@@ -138,7 +138,7 @@ export function listDataAsins() {
   const set = new Set();
   for (const a of Object.keys(readJson(METRICS_FILE(), {}))) set.add(a);
   for (const a of Object.keys(readJson(INVENTORY_FILE(), {}))) set.add(a);
-  for (const a of Object.keys(readJson(DAILY_FILE(), {}))) set.add(a);
+  for (const a of dailyAsins()) set.add(a);
   return [...set].sort();
 }
 
@@ -163,19 +163,64 @@ export function listImports(kind) {
    - ros/vid/sb/car: 0|1 | pv: ownPreviouslyViewed | va: variant asin rank thay (nếu chính vắng)
    - t: checkedAt — nhiều lần check trong ngày → lần CUỐI thắng
    Map thẳng sang bảng rank_checks khi lên Postgres. */
-const DAILY_FILE = () => path.join(userDataDir(), "daily-rank.json");
+/* TÁCH FILE THEO ASIN (07/08/2026). Trước đây tất cả nằm trong 1 file daily-rank.json, nên
+   MỖI lần điền lô 5 keyword là đọc + ghi lại TOÀN BỘ lịch sử của mọi ASIN. Đo trên dữ liệu
+   thật (165 byte/ô): 3 ASIN × 200 keyword × 365 ngày ≈ 35MB ⇒ mỗi lô ~69MB I/O, 40 lô/ASIN
+   ≈ 2,7GB cho một lượt quét. Tách ra thì mỗi lô chỉ chạm file của đúng ASIN đang quét, và
+   chi phí KHÔNG tăng khi thêm ASIN mới.
+   Chuyển đổi tự động, chạy 1 lần: tách file cũ ra rồi đổi tên thành *.migrated (giữ lại làm
+   bản dự phòng, không xoá). */
+const DAILY_DIR = () => path.join(userDataDir(), "daily");
+const DAILY_ASIN_FILE = (asin) => path.join(DAILY_DIR(), `${String(asin).toUpperCase()}.json`);
+const DAILY_LEGACY_FILE = () => path.join(userDataDir(), "daily-rank.json");
+
+function migrateDailyIfNeeded() {
+  const legacy = DAILY_LEGACY_FILE();
+  if (!fs.existsSync(legacy)) return;
+  const all = readJson(legacy, {});
+  fs.mkdirSync(DAILY_DIR(), { recursive: true });
+  for (const [asin, kws] of Object.entries(all)) {
+    const f = DAILY_ASIN_FILE(asin);
+    const cur = readJson(f, {}); // đã có file mới thì gộp, dữ liệu mới thắng
+    writeJsonAtomic(f, { ...kws, ...cur });
+  }
+  fs.renameSync(legacy, legacy + ".migrated");
+  console.log(`🔀 daily-rank.json → tách ${Object.keys(all).length} file theo ASIN (bản cũ giữ ở daily-rank.json.migrated)`);
+}
+
+/** Danh sách ASIN có dữ liệu daily. */
+function dailyAsins() {
+  migrateDailyIfNeeded();
+  try { return fs.readdirSync(DAILY_DIR()).filter((f) => f.endsWith(".json")).map((f) => f.slice(0, -5)); }
+  catch { return []; }
+}
+/** { keyword: { dateKey: cell } } của 1 ASIN. */
+function readDailyAsin(asin) {
+  migrateDailyIfNeeded();
+  return readJson(DAILY_ASIN_FILE(asin), {});
+}
+function writeDailyAsin(asin, kws) {
+  fs.mkdirSync(DAILY_DIR(), { recursive: true });
+  writeJsonAtomic(DAILY_ASIN_FILE(asin), kws);
+}
+/** Gộp mọi ASIN — CHỈ dùng cho bảng theo dõi (cần toàn cảnh); đường ghi không được dùng. */
+function readDailyAll() {
+  const out = {};
+  for (const a of dailyAsins()) out[a] = readJson(DAILY_ASIN_FILE(a), {});
+  return out;
+}
 
 export function saveDailyRanks(asin, checkedAt, results, dateKey) {
   ensureDirs();
-  const all = readJson(DAILY_FILE(), {});
+  const key = String(asin).toUpperCase();
+  const kws = readDailyAsin(key); // CHỈ file của ASIN này — không đụng ASIN khác
   const date = dateKey || String(checkedAt).slice(0, 10); // dateKey = nhãn PHIÊN QUÉT (Run tạo mới, Continue nối vào)
-  all[asin] = all[asin] || {};
   for (const x of results || []) {
     if (x.error) continue;
     const p = x.primary || {};
     const bestVar = (x.variants || []).find((v) => v.organicRank !== null);
-    all[asin][x.keyword] = all[asin][x.keyword] || {};
-    all[asin][x.keyword][date] = {
+    kws[x.keyword] = kws[x.keyword] || {};
+    kws[x.keyword][date] = {
       r: p.organicRank, page: p.organicPage, n: p.organicPosInPage,
       // 3 trạng thái ads, KHÔNG bao giờ ghi 0/0 giả vào chuỗi lịch sử:
       //   "_"  = KHÔNG QUÉT ads (user tắt 📢 cho ASIN này) — không có gì để nói
@@ -193,7 +238,7 @@ export function saveDailyRanks(asin, checkedAt, results, dateKey) {
       t: checkedAt
     };
   }
-  writeJsonAtomic(DAILY_FILE(), all);
+  writeDailyAsin(key, kws);
   // Tự đăng ký ASIN + keyword vào bảng theo dõi + ghi nhãn phiên
   trackingRegisterRun(asin, (results || []).filter((x) => !x.error).map((x) => x.keyword), date);
   // Gộp competitor snapshot của phiên (nếu có)
@@ -201,7 +246,7 @@ export function saveDailyRanks(asin, checkedAt, results, dateKey) {
 }
 
 export function getDailySeries(asin) {
-  return readJson(DAILY_FILE(), {})[asin] || {}; // { keyword: { date: {...} } }
+  return readDailyAsin(asin); // { keyword: { date: {...} } }
 }
 
 /* ===== BẢNG THEO DÕI RANKING (tracking) =====
@@ -253,8 +298,7 @@ export function trackingPatchAsin(asin, patch) {
   const key = String(asin).toUpperCase();
   if (patch.delete) { // xoá hẳn: cấu hình + toàn bộ lịch sử rank + metrics + competitor
     delete t.asins[key];
-    const daily = readJson(DAILY_FILE(), {}); delete daily[key];
-    writeJsonAtomic(DAILY_FILE(), daily);
+    try { fs.unlinkSync(DAILY_ASIN_FILE(key)); } catch {} // xoá ASIN = xoá đúng file của nó
     const met = readJson(METRICS_FILE(), {}); delete met[key];
     fs.writeFileSync(METRICS_FILE(), JSON.stringify(met, null, 1));
     const comp = readJson(COMPRANK_FILE(), {}); delete comp[key];
@@ -277,8 +321,8 @@ export function trackingPatchKeyword(asin, keyword, patch) {
   if (!t.asins[key]) return t;
   if (patch.delete) { // xoá keyword khỏi bảng + lịch sử của keyword đó
     delete t.asins[key].keywords[k];
-    const daily = readJson(DAILY_FILE(), {});
-    if (daily[key]) { delete daily[key][k]; writeJsonAtomic(DAILY_FILE(), daily); }
+    const kwsOf = readDailyAsin(key);
+    if (kwsOf[k]) { delete kwsOf[k]; writeDailyAsin(key, kwsOf); }
     writeTracking(t);
     return t;
   }
@@ -318,11 +362,13 @@ export function trackingSetConfig(cfg) {
 
 /** Xoá 1 ngày/phiên khỏi toàn bộ data (daily-rank, metrics, competitor, sessions). */
 export function trackingDeleteDate(dateKey) {
-  const daily = readJson(DAILY_FILE(), {});
-  for (const asin of Object.keys(daily)) {
-    for (const kw of Object.keys(daily[asin])) delete daily[asin][kw][dateKey];
+  // Xoá 1 cột thì phải duyệt mọi ASIN, nhưng chỉ ghi lại file nào thực sự có thay đổi
+  for (const asin of dailyAsins()) {
+    const kws = readDailyAsin(asin);
+    let touched = false;
+    for (const kw of Object.keys(kws)) if (kws[kw][dateKey]) { delete kws[kw][dateKey]; touched = true; }
+    if (touched) writeDailyAsin(asin, kws);
   }
-  writeJsonAtomic(DAILY_FILE(), daily);
   const met = readJson(METRICS_FILE(), {});
   for (const asin of Object.keys(met)) delete met[asin][dateKey];
   fs.writeFileSync(METRICS_FILE(), JSON.stringify(met, null, 1));
@@ -337,7 +383,7 @@ export function trackingDeleteDate(dateKey) {
 /** Bảng đầy đủ cho UI: cấu hình + series + metrics + phân loại PPC từ kho keyword. */
 export function getTrackingTable() {
   const t = getTracking();
-  const daily = readJson(DAILY_FILE(), {});
+  const daily = readDailyAll(); // bảng theo dõi cần toàn cảnh — chỗ DUY NHẤT đọc hết mọi ASIN
   const met = readJson(METRICS_FILE(), {});
   const bank = readJson(BANK_FILE(), {});
   // ASIN có trong daily nhưng chưa có tracking (data cũ) → tự thêm
@@ -386,7 +432,7 @@ export function getTrackingTable() {
 
 /** Keyword của 1 ASIN còn trống ở cột dateKey (giữ nguyên thứ tự đầu vào). */
 export function missingKeywords(asin, keywords, dateKey) {
-  const daily = readJson(DAILY_FILE(), {})[String(asin).toUpperCase()] || {};
+  const daily = readDailyAsin(asin);
   return (keywords || []).filter((kw) => !daily[kw]?.[dateKey]);
 }
 
