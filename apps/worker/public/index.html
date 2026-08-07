@@ -68,6 +68,7 @@
   .delta.u { color:#128a43; } .delta.d { color:#c0392b; }
   .tosOwn { color:#1a56c8; font-weight:700; }
   .tosUnknown { color:#c77b00; }
+  .adsOff { color:#aab3c2; font-weight:700; } /* "_" = không quét ads (khác "?" = không kết luận được) */
   .metr-line { display:block; line-height:17px; }
   .legend span { display:block; font-size:10px; font-weight:600; color:#8a94a8; line-height:17px; white-space:nowrap; }
   .acc-tag { display:inline-block; margin-top:5px; font-size:11.5px; font-weight:700; background:#fff1de; color:#b45309;
@@ -363,22 +364,28 @@ function orgChip(c, prevR) {
 function kwFieldLine(field, c) {
   if (!c) return '';
   // Nhãn dòng nằm ở cột "Loại" — ô chỉ hiện GIÁ TRỊ
+  // 3 trạng thái ads: "_" = KHÔNG quét (tắt 📢) · "?" = có quét nhưng không được serve ads · x/y = thật
+  const notScanned = (v) => v === '_';
   if (field === 'tos') {
-    const v = c.tos === '?' ? '<span class="tosUnknown" title="Phiên không được serve ads — không kết luận được">?</span>'
+    const v = notScanned(c.tos) ? '<span class="adsOff" title="ASIN này đang TẮT 📢 quét ads — không có số liệu ToS">_</span>'
+      : c.tos === '?' ? '<span class="tosUnknown" title="Phiên không được serve ads — không kết luận được">?</span>'
       : (String(c.tos || '0/0').split('/')[0] > 0 ? `<span class="tosOwn">${esc(c.tos)}</span>` : esc(c.tos || '0/0'));
     return `<span class="ln">${v}</span>`;
   }
-  if (field === 'ros') return `<span class="ln">${c.ros ? 'Yes' : 'No'}</span>`;
+  if (field === 'ros') return `<span class="ln">${notScanned(c.ros)
+    ? '<span class="adsOff" title="ASIN này đang TẮT 📢 quét ads">_</span>' : (c.ros ? 'Yes' : 'No')}</span>`;
   if (field === 'competitor') {
     return `<span class="ln">${c.va ? esc(c.va.asin) + ' #' + c.va.r : '—'}</span>`;
   }
   if (field === 'typeAds') {
+    // "_" là TRUTHY nên phải loại riêng, không thì tắt quét ads lại hiện đủ RoS/Video/SB
+    if (notScanned(c.tos)) return '<span class="ln"><span class="adsOff" title="ASIN này đang TẮT 📢 quét ads">_</span></span>';
     const t = [];
     if (String(c.tos || '').split('/')[1] > 0) t.push('ToS');
-    if (c.ros) t.push('RoS');
-    if (c.vid) t.push('Video');
-    if (c.sb) t.push('SB');
-    if (c.car) t.push('Carousel');
+    if (c.ros === 1) t.push('RoS');
+    if (c.vid === 1) t.push('Video');
+    if (c.sb === 1) t.push('SB');
+    if (c.car === 1) t.push('Carousel');
     return `<span class="ln">${t.length ? t.join(', ') : '—'}</span>`;
   }
   if (field === 'badge') {
@@ -1074,11 +1081,14 @@ function renderDetail() {
       : (bestVar ? `<span style="color:#8a6d1a">nhóm: Page ${bestVar.organicPage} No ${bestVar.organicPosInPage}</span> <span class="badge">xem dòng ↳</span>`
          : (x.variants?.length ? '<span class="badge">nhóm có sponsored</span>' : `<span class="nf" style="padding:1px 6px;border-radius:6px" title="Đã quét ${x.pagesScanned||3} trang">Not in top 150</span>`))) + badgeChips;
     const clean = p.organicRankClean !== null && p.organicRankClean !== p.organicRank ? `#${p.organicRankClean}` : (p.ownPreviouslyViewed ? 'n/a' : '=');
-    const tos = x.adsTilesServed === false
+    const noAds = x.adsScanned === false; // user tắt 📢 cho ASIN này → mọi cột ads là "_"
+    const off = '<span class="adsOff" title="ASIN này đang TẮT 📢 quét ads">_</span>';
+    const tos = noAds ? off
+      : x.adsTilesServed === false
       ? '<span class="tosUnknown" style="padding:1px 6px;border-radius:6px" title="0 SP tile toàn bộ trang quét (đã retry) — phiên không được serve ads, không kết luận được">?</span>'
       : `${p.tosPosition||0}/${p.tosTotal||0}`;
     const main = `<tr><td>${esc(x.keyword)}${snapBtn}</td><td>${org}</td><td>${clean}</td><td>${tos}</td>
-      <td>${p.rosPresent?'✅':'—'}</td><td>${p.videoPresent?'🎬':'—'}</td><td>${p.sbPresent?'✅':'—'}</td><td>${p.spCarouselPresent?'✅':'—'}</td>
+      <td>${noAds?off:(p.rosPresent?'✅':'—')}</td><td>${noAds?off:(p.videoPresent?'🎬':'—')}</td><td>${noAds?off:(p.sbPresent?'✅':'—')}</td><td>${noAds?off:(p.spCarouselPresent?'✅':'—')}</td>
       <td>${x.resultCount ? esc(x.resultCount) : '—'}</td></tr>`;
     const snapRow = x.snapshot?.length ? `<tr id="snap_${idx}" style="display:none"><td colspan="9">${renderSnap(x.snapshot, currentRun.asin)}</td></tr>` : '';
     const vars = (x.variants||[]).map(v =>
@@ -1119,9 +1129,11 @@ $('btnCsv').onclick = () => {
   const lines = [head.join(',')];
   for (const x of currentRun.results || []) {
     const p = x.primary || {};
+    const noAds = x.adsScanned === false; // "_" = không quét ads, khác "?" = không kết luận được
     lines.push([csvq(x.keyword), p.organicRank??'', p.organicPage??'', p.organicPosInPage??'',
-      p.organicRankClean??'', p.ownPreviouslyViewed?'PV':'', x.adsTilesServed===false?'?':`${p.tosPosition||0}/${p.tosTotal||0}`,
-      p.rosPresent?1:'', p.videoPresent?1:'', p.sbPresent?1:'', p.spCarouselPresent?1:'',
+      p.organicRankClean??'', p.ownPreviouslyViewed?'PV':'',
+      noAds?'_':(x.adsTilesServed===false?'?':`${p.tosPosition||0}/${p.tosTotal||0}`),
+      noAds?'_':(p.rosPresent?1:''), noAds?'_':(p.videoPresent?1:''), noAds?'_':(p.sbPresent?1:''), noAds?'_':(p.spCarouselPresent?1:''),
       csvq(x.resultCount||''), csvq((x.variants||[]).map(v=>v.asin).join(' ')), csvq(x.error||'')].join(','));
   }
   const a = document.createElement('a');

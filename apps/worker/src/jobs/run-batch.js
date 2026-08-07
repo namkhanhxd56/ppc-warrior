@@ -22,6 +22,7 @@ export async function runBatch({ page, asin, keywords, opts, log, shouldStop, on
   // Chế độ COMPETITOR: chỉ cần ads + top 10 organic → quét 1 trang, luôn lưu snapshot
   if (opts.competitorMode) { opts = { ...opts, maxPages: 1, saveSnapshot: true }; }
   const maxPages = Math.min(Number(opts.maxPages) || 3, 5);
+  const mode = adsMode(opts.adsScan); // BẬT/TẮT quét ads theo cờ 📢 của ASIN (mặc định bật)
 
   /* ===== 1. Resolve nhóm biến thể (cache file, TTL 7 ngày) ===== */
   let siblings = [];
@@ -91,7 +92,7 @@ export async function runBatch({ page, asin, keywords, opts, log, shouldStop, on
     const kw = keywords[i];
 
     try {
-      let { pagesSlots, resultCount, adsTilesServed } = await scrapeKeyword(page, kw, maxPages, log, opts.debug, opts.adsScan !== false);
+      let { pagesSlots, resultCount, adsTilesServed } = await scrapeKeyword(page, kw, maxPages, log, opts.debug, mode);
       let record = checkAcrossPages(pagesSlots, asin, siblings);
 
       // 🐞 Debug: lưu slots đã phân loại để đối chiếu với HTML (kiểm chứng ToS/sponsored)
@@ -109,12 +110,13 @@ export async function runBatch({ page, asin, keywords, opts, log, shouldStop, on
         }
       }
 
-      const display = fmt(record, adsTilesServed);
+      const display = fmt(record, adsTilesServed, mode.on);
       log(`🔍 [${i + 1}/${keywords.length}] "${kw}" → ${display}`);
 
       results.push({
         keyword: kw,
         resultCount, // "over 30,000" — số sản phẩm cạnh tranh
+        adsScanned: mode.on, // false = user tắt 📢 → cột ads ghi "_" (không quét), khác "?" (không kết luận được)
         adsTilesServed, // false = 0 SP tile cả N trang sau retry → ToS/RoS không tin được
         primary: record.primary,
         variants: record.variants,
@@ -146,18 +148,19 @@ export async function runBatch({ page, asin, keywords, opts, log, shouldStop, on
   const missed = results
     .map((r, idx) => ({ r, idx }))
     .filter(({ r }) => needsAdsRetry(r));
-  if (missed.length && !shouldStop() && adsMode(opts.adsScan).retrySweep) {
+  if (missed.length && !shouldStop() && mode.retrySweep) {
     log(`⟳ Quét bù ${missed.length} keyword bị "?" (ads không được serve ở lượt đầu)...`);
     for (const { r, idx } of missed) {
       if (shouldStop()) break;
       try {
         await sleep(1000 + Math.random() * 1000);
-        let { pagesSlots, resultCount, adsTilesServed } = await scrapeKeyword(page, r.keyword, maxPages, log, opts.debug);
+        let { pagesSlots, resultCount, adsTilesServed } = await scrapeKeyword(page, r.keyword, maxPages, log, opts.debug, mode);
         if (adsTilesServed) {
           let record = checkAcrossPages(pagesSlots, asin, siblings);
           results[idx] = {
             keyword: r.keyword,
             resultCount,
+            adsScanned: true, // quét bù chỉ chạy khi đang BẬT quét ads
             adsTilesServed: true,
             primary: record.primary,
             variants: record.variants,
@@ -217,8 +220,7 @@ export async function runBatch({ page, asin, keywords, opts, log, shouldStop, on
   return runId;
 }
 
-async function scrapeKeyword(page, keyword, maxPages, log, debug = false, adsScan = true) {
-  const mode = adsMode(adsScan); // toàn bộ hành vi phục vụ ads nằm trong src/parser/ads-scan.js
+async function scrapeKeyword(page, keyword, maxPages, log, debug = false, mode = adsMode(true)) {
   const pagesSlots = [];
   let resultCount = null;
   for (let p = 1; p <= maxPages; p++) {
@@ -275,7 +277,7 @@ async function scrapeKeyword(page, keyword, maxPages, log, debug = false, adsSca
   return { pagesSlots, resultCount, adsTilesServed: adsServed(pagesSlots) };
 }
 
-function fmt(record, adsTilesServed = true) {
+function fmt(record, adsTilesServed = true, adsScanned = true) {
   const pr = record.primary;
   const parts = [];
   if (pr.organicRank !== null) {
@@ -286,7 +288,8 @@ function fmt(record, adsTilesServed = true) {
   } else {
     parts.push("Not in top pages");
   }
-  if (!adsTilesServed) parts.push("ToS ? (ads không được serve)");
+  if (!adsScanned) parts.push("ToS _ (không quét ads)");
+  else if (!adsTilesServed) parts.push("ToS ? (ads không được serve)");
   else if (pr.tosTotal > 0 || pr.tosPosition > 0) parts.push(`ToS ${pr.tosPosition}/${pr.tosTotal}`);
   if (pr.rosPresent) parts.push("RoS");
   if (pr.videoPresent) parts.push("Video");

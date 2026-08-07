@@ -168,11 +168,15 @@ export function saveDailyRanks(asin, checkedAt, results, dateKey) {
     all[asin][x.keyword] = all[asin][x.keyword] || {};
     all[asin][x.keyword][date] = {
       r: p.organicRank, page: p.organicPage, n: p.organicPosInPage,
-      // adsTilesServed === false → phiên không được serve SP tile: "?" (không kết
-      // luận được), KHÔNG ghi 0/0 giả vào chuỗi lịch sử
-      tos: x.adsTilesServed === false ? "?" : `${p.tosPosition || 0}/${p.tosTotal || 0}`,
-      ros: p.rosPresent ? 1 : 0, vid: p.videoPresent ? 1 : 0,
-      sb: p.sbPresent ? 1 : 0, car: p.spCarouselPresent ? 1 : 0,
+      // 3 trạng thái ads, KHÔNG bao giờ ghi 0/0 giả vào chuỗi lịch sử:
+      //   "_"  = KHÔNG QUÉT ads (user tắt 📢 cho ASIN này) — không có gì để nói
+      //   "?"  = có quét nhưng phiên không được serve SP tile → không kết luận được
+      //   x/y  = số liệu thật
+      tos: x.adsScanned === false ? "_" : (x.adsTilesServed === false ? "?" : `${p.tosPosition || 0}/${p.tosTotal || 0}`),
+      ros: x.adsScanned === false ? "_" : (p.rosPresent ? 1 : 0),
+      vid: x.adsScanned === false ? "_" : (p.videoPresent ? 1 : 0),
+      sb: x.adsScanned === false ? "_" : (p.sbPresent ? 1 : 0),
+      car: x.adsScanned === false ? "_" : (p.spCarouselPresent ? 1 : 0),
       pv: p.ownPreviouslyViewed ? 1 : 0,
       bdg: (p.ownBadges || []).length ? p.ownBadges : undefined, // Overall Pick, Amazon's Choice...
       va: p.organicRank === null && bestVar ? { asin: bestVar.asin, r: bestVar.organicRank } : null,
