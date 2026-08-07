@@ -9,6 +9,10 @@ import * as store from "../db/file-store.js";
 
 const VARIANT_TTL_DAYS = 7;
 
+/* Lỗi báo hiệu PAGE/BROWSER đã chết (máy ngủ, Chrome crash, OOM, target bị đóng) — khác hẳn
+   lỗi mạng/timeout của 1 keyword: thử lại trên cùng page cũng vô ích, phải mở trình duyệt mới. */
+const DEAD_PAGE_RE = /detached|Target closed|Session closed|Protocol error|browser has disconnected|crashed|Connection closed/i;
+
 /**
  * @param {object} p
  * @param {import('puppeteer').Page} p.page
@@ -18,7 +22,7 @@ const VARIANT_TTL_DAYS = 7;
  * @param {(msg:string)=>void} p.log
  * @param {()=>boolean} p.shouldStop
  */
-export async function runBatch({ page: page0, asin, keywords, opts, log, shouldStop, onBatch, renewPage }) {
+export async function runBatch({ page: page0, asin, keywords, opts, log, shouldStop, onBatch, renewPage, onPages, shouldRenew }) {
   // page có thể bị THAY giữa chừng khi làm mới trình duyệt (xem "làm mới định kỳ" bên dưới)
   let page = page0;
   // Chế độ COMPETITOR: chỉ cần ads + top 10 organic → quét 1 trang, luôn lưu snapshot
@@ -70,6 +74,9 @@ export async function runBatch({ page: page0, asin, keywords, opts, log, shouldS
   const BATCH_SIZE = Math.max(1, Number(opts.batchSize) || 5);
   const RECYCLE_PAGES = Math.max(50, Number(opts.recycleAfterPages) || 400); // làm mới trình duyệt sau ngần này trang
   let pagesScannedSinceRenew = 0;
+  const MAX_DEAD_RECOVERIES = 5; // trần cứu trình duyệt trong 1 ASIN — hỏng liên tục thì dừng hẳn
+  let deadRecoveries = 0;
+  const retriedAfterDead = new Set();
   const results = [];
   let buf = [];
   async function flushBatch(why) {
@@ -140,6 +147,30 @@ export async function runBatch({ page: page0, asin, keywords, opts, log, shouldS
       record.competitorSnapshot = null;
       record = null;
     } catch (e) {
+      /* TRÌNH DUYỆT CHẾT GIỮA CHỪNG (máy ngủ/tắt, Chrome crash, OOM):
+         Gặp thật 07/08/2026 — máy ngủ ở keyword 4/19, page bị detach, rồi 15 keyword sau đó
+         CHẾT HẾT cùng một lỗi vì không ai phát hiện page đã hỏng. Với máy treo quét cả ngày
+         thì ngủ/thức là chuyện chắc chắn xảy ra, nên phải tự hồi phục. */
+      if (DEAD_PAGE_RE.test(e.message) && !shouldStop()) {
+        if (renewPage && deadRecoveries < MAX_DEAD_RECOVERIES && !retriedAfterDead.has(kw)) {
+          deadRecoveries++;
+          retriedAfterDead.add(kw); // mỗi keyword chỉ cứu 1 lần, tránh lặp vô hạn
+          log(`⚠️ Trình duyệt hỏng ở "${kw}" (${e.message.slice(0, 48)}) — mở lại rồi quét lại keyword này`);
+          await flushBatch("trước khi mở lại trình duyệt");
+          try {
+            page = await renewPage();
+            pagesScannedSinceRenew = 0;
+            i--; // quét lại ĐÚNG keyword vừa hỏng
+            continue;
+          } catch (e2) {
+            log(`🚨 Mở lại trình duyệt thất bại: ${e2.message}`);
+          }
+        }
+        // Không cứu được → dừng ASIN này luôn, đừng để 100 keyword cùng chết một lỗi
+        log(`🚨 Trình duyệt đã chết — dừng ASIN ${asin} tại đây. Các keyword còn lại để TRỐNG, bấm ⏩ Continue để quét nốt.`);
+        results.push({ keyword: kw, error: e.message });
+        break;
+      }
       log(`⚠️ [${i + 1}/${keywords.length}] "${kw}" lỗi: ${e.message}`);
       results.push({ keyword: kw, error: e.message });
     }
@@ -149,7 +180,10 @@ export async function runBatch({ page: page0, asin, keywords, opts, log, shouldS
        recycle" là sai đơn vị. Chrome sống lâu qua hàng trăm lượt tải trang sẽ phình bộ nhớ.
        Chỉ làm mới GIỮA 2 KEYWORD (điểm an toàn) và sau khi đã điền hết lô đang chờ. */
     pagesScannedSinceRenew += Number(pagesThisKw) || maxPages;
-    if (renewPage && pagesScannedSinceRenew >= RECYCLE_PAGES && i < keywords.length - 1 && !shouldStop()) {
+    onPages?.(Number(pagesThisKw) || maxPages); // agent cộng dồn cho CẢ vòng đời browser
+    // shouldRenew do agent quyết (đếm xuyên job); không có thì dùng bộ đếm nội bộ của ASIN này
+    const needRenew = shouldRenew ? shouldRenew() : pagesScannedSinceRenew >= RECYCLE_PAGES;
+    if (renewPage && needRenew && i < keywords.length - 1 && !shouldStop()) {
       await flushBatch("trước khi làm mới trình duyệt");
       log(`♻️ Đã quét ${pagesScannedSinceRenew} trang — làm mới trình duyệt cho nhẹ bộ nhớ`);
       try {

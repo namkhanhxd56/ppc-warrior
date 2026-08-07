@@ -63,7 +63,7 @@ async function getBrowser(zip, log) {
   if (hold?.browser?.connected === false) { hold = null; } // Chrome chết ngoài ý muốn
   if (hold) return hold.browser;
   const browser = await launchBrowser();
-  hold = { browser, verified: false, lastUsed: Date.now() };
+  hold = { browser, verified: false, lastUsed: Date.now(), pages: 0 };
   return browser;
 }
 /** Page mới + zip + (lần đầu của browser này) kiểm session. */
@@ -138,6 +138,10 @@ async function runJob(job) {
     const runId = await runBatch({
       page, asin: p.asin, keywords: p.keywords,
       opts: { ...p, recycleAfterPages: RECYCLE_PAGES }, log: send, shouldStop: () => stopping,
+      // Bộ đếm trang phải SỐNG QUA NHIỀU JOB: mỗi job là 1 ASIN, nếu để runBatch tự đếm thì
+      // nó reset về 0 mỗi job ⇒ browser dùng chung chạy vài nghìn trang vẫn không được làm mới.
+      onPages: (n) => { if (hold) hold.pages += n; },
+      shouldRenew: () => !!hold && hold.pages >= RECYCLE_PAGES,
       // Quét nhiều trang thì Chrome phình bộ nhớ → runBatch gọi cái này để thay browser mới
       renewPage: async () => {
         try { await page.close(); } catch {}
