@@ -972,29 +972,31 @@ export function activeSession() {
   };
 }
 
-/** Bấm ⏹ Dừng — dọn sạch cả hàng đợi, không chỉ job đang chạy:
- *  - running còn heartbeat  → gắn cờ, agent tự dừng sau lô hiện tại
- *  - running mất heartbeat  → hủy luôn (agent đã chết, không ai báo xong) — nếu không thì
- *    job treo đó chiếm hàng đợi vĩnh viễn và khóa Run không bao giờ nhả
- *  - pending                → hủy, nếu không agent dừng job này xong lại bốc job kế chạy tiếp
- *  Trả về {stopping, cancelled}. */
+/** Bấm ⏹ Dừng — ĐÓNG SỔ NGAY mọi job chưa xong, cả pending lẫn running.
+ *
+ *  Trước đây job đang chạy chỉ được GẮN CỜ và giữ nguyên status "running", chờ agent tự
+ *  báo xong. Hậu quả: khóa hàng đợi không nhả, người dùng bấm Dừng rồi bấm Run vẫn bị báo
+ *  "hàng đợi đang thuộc lượt chạy khác" — Dừng nhìn như không có tác dụng. Tệ hơn, nếu agent
+ *  đã tắt/mất mạng thì không bao giờ có ai báo xong, và trong 5 phút chờ hết heartbeat thì
+ *  Dừng cũng bó tay.
+ *  Giờ Dừng là dứt khoát: status → "cancelled" (nhả khóa tức thì) VÀ stopRequested = true
+ *  (agent đọc được ở lô kế tiếp rồi tự bỏ dở). Dữ liệu đã quét không mất — mỗi lô 5 keyword
+ *  đã được ghi qua /api/agent/partial trước đó rồi.
+ *  Trả về {stopping, cancelled} = số job đang chạy / đang chờ bị đóng sổ. */
 export function requestStopJobs() {
   const jobs = readJobs();
-  const now = Date.now();
+  const now = new Date().toISOString();
   let stopping = 0, cancelled = 0;
-  const kill = (j, why) => {
-    j.status = "cancelled"; j.finishedAt = new Date().toISOString();
-    j.logs.push(`⏹ ${why}`); cancelled++;
-  };
   for (const j of jobs) {
-    if (j.status === "pending") { kill(j, "Đã hủy khi còn chờ trong hàng đợi"); continue; }
-    if (j.status !== "running") continue;
-    const beat = new Date(j.lastSeen || j.startedAt || 0).getTime();
-    if (now - beat > JOB_STALE_MS) { kill(j, `Đã hủy — mất heartbeat >${JOB_STALE_MS / 60000} phút, agent không còn chạy`); continue; }
-    if (j.stopRequested) continue;
+    if (j.status !== "pending" && j.status !== "running") continue;
+    const wasRunning = j.status === "running";
     j.stopRequested = true;
-    j.logs.push("⏹ Nhận yêu cầu dừng — agent sẽ dừng sau lô hiện tại");
-    stopping++;
+    j.status = "cancelled";
+    j.finishedAt = now;
+    j.logs.push(wasRunning
+      ? "⏹ Đã dừng theo yêu cầu — agent sẽ bỏ dở ở lô kế tiếp, kết quả đã quét vẫn giữ"
+      : "⏹ Đã hủy khi còn chờ trong hàng đợi");
+    wasRunning ? stopping++ : cancelled++;
   }
   if (stopping || cancelled) writeJobs(jobs);
   return { stopping, cancelled };
@@ -1009,10 +1011,15 @@ export function isStopRequested(id) {
   return !!j && (j.stopRequested === true || j.status === "cancelled");
 }
 
+// Job đã bị ⏹ Dừng đóng sổ thì agent báo về muộn KHÔNG được hồi sinh nó: làm vậy sẽ dựng
+// lại một job "running/done" sau khi người dùng đã dọn hàng đợi và bắt đầu lượt mới.
+// Chỉ chặn việc đổi trạng thái — dữ liệu quét được vẫn lưu bình thường ở /api/agent/result.
+const finalized = (j) => !j || j.status === "cancelled";
+
 export function completeJob(id, runId) {
   const jobs = readJobs();
   const j = jobs.find((x) => x.id === id);
-  if (!j) return;
+  if (finalized(j)) return;
   j.status = "done"; j.resultRunId = runId; j.finishedAt = new Date().toISOString();
   writeJobs(jobs);
 }
@@ -1020,7 +1027,7 @@ export function completeJob(id, runId) {
 export function failJob(id, error) {
   const jobs = readJobs();
   const j = jobs.find((x) => x.id === id);
-  if (!j) return;
+  if (finalized(j)) return;
   j.status = "error"; j.error = String(error); j.finishedAt = new Date().toISOString();
   writeJobs(jobs);
 }
