@@ -63,20 +63,20 @@ Stealth (từ 16/07/2026): dùng `puppeteer-extra-plugin-stealth` (16 evasion: w
 
 - Team mở UI trên Railway: nhập keyword, bấm Kiểm tra → job vào hàng đợi; đặt lịch daily → scheduler xếp job đúng giờ
 - Agent trên máy cá nhân poll 15s/lần, kéo job về chạy ngầm (Chrome cửa sổ ngoài màn hình), đẩy kết quả lên server — cả team xem chung
-- Máy tắt → job chờ trên server, mở máy agent tự chạy bù; job treo >30 phút tự trả lại hàng đợi
+- Máy tắt → job chờ trên server, mở máy agent tự chạy bù; job mất heartbeat >5 phút tự trả lại
+  hàng đợi kèm ĐÚNG phần keyword còn thiếu (không quét trùng). Hàng đợi single-flight: chỉ 1 job
+  chạy tại một thời điểm, và mỗi lượt bấm Run giữ hàng đợi tới khi xếp hết (⏹ Dừng để nhả).
 - Scrape bằng IP dân cư thật của từng người — chống detect tốt hơn mọi loại server/proxy
 
-**Cài agent trên máy thành viên:**
+**Cài agent trên máy thành viên** — 1 lệnh, không cần git, không lưu mật khẩu.
+Lấy lệnh sẵn token ở UI: mục **🛰 Agent** → *Tạo token*.
 ```bash
-# 1. Copy thư mục worker về máy (git clone / copy)
-cd worker && npm install
-# 2. Sửa .env: bỏ comment 3 dòng trong mục AGENT
-#    SERVER_URL=https://xxx.up.railway.app
-#    WORKER_PASSWORD=(mật khẩu trên Railway)
-#    AGENT_NAME=ten-cua-ban
-# 3. Chạy (để cửa sổ Terminal chạy nền):
-npm run agent
+curl -fsSL https://xxx.up.railway.app/setup-agent.sh | bash -s -- https://xxx.up.railway.app <TOKEN>
+cd ~/ppc-warrior-agent && npm run agent   # để cửa sổ Terminal chạy nền
 ```
+Script tự tải bundle từ chính server, `npm install`, và ghi `.env`
+(`SERVER_URL` / `AGENT_TOKEN` / `AGENT_NAME` / `HEADFUL=0` / `CHROME_CHANNEL=chrome` / `WORKER_PROFILE=1`).
+Token gắn với tài khoản người dùng và thu hồi được ở UI. Cập nhật agent = chạy lại đúng lệnh trên.
 
 ## Triển khai lên Railway
 
@@ -86,10 +86,12 @@ npm run agent
 2. **Settings → Root Directory** = `ppc-warrior/apps/worker` (nếu repo là cả dự án)
 3. **BẮT BUỘC — Volume**: right-click service → Attach Volume → mount path **`/app/data`**
    (toàn bộ kết quả, daily-rank, cookies, chrome-profile nằm đây — không gắn là MẤT SẠCH mỗi lần deploy)
-4. **Variables**: thêm `WORKER_PASSWORD=matkhau-cua-ban` (domain Railway là public, bắt buộc đặt)
+4. **Variables**: `RUN_MODE=queue` (server chỉ chạy UI + hàng đợi, KHÔNG mở Chrome — agent trên máy cá nhân quét)
 5. **Settings → Region**: chọn **US West/US East**
 6. **Settings → Networking → Generate Domain** → mở `https://xxx.up.railway.app`
-   (hộp đăng nhập: user gõ gì cũng được, password = WORKER_PASSWORD) → vào UI đặt zip code
+   → đăng ký tài khoản đầu tiên (tài khoản này là admin, sở hữu dữ liệu gốc), rồi vào UI đặt zip code.
+   Người sau vào bằng **mã mời** do admin cấp; mỗi người có phân vùng dữ liệu riêng.
+   (`WORKER_PASSWORD` chỉ còn là cơ chế dự phòng cho bản cũ chưa có tài khoản.)
 
 Vận hành: deploy lại = push git; log xem trong tab Deployments. Lịch daily chạy 24/7.
 ⚠️ Lưu ý thật: IP Railway là IP datacenter (Google Cloud) — tốt hơn hẳn IP Việt Nam về location/ads,
