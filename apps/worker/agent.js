@@ -97,7 +97,17 @@ async function runJob(job) {
     store.saveAsinSettings(p.asin, { trackParent: !!p.checkVariants });
     const runId = await runBatch({
       page, asin: p.asin, keywords: p.keywords,
-      opts: p, log: send, shouldStop: () => false
+      opts: p, log: send, shouldStop: () => false,
+      // Đẩy TỪNG LÔ lên server ngay khi runBatch điền xong lô đó (mặc định 5 keyword, lô
+      // cuối của ASIN là phần dư). Lỗi mạng ở đây không làm hỏng lượt quét: dữ liệu đã nằm
+      // ở store cục bộ, và bản run đầy đủ vẫn được đẩy lại ở cuối job.
+      onBatch: async (batch) => {
+        await logger.flush(); // log của lô này lên trước cho khớp thứ tự
+        await api("/api/agent/partial", {
+          jobId: job.id, asin: p.asin, dateKey: p.dateKey || null,
+          competitorMode: !!p.competitorMode, results: batch
+        });
+      }
     });
 
     // Đẩy nguyên bản run (đã lưu local làm bản dự phòng) lên server cho team xem

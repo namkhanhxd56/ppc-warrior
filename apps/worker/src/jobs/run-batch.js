@@ -2,6 +2,7 @@
 
 import fs from "fs";
 import { serpParserSource, isBotCheckPage } from "../parser/serp-parser.js";
+import { adsMode, countSpTiles, adsServed, needsAdsRetry, waitForRender, shouldVerifyReload } from "../parser/ads-scan.js";
 import { checkAcrossPages } from "../parser/rank-aggregator.js";
 import { extractVariantsFromProductPage } from "../scraper/variant-resolver.js";
 import * as store from "../db/file-store.js";
@@ -17,7 +18,7 @@ const VARIANT_TTL_DAYS = 7;
  * @param {(msg:string)=>void} p.log
  * @param {()=>boolean} p.shouldStop
  */
-export async function runBatch({ page, asin, keywords, opts, log, shouldStop }) {
+export async function runBatch({ page, asin, keywords, opts, log, shouldStop, onBatch }) {
   // Chế độ COMPETITOR: chỉ cần ads + top 10 organic → quét 1 trang, luôn lưu snapshot
   if (opts.competitorMode) { opts = { ...opts, maxPages: 1, saveSnapshot: true }; }
   const maxPages = Math.min(Number(opts.maxPages) || 3, 5);
@@ -54,19 +55,36 @@ export async function runBatch({ page, asin, keywords, opts, log, shouldStop }) 
     siblings = (variantInfo.childAsins || []).filter((a) => a !== asin);
   }
 
-  /* ===== 2. Check từng keyword tuần tự ===== */
+  /* ===== 2. Check từng keyword tuần tự, ĐIỀN KẾT QUẢ THEO LÔ =====
+     Luật lô (chốt 07/08/2026): cứ đủ BATCH_SIZE keyword thì điền 1 lần; phần dư cuối ASIN
+     điền nốt theo đúng số còn lại rồi mới sang ASIN kế.
+       3 keyword  → 1 lô (3)
+       13 keyword → 5 + 5 + 3
+     Vì sao không ghi từng keyword: mỗi lần ghi là đọc+ghi lại TOÀN BỘ daily-rank.json, và
+     với agent còn là 1 request lên Railway (~0,42s RTT). Lô 5 giảm 5 lần cả hai.
+     Vì sao không dồn tới cuối ASIN: 1 ASIN có thể 200 keyword (~20 phút) — đứt là mất sạch,
+     và bảng trên web đứng im suốt lượt quét. */
+  const BATCH_SIZE = Math.max(1, Number(opts.batchSize) || 5);
   const results = [];
-  // GHI NGAY từng keyword xong (không đợi hết ASIN): đứt giữa chừng không mất dữ liệu,
-  // Continue chính xác đến từng keyword, bảng theo dõi cập nhật trực tiếp trong lúc chạy
-  const persistOne = (res) => {
-    if (!res || res.error) return;
+  let buf = [];
+  async function flushBatch(why) {
+    if (!buf.length) return;
+    const batch = buf; buf = [];
     const now = new Date().toISOString();
     if (opts.competitorMode) {
-      store.saveCompetitorAgg(asin, opts.dateKey || now.slice(0, 10), [res]);
+      store.saveCompetitorAgg(asin, opts.dateKey || now.slice(0, 10), batch);
     } else {
-      store.saveDailyRanks(asin, now, [res], opts.dateKey); // tự đăng ký tracking + gộp competitor nếu có snapshot
+      store.saveDailyRanks(asin, now, batch, opts.dateKey); // tự đăng ký tracking + gộp competitor nếu có snapshot
     }
-  };
+    log(`💾 Điền ${batch.length} keyword vào bảng${why ? ` (${why})` : ""}`);
+    // onBatch: agent đẩy lô này lên server ngay → bảng trên web nhích theo từng lô, và
+    // agent chết giữa ASIN cũng chỉ mất tối đa BATCH_SIZE keyword.
+    if (onBatch) {
+      try { await onBatch(batch); }
+      catch (e) { log(`⚠️ Đẩy lô lên server lỗi: ${e.message} — dữ liệu vẫn nằm ở máy agent`); }
+    }
+  }
+  const queueResult = (res) => { if (res && !res.error) buf.push(res); };
   const groupAsins = new Set([asin, ...siblings]);
   for (let i = 0; i < keywords.length; i++) {
     if (shouldStop()) { log("⏹ Đã dừng theo yêu cầu."); break; }
@@ -105,7 +123,8 @@ export async function runBatch({ page, asin, keywords, opts, log, shouldStop }) 
         pagesScanned: record.pagesScanned,
         snapshot: opts.saveSnapshot ? record.competitorSnapshot : undefined
       });
-      persistOne(results[results.length - 1]); // điền kết quả vào bảng NGAY
+      queueResult(results[results.length - 1]);
+      if (buf.length >= BATCH_SIZE) await flushBatch();
 
       /* ===== Giải phóng bộ nhớ trước keyword kế ===== */
       pagesSlots.length = 0;
@@ -119,14 +138,15 @@ export async function runBatch({ page, asin, keywords, opts, log, shouldStop }) 
 
     await sleep(500 + Math.random() * 600);
   }
+  await flushBatch("lô cuối của ASIN"); // phần dư: 13 keyword → 5 + 5 + 3
 
-  /* ===== 2b. LƯỢT QUÉT BÙ: keyword bị "?" (ads không được serve) thử lại 1 lần cuối batch =====
+  /* ===== 2b. LƯỢT QUÉT BÙ (chỉ khi BẬT quét ads): keyword bị "?" thử lại 1 lần cuối ASIN =====
      Amazon serve ads theo từng request — cùng phiên, vài phút sau thường được serve lại.
      Chỉ chạy khi user chưa bấm dừng; kết quả mới CHỈ thay thế nếu lần này thấy SP tile. */
   const missed = results
     .map((r, idx) => ({ r, idx }))
-    .filter(({ r }) => !r.error && r.adsTilesServed === false);
-  if (missed.length && !shouldStop() && opts.adsScan !== false) {
+    .filter(({ r }) => needsAdsRetry(r));
+  if (missed.length && !shouldStop() && adsMode(opts.adsScan).retrySweep) {
     log(`⟳ Quét bù ${missed.length} keyword bị "?" (ads không được serve ở lượt đầu)...`);
     for (const { r, idx } of missed) {
       if (shouldStop()) break;
@@ -146,7 +166,8 @@ export async function runBatch({ page, asin, keywords, opts, log, shouldStop }) 
             pagesScanned: record.pagesScanned,
             snapshot: opts.saveSnapshot ? record.competitorSnapshot : undefined
           };
-          persistOne(results[idx]); // ghi đè kết quả mới (cùng keyword + cùng phiên → lần cuối thắng)
+          queueResult(results[idx]); // ghi đè kết quả mới (cùng keyword + cùng phiên → lần cuối thắng)
+          if (buf.length >= BATCH_SIZE) await flushBatch("quét bù");
           log(`   ✅ "${r.keyword}" → ${fmt(record, true)} (quét bù thành công)`);
           record.competitorSnapshot = null;
           record = null;
@@ -159,6 +180,7 @@ export async function runBatch({ page, asin, keywords, opts, log, shouldStop }) 
         log(`   ⚠️ Quét bù "${r.keyword}" lỗi: ${e.message} — giữ kết quả cũ`);
       }
     }
+    await flushBatch("quét bù, lô cuối");
   }
 
   /* ===== 2c. ẢNH SẢN PHẨM khi ASIN KHÔNG xuất hiện trên SERP =====
@@ -189,23 +211,23 @@ export async function runBatch({ page, asin, keywords, opts, log, shouldStop }) 
     opts: { maxPages, checkVariants: !!opts.checkVariants },
     results
   });
-  // Chuỗi daily/competitor ĐÃ GHI TỪNG KEYWORD ngay trong lúc chạy (persistOne) — không ghi gộp lại
+  // Chuỗi daily/competitor ĐÃ GHI THEO LÔ ngay trong lúc chạy (flushBatch) — không ghi gộp lại
   if (asinImage) store.trackingSetImage(asin, asinImage);
-  log(`💾 Đã lưu kết quả: ${runId} (${results.length} keyword) — chuỗi daily đã điền trực tiếp từng keyword`);
+  log(`💾 Đã lưu kết quả: ${runId} (${results.length} keyword) — chuỗi daily đã điền theo lô ${BATCH_SIZE} keyword`);
   return runId;
 }
 
 async function scrapeKeyword(page, keyword, maxPages, log, debug = false, adsScan = true) {
+  const mode = adsMode(adsScan); // toàn bộ hành vi phục vụ ads nằm trong src/parser/ads-scan.js
   const pagesSlots = [];
   let resultCount = null;
   for (let p = 1; p <= maxPages; p++) {
     const url = `https://www.amazon.com/s?k=${encodeURIComponent(keyword)}&page=${p}`;
 
-    // Mỗi trang: tối đa 2 lượt load. Lượt 2 CHỈ khi lượt 1 ra 0 SP tile
-    // (nghi Amazon không serve ads cho phiên — nguồn gốc lỗi ToS 0/0 giả, audit 16/07/2026).
+    // Mỗi trang: tối đa 2 lượt load (chỉ khi BẬT quét ads). Lượt 2 CHỈ khi lượt 1 ra 0 SP
+    // tile — nghi Amazon không serve ads cho phiên (nguồn gốc lỗi ToS 0/0 giả, audit 16/07).
     let best = null; // parse có nhiều SP tile nhất giữa các lượt
-    const maxLoads = adsScan ? 2 : 1; // tắt quét ads → 1 lượt load, không reload kiểm chứng
-    for (let load = 1; load <= maxLoads; load++) {
+    for (let load = 1; load <= mode.maxLoads; load++) {
       let html = null;
       for (let attempt = 1; attempt <= 2; attempt++) {
         await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
@@ -220,25 +242,9 @@ async function scrapeKeyword(page, keyword, maxPages, log, debug = false, adsSca
       }
       if (html === null) throw new Error(`Bot-check liên tục tại page ${p}`);
 
-      // Chờ nhãn Sponsored render (ads inject async sau domcontentloaded) —
-      // không có sau 3s = trang này thật sự không được serve tile, đi tiếp
-      try {
-        await page.waitForSelector(".puis-sponsored-label-text", { timeout: 3000 });
-      } catch {}
-
-      // Scroll để widget lazy-load (video/SB/carousel) render đủ + chờ ads inject xong
-      await page.evaluate(async () => {
-        await new Promise((resolve) => {
-          let y = 0;
-          const t = setInterval(() => {
-            window.scrollBy(0, 700);
-            y += 700;
-            if (y >= document.body.scrollHeight) { clearInterval(t); resolve(); }
-          }, 120);
-        });
-        window.scrollTo(0, 0); // về đầu trang — khối ToS render/ổn định lại
-      });
-      await sleep(1200);
+      // Chờ ads render + cuộn cho widget lazy-load. Tắt quét ads → bỏ chờ nhãn Sponsored
+      // (tiết kiệm tới 3s/trang) và rút thời gian chờ inject xuống 300ms.
+      await waitForRender(page, mode);
 
       if (debug) {
         const slug = keyword.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 50);
@@ -250,11 +256,11 @@ async function scrapeKeyword(page, keyword, maxPages, log, debug = false, adsSca
       if (error) throw new Error(`Parser: ${error} tại page ${p}`);
       if (p === 1 && rc) resultCount = rc;
 
-      const spTiles = slots.filter((s) => s.type === "SP_TILE").length;
+      const spTiles = countSpTiles(slots);
       if (!best || spTiles > best.spTiles) best = { slots, spTiles };
       if (spTiles > 0) break; // có tile → nhận luôn, không cần lượt 2
 
-      if (load === 1 && adsScan) {
+      if (shouldVerifyReload(mode, load, spTiles)) {
         log(`   ⟳ Page ${p} không có SP tile nào — reload kiểm chứng (chống ToS 0/0 giả)...`);
         await sleep(1500 + Math.random() * 1500);
       }
@@ -264,12 +270,9 @@ async function scrapeKeyword(page, keyword, maxPages, log, debug = false, adsSca
     await sleep(300 + Math.random() * 300);
   }
 
-  // Cờ tin cậy: cả N trang đều 0 SP tile (sau retry) → Amazon không serve ads cho
-  // phiên này (hoặc serve toàn bộ dạng carousel) → ToS/RoS KHÔNG kết luận được,
-  // hiển thị "?" thay vì 0/0. Chỉ khi thấy ≥1 SP tile thì 0/0 mới là 0/0 thật.
-  const spTilesSeen = pagesSlots.reduce(
-    (n, slots) => n + slots.filter((s) => s.type === "SP_TILE").length, 0);
-  return { pagesSlots, resultCount, adsTilesServed: spTilesSeen > 0 };
+  // Cờ tin cậy: cả N trang đều 0 SP tile → Amazon không serve ads cho phiên này (hoặc serve
+  // toàn bộ dạng carousel) → ToS/RoS KHÔNG kết luận được, hiển thị "?" thay vì 0/0 giả.
+  return { pagesSlots, resultCount, adsTilesServed: adsServed(pagesSlots) };
 }
 
 function fmt(record, adsTilesServed = true) {

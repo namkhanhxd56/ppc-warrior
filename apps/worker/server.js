@@ -346,6 +346,24 @@ app.post("/api/agent/logs", (req, res) => {
   if (jobId && Array.isArray(lines)) store.appendJobLogs(jobId, lines.slice(0, 200));
   res.json({ ok: true });
 });
+/* LÔ KẾT QUẢ GIỮA CHỪNG: agent đẩy mỗi 5 keyword thay vì đợi hết ASIN.
+   - Bảng trên web nhích theo từng lô (1 ASIN 200 keyword chạy ~20 phút, không phải đợi tới cuối)
+   - Agent chết giữa ASIN chỉ mất tối đa 1 lô, phần đã đẩy nằm an toàn trên server
+   - Mỗi lô cũng là heartbeat để job không bị coi là treo
+   KHÔNG completeJob ở đây — job chỉ xong khi /api/agent/result gửi run đầy đủ. */
+app.post("/api/agent/partial", (req, res) => {
+  const { jobId, asin, dateKey, results, competitorMode } = req.body || {};
+  const a = String(asin || "").toUpperCase();
+  if (!/^[A-Z0-9]{10}$/.test(a) || !Array.isArray(results) || !results.length) {
+    return res.status(400).json({ ok: false, message: "Lô không hợp lệ" });
+  }
+  const now = new Date().toISOString();
+  if (competitorMode) store.saveCompetitorAgg(a, dateKey || now.slice(0, 10), results);
+  else store.saveDailyRanks(a, now, results, dateKey || null);
+  if (jobId) store.appendJobLogs(jobId, [`💾 Server nhận lô ${results.length} keyword của ${a}`]);
+  res.json({ ok: true, saved: results.length });
+});
+
 app.post("/api/agent/result", (req, res) => {
   const { jobId, run } = req.body || {};
   if (!run || !run.asin || !Array.isArray(run.results)) {
