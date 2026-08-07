@@ -344,7 +344,7 @@ app.post("/api/agent/log", (req, res) => {
 app.post("/api/agent/logs", (req, res) => {
   const { jobId, lines } = req.body || {};
   if (jobId && Array.isArray(lines)) store.appendJobLogs(jobId, lines.slice(0, 200));
-  res.json({ ok: true });
+  res.json({ ok: true, stop: store.isStopRequested(jobId) });
 });
 /* LÔ KẾT QUẢ GIỮA CHỪNG: agent đẩy mỗi 5 keyword thay vì đợi hết ASIN.
    - Bảng trên web nhích theo từng lô (1 ASIN 200 keyword chạy ~20 phút, không phải đợi tới cuối)
@@ -361,7 +361,8 @@ app.post("/api/agent/partial", (req, res) => {
   if (competitorMode) store.saveCompetitorAgg(a, dateKey || now.slice(0, 10), results);
   else store.saveDailyRanks(a, now, results, dateKey || null);
   if (jobId) store.appendJobLogs(jobId, [`💾 Server nhận lô ${results.length} keyword của ${a}`]);
-  res.json({ ok: true, saved: results.length });
+  // Cờ dừng đi NHỜ response của lô — agent không phải poll thêm request nào
+  res.json({ ok: true, saved: results.length, stop: store.isStopRequested(jobId) });
 });
 
 app.post("/api/agent/result", (req, res) => {
@@ -499,8 +500,9 @@ app.get("/api/asin-settings/:asin", (req, res) => {
 });
 
 app.post("/api/stop", (req, res) => {
-  stopFlag = true;
-  res.json({ ok: true });
+  stopFlag = true;                          // chế độ local: cắt vòng lặp ngay trong tiến trình này
+  const jobs = store.requestStopJobs();     // chế độ queue: đánh dấu để agent tự dừng
+  res.json({ ok: true, jobsStopping: jobs });
 });
 
 /* ===================== MODULE LAUNCHING (Tạo campaign) ===================== */

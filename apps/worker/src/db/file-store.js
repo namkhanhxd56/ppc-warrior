@@ -900,6 +900,29 @@ export function appendJobLogs(id, lines) {
 }
 export function appendJobLog(id, line) { appendJobLogs(id, [line]); } // giữ cho agent bản cũ
 
+/** Bấm ⏹ Dừng: đánh dấu MỌI job đang chạy. Agent đọc cờ này qua response của lô/log rồi
+ *  dừng ngay giữa chừng — trước đây agent truyền cứng shouldStop:()=>false nên 1 ASIN 200
+ *  keyword là 20 phút không cách nào dừng. Trả về số job đã đánh dấu. */
+export function requestStopJobs() {
+  const jobs = readJobs();
+  let n = 0;
+  for (const j of jobs) {
+    if (j.status !== "running" || j.stopRequested) continue;
+    j.stopRequested = true;
+    j.logs.push("⏹ Nhận yêu cầu dừng — agent sẽ dừng sau lô hiện tại");
+    n++;
+  }
+  if (n) writeJobs(jobs);
+  return n;
+}
+
+/** Job này có đang được yêu cầu dừng không (agent hỏi ở mỗi lô). */
+export function isStopRequested(id) {
+  if (!id) return false;
+  const j = readJobs().find((x) => x.id === id);
+  return !!j?.stopRequested;
+}
+
 export function completeJob(id, runId) {
   const jobs = readJobs();
   const j = jobs.find((x) => x.id === id);

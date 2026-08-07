@@ -60,14 +60,15 @@ async function api(path, body) {
    × ~0,42s RTT tới Railway ≈ 100 giây, và server rewrite cả jobs.json mỗi dòng).
    Giờ đệm lại, gửi khi đủ 10 dòng hoặc quá 5 giây, và flush khi job kết thúc.
    Mỗi lần gửi cũng là heartbeat để server biết job còn sống. */
-function makeLogger(jobId) {
+function makeLogger(jobId, onStop) {
   let buf = [];
   let timer = null;
   const flush = () => {
     if (timer) { clearTimeout(timer); timer = null; }
     if (!buf.length) return Promise.resolve();
     const lines = buf; buf = [];
-    return api("/api/agent/logs", { jobId, lines }).catch(() => {});
+    // Response mang cờ dừng → biết được yêu cầu Dừng ngay giữa 2 lô (mỗi ≤5s)
+    return api("/api/agent/logs", { jobId, lines }).then((r) => { if (r?.stop) onStop?.(); }).catch(() => {});
   };
   const send = (line) => {
     console.log("  " + line);
@@ -79,7 +80,11 @@ function makeLogger(jobId) {
 }
 
 async function runJob(job) {
-  const logger = makeLogger(job.id);
+  // ⏹ Dừng: server đánh dấu job.stopRequested, agent nhận cờ qua response của LÔ và của LOG
+  // (mỗi ≤5s) → dừng giữa chừng thay vì phải chạy hết ASIN như trước.
+  let stopping = false;
+  const markStop = () => { if (!stopping) { stopping = true; console.log("  ⏹ Nhận yêu cầu dừng từ server"); } };
+  const logger = makeLogger(job.id, markStop);
   const send = logger.send;
   if (job.payload?.kind === "libscan") return runLibScanJob(job, logger);
   let browser = null;
@@ -97,16 +102,17 @@ async function runJob(job) {
     store.saveAsinSettings(p.asin, { trackParent: !!p.checkVariants });
     const runId = await runBatch({
       page, asin: p.asin, keywords: p.keywords,
-      opts: p, log: send, shouldStop: () => false,
+      opts: p, log: send, shouldStop: () => stopping,
       // Đẩy TỪNG LÔ lên server ngay khi runBatch điền xong lô đó (mặc định 5 keyword, lô
       // cuối của ASIN là phần dư). Lỗi mạng ở đây không làm hỏng lượt quét: dữ liệu đã nằm
       // ở store cục bộ, và bản run đầy đủ vẫn được đẩy lại ở cuối job.
       onBatch: async (batch) => {
         await logger.flush(); // log của lô này lên trước cho khớp thứ tự
-        await api("/api/agent/partial", {
+        const r = await api("/api/agent/partial", {
           jobId: job.id, asin: p.asin, dateKey: p.dateKey || null,
           competitorMode: !!p.competitorMode, results: batch
         });
+        if (r?.stop) markStop(); // dừng ngay sau lô này
       }
     });
 
