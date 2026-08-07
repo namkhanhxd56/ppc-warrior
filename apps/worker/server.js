@@ -21,7 +21,7 @@ import * as auth from "./src/auth.js";
 import { als, runAsUser, userDataDir } from "./src/db/user-context.js";
 
 dotenv.config();
-export const APP_VERSION = "0.29.2"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
+export const APP_VERSION = "0.30.0"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
 
 // RUN_MODE:
 // - "local" (mặc định): bấm Kiểm tra là scrape NGAY trên máy này (dùng 1 người, chạy local)
@@ -307,6 +307,7 @@ function buildJobPayload(body) {
     checkVariants: !!body.checkVariants,
     saveSnapshot: !!body.saveSnapshot,
     dateKey: body.dateKey || null,          // nhãn phiên quét (Run tạo mới / Continue dùng lại)
+    runId: body.runId || null,              // ID của LƯỢT bấm Run — khóa hàng đợi (xem activeSession)
     competitorMode: !!body.competitorMode,  // chỉ ads + top 10 organic
     adsScan: body.adsScan !== false,        // false = bỏ reload kiểm chứng + quét bù (nhanh hơn, ToS có thể "?")
     debug: false, // debug chỉ có ý nghĩa trên máy chạy scrape
@@ -323,7 +324,19 @@ app.post("/api/check", async (req, res) => {
 
   if (RUN_MODE === "queue") {
     try {
-      const job = store.enqueueJob(buildJobPayload(req.body || {}));
+      const payload = buildJobPayload(req.body || {});
+      // KHÓA HÀNG ĐỢI: chỉ lượt chạy đang giữ chỗ mới được xếp thêm job. Trước đây nút Run
+      // không có khóa nào — bấm 2 lần là 2 vòng lặp thay phiên chiếm agent, mọi keyword bị
+      // quét 2 lượt và (nếu sang phút khác) đẻ thêm một cột mới. Khóa đặt ở SERVER nên ăn cả
+      // trường hợp mở 2 tab hoặc 2 máy, thứ mà khóa ở nút bấm không với tới.
+      const act = store.activeSession();
+      if (act && act.runId !== payload.runId) {
+        log(`⚠️ Đang có lượt chạy khác chiếm hàng đợi — phiên "${act.dateKey || "daily ⏰"}", còn ${act.count} job.`);
+        log(`   Bấm ⏹ Dừng để hủy hàng đợi đó rồi chạy lại, hoặc chờ nó xong.`);
+        log(`BUSY:${act.dateKey || ""}`);
+        return res.end();
+      }
+      const job = store.enqueueJob(payload);
       log(`📨 Đã xếp job vào hàng đợi — agent trên máy cá nhân sẽ tự kéo về chạy.`);
       log(`JOB_ID:${job.id}`);
     } catch (e) { log(`🚨 ${e.message}`); }
@@ -508,11 +521,16 @@ async function schedTick() {
 
   store.saveSchedule({ ...s, lastRunDate: today });
   console.log(`⏰ [Scheduler] ${s.time} — ${RUN_MODE === "queue" ? "xếp" : "chạy"} ${list.length} ASIN daily (⏰)`);
+  // Lịch đến đúng lúc đang có người bấm Run: MƯỢN runId của lượt đang giữ hàng đợi thay vì
+  // mang runId riêng. Nếu mang runId riêng thì khi job thủ công cuối cùng xong, chủ hàng đợi
+  // đổi sang job của lịch và vòng lặp thủ công bị chính khóa của mình chặn giữa chừng.
+  const act = store.activeSession();
+  const schedRunId = act ? act.runId : `sched-${today}`;
   for (const job of list) {
     try {
       if (RUN_MODE === "queue") {
         // Xếp job cho agent — agent offline thì job chờ sẵn, mở máy là chạy bù
-        const q = store.enqueueJob(buildJobPayload(job));
+        const q = store.enqueueJob(buildJobPayload({ ...job, runId: schedRunId }));
         console.log(`⏰ [Scheduler] đã xếp job ${q.id} (${job.asin})`);
       } else {
         const runId = await executeCheck({ ...job, dateKey: today }, (m) => console.log(`⏰ ${m}`));
@@ -531,8 +549,8 @@ app.get("/api/asin-settings/:asin", (req, res) => {
 
 app.post("/api/stop", (req, res) => {
   stopFlag = true;                          // chế độ local: cắt vòng lặp ngay trong tiến trình này
-  const jobs = store.requestStopJobs();     // chế độ queue: đánh dấu để agent tự dừng
-  res.json({ ok: true, jobsStopping: jobs });
+  const r = store.requestStopJobs();        // chế độ queue: gắn cờ job đang chạy + HỦY job còn chờ
+  res.json({ ok: true, jobsStopping: r.stopping, jobsCancelled: r.cancelled });
 });
 
 /* ===================== MODULE LAUNCHING (Tạo campaign) ===================== */

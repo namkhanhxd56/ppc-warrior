@@ -22,6 +22,7 @@
   .btn-cont { background:#0e9f8a; color:#fff; }
   .btn-stop { background:#e5e9f0; }
   .btn-sm { padding:5px 10px; font-size:11.5px; background:#eef1f7; }
+  button:disabled { opacity:.45; cursor:not-allowed; filter:grayscale(.4); }
   #logs { background:#0b1020; color:#7ef0a8; font:11.5px/1.5 ui-monospace,Menlo,monospace; padding:12px; border-radius:8px; height:180px; overflow-y:auto; white-space:pre-wrap; }
   details summary { cursor:pointer; font-size:13px; color:var(--mut); }
 
@@ -829,45 +830,74 @@ async function streamCheck(payload) {
     $('logs').textContent += text;
     $('logs').scrollTop = $('logs').scrollHeight;
   }
+  // Server từ chối vì hàng đợi đang thuộc lượt chạy khác (tab khác / máy khác)
+  if (/^BUSY:/m.test(buf)) return 'busy';
   const jm = buf.match(/JOB_ID:([\w-]+)/);
   if (jm) await pollJob(jm[1]);
+  return 'ok';
+}
+
+/* KHÓA CHỐNG BẤM RUN CHỒNG NHAU — hai tầng:
+   - tầng này (nút bấm) chỉ lo cái tab đang mở: mờ nút + chặn runTargets thứ hai
+   - tầng server (activeSession, xem /api/check) mới là nguồn sự thật, ăn cả 2 tab / 2 máy
+   Mỗi lượt chạy mang một runId riêng; server chỉ nhận job của lượt đang giữ hàng đợi. */
+let runLoop = false;
+function lockRun(on) {
+  const r = $('btnRun'); const c = $('btnContinue');
+  if (r) { r.disabled = on; r.textContent = on ? '⏳ Đang chạy…' : '▶ Run'; }
+  if (c) c.disabled = on;
+}
+function note(msg, ms = 5000) {
+  const s = $('status'); if (!s) return;
+  s.textContent = msg;
+  setTimeout(() => { if (s.textContent === msg) s.textContent = 'Idle'; }, ms); // chỉ xóa nếu chưa ai ghi đè
 }
 async function runTargets(targets, dateKey) {
+  if (runLoop) return note('⏳ Đang có lượt chạy — bấm ⏹ Dừng trước khi chạy lượt mới');
+  runLoop = true; lockRun(true);
   stopped = false;
+  const runId = 'r' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
   $('logs').textContent = '';
   // Kết quả được server GHI TỪNG KEYWORD ngay khi quét xong → bảng tự refresh 8s/lần trong lúc chạy
   const live = setInterval(loadTracking, 8000);
+  let busy = false;
   try {
-  for (let i = 0; i < targets.length; i++) {
-    if (stopped) break;
-    const t = targets[i];
-    $('status').textContent = `Đang chạy ${i + 1}/${targets.length}: ${t.asin}...`;
-    $('logs').textContent += `\n━━━ [${i + 1}/${targets.length}] ${t.asin} · phiên "${dateKey}"${t.saveCompetitor ? ' · +competitor' : ''}${t.adsScan ? '' : ' · KHÔNG quét ads'} ━━━\n`;
-    // Setting theo ASIN quyết định: quét ads (adsScan) + quét competitor (saveSnapshot → bảng 🏆)
-    await streamCheck({
-      asin: t.asin, keywords: t.kws.join('\n'),
-      maxPages: Number($('maxPages').value) || 3,
-      checkVariants: t.trackParent, saveSnapshot: t.saveCompetitor,
-      adsScan: t.adsScan, dateKey
-    });
-    await loadTracking();
+    for (let i = 0; i < targets.length; i++) {
+      if (stopped) break;
+      const t = targets[i];
+      $('status').textContent = `Đang chạy ${i + 1}/${targets.length}: ${t.asin}...`;
+      $('logs').textContent += `\n━━━ [${i + 1}/${targets.length}] ${t.asin} · phiên "${dateKey}"${t.saveCompetitor ? ' · +competitor' : ''}${t.adsScan ? '' : ' · KHÔNG quét ads'} ━━━\n`;
+      // Setting theo ASIN quyết định: quét ads (adsScan) + quét competitor (saveSnapshot → bảng 🏆)
+      const r = await streamCheck({
+        asin: t.asin, keywords: t.kws.join('\n'),
+        maxPages: Number($('maxPages').value) || 3,
+        checkVariants: t.trackParent, saveSnapshot: t.saveCompetitor,
+        adsScan: t.adsScan, dateKey, runId
+      });
+      if (r === 'busy') { busy = stopped = true; break; } // lượt khác giữ hàng đợi — dừng hẳn, đừng thử ASIN kế
+      await loadTracking();
+    }
+  } finally {
+    clearInterval(live);
+    runLoop = false; lockRun(false);
   }
-  } finally { clearInterval(live); }
   await loadTracking();
   await loadRunList();
-  $('status').textContent = 'Idle';
+  $('status').textContent = busy ? '⚠️ Hàng đợi đang thuộc lượt chạy khác — bấm ⏹ Dừng để hủy'
+    : stopped ? 'Đã dừng' : 'Idle';
 }
 $('btnRun').onclick = () => {
   const targets = enabledTargets();
-  if (!targets.length) return alert('Không có ASIN/keyword nào đang bật theo dõi');
+  if (!targets.length) return note('Không có ASIN/keyword nào đang bật theo dõi');
   runTargets(targets, sessionLabel());
 };
 // ⏩ Continue: SERVER tính phần còn thiếu của CỘT DỞ DANG GẦN NHẤT (nhãn phiên mới nhất
 // mà vẫn còn ô trống) — không phải "phiên mới nhất" như trước, vì bấm ▶ của 1 ASIN lẻ tạo
 // cột mới và làm Continue nhắm sai cột. Cùng logic với cơ chế thu hồi job treo bên server.
 $('btnContinue').onclick = async () => {
+  if (runLoop) return note('⏳ Đang có lượt chạy — bấm ⏹ Dừng trước');
   const r = await (await fetch('/api/continue-targets')).json();
-  if (!r.dateKey || !r.targets.length) return alert('Không có cột nào còn ô trống — dùng ▶ Run để tạo phiên mới');
+  if (!r.dateKey || !r.targets.length) return note('Không có cột nào còn ô trống — dùng ▶ Run để tạo phiên mới');
   // Server trả cờ adsScan theo từng ASIN — công tắc tổng 📢 vẫn phải được tôn trọng
   const master = runAdsScan();
   const targets = r.targets.map((t) => ({ ...t, adsScan: master && t.adsScan !== false }));
@@ -876,10 +906,18 @@ $('btnContinue').onclick = async () => {
 };
 window.runAsin = (asin) => {
   const t = enabledTargets().find((x) => x.asin === asin);
-  if (!t) return alert('ASIN này đang tắt theo dõi hoặc không có keyword bật');
+  if (!t) return note('ASIN này đang tắt theo dõi hoặc không có keyword bật');
   runTargets([t], sessionLabel());
 };
-$('btnStop').onclick = () => { stopped = true; fetch('/api/stop', { method: 'POST' }); };
+// ⏹ Dừng cũng là nút GỠ KẸT: server hủy sạch job còn chờ + job "running" đã mất heartbeat
+// (agent chết/máy ngủ), nếu không thì job treo đó giữ hàng đợi mãi và Run không bao giờ mở lại.
+$('btnStop').onclick = async () => {
+  stopped = true;
+  try {
+    const r = await (await fetch('/api/stop', { method: 'POST' })).json();
+    note(`⏹ Đã dừng — ${r.jobsStopping || 0} job đang chạy, hủy ${r.jobsCancelled || 0} job trong hàng đợi`);
+  } catch { note('⏹ Đã gửi lệnh dừng'); }
+};
 
 async function pollJob(jobId) {
   $('status').textContent = 'Chờ agent...';
@@ -889,7 +927,8 @@ async function pollJob(jobId) {
     try { j = await (await fetch('/api/jobs/' + jobId)).json(); } catch { continue; }
     $('logs').textContent = `[Job ${j.id} · ${j.status}${j.agent ? ' · agent: ' + j.agent : ''}]\n` + (j.logs || []).join('\n');
     $('logs').scrollTop = $('logs').scrollHeight;
-    if (j.status === 'done' || j.status === 'error') return;
+    // 'cancelled' = bị ⏹ Dừng hủy khi còn nằm chờ — không có nó thì vòng poll quay mãi
+    if (j.status === 'done' || j.status === 'error' || j.status === 'cancelled') return;
   }
 }
 
