@@ -226,7 +226,7 @@
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;');
 
-const UI_VERSION = '0.30.1'; // PHẢI khớp APP_VERSION server.js
+const UI_VERSION = '0.30.2'; // PHẢI khớp APP_VERSION server.js
 (async () => {
   try {
     const v = (await (await fetch('/api/version')).json()).version;
@@ -403,7 +403,12 @@ function renderTable() {
   const sessions = T.sessions.slice();
   const f = ui.filt;
   const wrap = $('tableWrap');
-  const keepL = wrap.querySelector('.tin') ? 0 : wrap.scrollLeft, keepT = wrap.scrollTop;
+  // Giữ NGUYÊN vị trí cuộn khi vẽ lại. Trước đây dòng này là
+  //   wrap.querySelector('.tin') ? 0 : wrap.scrollLeft
+  // mà '.tin' chính là class của <table> ngay bên dưới ⇒ điều kiện LUÔN đúng từ lần vẽ thứ
+  // hai trở đi, nên cuộn ngang luôn bị ném về cột đầu. Trong lúc chạy bảng tự làm mới 8s/lần:
+  // đang xem cột mới nhất ở cuối thì cứ 8 giây lại bị kéo về đầu bảng.
+  const keepL = wrap.scrollLeft, keepT = wrap.scrollTop;
 
   // Filter bar
   const tagOpts = allTags();
