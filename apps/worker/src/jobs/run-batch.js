@@ -25,6 +25,7 @@ export async function runBatch({ page, asin, keywords, opts, log, shouldStop }) 
   /* ===== 1. Resolve nhóm biến thể (cache file, TTL 7 ngày) ===== */
   let siblings = [];
   let variantInfo = null;
+  let asinImage = null; // ảnh sản phẩm — ưu tiên nhặt từ tile SERP, không có thì lấy ở trang /dp/
   if (opts.checkVariants) {
     variantInfo = store.getProductVariants(asin);
     const fresh = variantInfo &&
@@ -34,6 +35,9 @@ export async function runBatch({ page, asin, keywords, opts, log, shouldStop }) 
       try {
         await page.goto(`https://www.amazon.com/dp/${asin}`, { waitUntil: "domcontentloaded", timeout: 30000 });
         const html = await page.content();
+        // Trang sản phẩm đang mở sẵn → nhặt luôn ảnh, khỏi phải mở lại ở bước 2c
+        asinImage = await page.evaluate(() => document.querySelector("#landingImage")?.getAttribute("src")
+          || document.querySelector("#imgTagWrapperId img")?.getAttribute("src") || null).catch(() => null);
         const v = extractVariantsFromProductPage(html, asin);
         store.saveProductVariants(asin, v.parentAsin, v.childAsins);
         variantInfo = { parentAsin: v.parentAsin, childAsins: v.childAsins };
@@ -63,7 +67,6 @@ export async function runBatch({ page, asin, keywords, opts, log, shouldStop }) 
       store.saveDailyRanks(asin, now, [res], opts.dateKey); // tự đăng ký tracking + gộp competitor nếu có snapshot
     }
   };
-  let asinImage = null; // hình sản phẩm — lấy từ tile SERP đầu tiên khớp nhóm ASIN
   const groupAsins = new Set([asin, ...siblings]);
   for (let i = 0; i < keywords.length; i++) {
     if (shouldStop()) { log("⏹ Đã dừng theo yêu cầu."); break; }
@@ -155,6 +158,23 @@ export async function runBatch({ page, asin, keywords, opts, log, shouldStop }) 
       } catch (e) {
         log(`   ⚠️ Quét bù "${r.keyword}" lỗi: ${e.message} — giữ kết quả cũ`);
       }
+    }
+  }
+
+  /* ===== 2c. ẢNH SẢN PHẨM khi ASIN KHÔNG xuất hiện trên SERP =====
+     Ảnh vốn chỉ nhặt được từ tile của chính mình trên SERP. ASIN MỚI (chưa lên rank, chưa
+     chạy ads) thì không có tile nào → ảnh null vĩnh viễn, bảng theo dõi trống ảnh (gặp thật
+     06/08/2026: B0H8RQC42P notFound cả 19 keyword). Mở trang sản phẩm 1 lần để lấy ảnh —
+     chỉ tốn ~2s và chỉ chạy khi thực sự chưa có ảnh. */
+  if (!asinImage && !shouldStop()) {
+    try {
+      await page.goto(`https://www.amazon.com/dp/${asin}`, { waitUntil: "domcontentloaded", timeout: 30000 });
+      asinImage = await page.evaluate(() => document.querySelector("#landingImage")?.getAttribute("src")
+        || document.querySelector("#imgTagWrapperId img")?.getAttribute("src") || null);
+      log(asinImage ? "🖼 Lấy ảnh từ trang sản phẩm (ASIN chưa xuất hiện trên SERP)"
+        : "⚠️ Không đọc được ảnh ở trang sản phẩm");
+    } catch (e) {
+      log(`⚠️ Không lấy được ảnh sản phẩm: ${e.message}`);
     }
   }
 
