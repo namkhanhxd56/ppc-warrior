@@ -83,7 +83,14 @@ async function newReadyPage(zip, log) {
 async function closeBrowser(why) {
   if (!hold) return;
   const b = hold.browser; hold = null;
+  const proc = b.process?.();
   try { await Promise.race([b.close(), new Promise((r) => setTimeout(r, 5000))]); } catch {}
+  // Hết 5s mà close() chưa xong = Chrome treo. Bỏ mặc thì tiến trình mồ côi đó VẪN GIỮ khóa
+  // chrome-profile, và MỌI job sau đều chết ngay từ khi mở browser với "The browser is
+  // already running for ..." — agent hỏng vĩnh viễn dù vẫn poll bình thường.
+  if (proc?.pid && proc.exitCode === null && proc.signalCode === null) {
+    try { process.kill(proc.pid, "SIGKILL"); console.log(`  🔪 Chrome không chịu đóng — đã kill pid ${proc.pid}`); } catch {}
+  }
   if (why) console.log(`  🧹 Đã đóng trình duyệt (${why})`);
 }
 

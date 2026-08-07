@@ -23,6 +23,7 @@ import puppeteerExtra from "puppeteer-extra";
 import StealthPlugin from "puppeteer-extra-plugin-stealth";
 import fs from "fs";
 import path from "path";
+import { execFileSync } from "child_process";
 
 puppeteerExtra.use(StealthPlugin());
 
@@ -67,18 +68,61 @@ export async function launchBrowser() {
   };
   if (profileDir) opts.userDataDir = profileDir; // không set → phiên sạch mỗi lần chạy
 
+  const launch = async () => {
+    try {
+      const b = await puppeteerExtra.launch({ ...opts, channel });
+      console.log(`🌐 Browser: Google Chrome thật (channel=${channel}) + stealth plugin` +
+        (headful ? " · headful ngoài màn hình" : " · headless MỚI (vô hình hoàn toàn)") +
+        (profileDir ? ` · profile bền vững ${profileDir}` : " · phiên sạch"));
+      return b;
+    } catch (e) {
+      // Khóa profile thì Chromium bundled cũng chịu chung số phận — đừng thử vô ích rồi
+      // báo nhầm thành "không tìm thấy Google Chrome"
+      if (LOCKED_RE.test(e.message)) throw e;
+      const b = await puppeteerExtra.launch(opts);
+      console.log("🌐 Browser: Chromium bundled + stealth plugin (không tìm thấy Google Chrome)" +
+        (headful ? " · headful" : " · headless"));
+      return b;
+    }
+  };
+
   try {
-    const b = await puppeteerExtra.launch({ ...opts, channel });
-    console.log(`🌐 Browser: Google Chrome thật (channel=${channel}) + stealth plugin` +
-      (headful ? " · headful ngoài màn hình" : " · headless MỚI (vô hình hoàn toàn)") +
-      (profileDir ? ` · profile bền vững ${profileDir}` : " · phiên sạch"));
-    return b;
-  } catch {
-    const b = await puppeteerExtra.launch(opts);
-    console.log("🌐 Browser: Chromium bundled + stealth plugin (không tìm thấy Google Chrome)" +
-      (headful ? " · headful" : " · headless"));
-    return b;
+    return await launch();
+  } catch (e) {
+    // Khóa profile bỏ quên → dọn rồi thử LẠI ĐÚNG MỘT LẦN
+    if (!profileDir || !LOCKED_RE.test(e.message) || !clearStaleProfileLock(path.resolve(profileDir))) throw e;
+    return await launch();
   }
+}
+
+const LOCKED_RE = /already running|SingletonLock|ProcessSingleton/i;
+
+/** Gỡ khóa profile Chrome bị bỏ quên.
+ *  Chrome chết bất thường (close() treo quá hạn, agent bị kill, máy ngủ) để lại tiến trình
+ *  mồ côi vẫn GIỮ khóa profile. Không ai dọn ⇒ mọi lần mở sau đều lỗi "The browser is already
+ *  running for <profileDir>" và agent hỏng VĨNH VIỄN cho tới khi có người tự tay kill.
+ *  SingletonLock là symlink trỏ tới "<hostname>-<pid>" nên biết chính xác phải giết ai; vẫn
+ *  đối chiếu dòng lệnh của pid đó trước khi kill để không lỡ tay giết Chrome cá nhân của
+ *  người dùng (pid có thể đã được hệ điều hành cấp lại cho tiến trình khác).
+ *  Trả về true nếu có dọn được gì — tức là đáng thử mở lại. */
+export function clearStaleProfileLock(profileDir) {
+  const lock = path.join(profileDir, "SingletonLock");
+  let target;
+  try { target = fs.readlinkSync(lock); } catch { return false; } // không có khóa → nguyên nhân khác
+  const pid = Number(String(target).split("-").pop());
+  let killed = 0;
+  if (Number.isInteger(pid) && pid > 1) {
+    let cmd = "";
+    try { cmd = execFileSync("ps", ["-p", String(pid), "-o", "command="], { encoding: "utf8" }); } catch {}
+    if (cmd.includes(profileDir)) {
+      try { process.kill(pid, "SIGKILL"); killed = pid; } catch {}
+    }
+  }
+  for (const f of ["SingletonLock", "SingletonCookie", "SingletonSocket"]) {
+    try { fs.unlinkSync(path.join(profileDir, f)); } catch {}
+  }
+  console.log(`🧹 Gỡ khóa profile Chrome bỏ quên${killed ? ` (đã kill pid ${killed})` : ""}: ${profileDir}`);
+  return true;
 }
 
 export function loadCookies() {

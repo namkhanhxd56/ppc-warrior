@@ -134,7 +134,7 @@
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const money = (v) => '$' + Number(v || 0).toFixed(2);
-const UI_VERSION = '0.29.2';
+const UI_VERSION = '0.30.0';
 (async () => {
   try { const v = (await (await fetch('/api/version')).json()).version; if (v !== UI_VERSION) throw new Error(v); }
   catch (e) { $('verWarn').style.display = 'block'; $('verWarn').textContent = `⚠️ Server phiên bản cũ (${e.message}) — hãy restart (npm start).`; }
