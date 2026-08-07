@@ -1416,10 +1416,14 @@ app.get("/api/history/:asin", (req, res) => {
 // UI_VERSION trong mỗi trang phải khớp APP_VERSION, nếu không banner "⚠️ Server đang chạy
 // phiên bản cũ" hiện SAI ở mọi tab. Quên đồng bộ khi bump là lỗi rất dễ mắc và chỉ người
 // dùng mới thấy — nên bắt ngay lúc boot thay vì để họ báo lại.
-for (const f of fs.readdirSync("./public").filter((x) => x.endsWith(".html"))) {
-  const m = fs.readFileSync(path.join("./public", f), "utf8").match(/UI_VERSION\s*=\s*['"]([^'"]+)/);
-  if (m && m[1] !== APP_VERSION) console.error(`🚨 public/${f}: UI_VERSION=${m[1]} ≠ APP_VERSION=${APP_VERSION} — banner "phiên bản cũ" sẽ hiện sai`);
-}
+// Bọc try: đây chỉ là cảnh báo cho lập trình viên, KHÔNG được phép làm sập server nếu
+// thư mục public không đọc được ở môi trường triển khai.
+try {
+  for (const f of fs.readdirSync("./public").filter((x) => x.endsWith(".html"))) {
+    const m = fs.readFileSync(`./public/${f}`, "utf8").match(/UI_VERSION\s*=\s*['"]([^'"]+)/);
+    if (m && m[1] !== APP_VERSION) console.error(`🚨 public/${f}: UI_VERSION=${m[1]} ≠ APP_VERSION=${APP_VERSION} — banner "phiên bản cũ" sẽ hiện sai`);
+  }
+} catch (e) { console.warn(`(bỏ qua kiểm tra UI_VERSION: ${e.message})`); }
 
 console.log(`▶ boot: PORT=${process.env.PORT || "(trống)"} WORKER_PORT=${process.env.WORKER_PORT || "(trống)"} RUN_MODE=${RUN_MODE} node=${process.version}`);
 const srv = app.listen(PORT, "0.0.0.0", () =>
