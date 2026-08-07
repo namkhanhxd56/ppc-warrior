@@ -15,9 +15,14 @@ const SESSION_TTL = 30 * 24 * 3600 * 1000; // 30 ngày
 function readJson(f, fb) {
   try { return JSON.parse(fs.readFileSync(f, "utf8")); } catch { return fb; }
 }
+// Ghi NGUYÊN TỬ: ghi ra file tạm rồi rename đè lên (rename là thao tác nguyên tử của hệ
+// thống file). Ghi thẳng bằng writeFileSync mà tiến trình chết/hết đĩa giữa chừng là file
+// users.json/sessions.json hỏng JSON → mất toàn bộ tài khoản hoặc mọi phiên đăng nhập.
 function writeJson(f, v) {
   fs.mkdirSync("./data", { recursive: true });
-  fs.writeFileSync(f, JSON.stringify(v, null, 1));
+  const tmp = `${f}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(v, null, 1));
+  fs.renameSync(tmp, f);
 }
 
 export function getUsers() { return readJson(USERS_FILE, {}); }
@@ -209,8 +214,12 @@ export function listAgentTokens(userName, isAdmin) {
 }
 
 export function revokeAgentToken(idSuffix, userName, isAdmin) {
+  // Phải đủ dài: endsWith("") khớp MỌI token → gọi với id rỗng là thu hồi nhầm token bất kỳ
+  // (với admin là token của người khác). listAgentTokens luôn trả id 8 ký tự cuối.
+  const suffix = String(idSuffix || "");
+  if (suffix.length < 8) throw new Error("Mã token không hợp lệ");
   const tokens = readTokens();
-  const entry = Object.entries(tokens).find(([token, t]) => token.endsWith(idSuffix) && (isAdmin || t.user === userName));
+  const entry = Object.entries(tokens).find(([token, t]) => token.endsWith(suffix) && (isAdmin || t.user === userName));
   if (!entry) throw new Error("Không tìm thấy token (hoặc không có quyền)");
   entry[1].revoked = true;
   writeTokens(tokens);

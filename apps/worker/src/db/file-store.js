@@ -19,6 +19,15 @@ function readJson(file, fallback) {
   try { return JSON.parse(fs.readFileSync(file, "utf8")); } catch { return fallback; }
 }
 
+/** Ghi NGUYÊN TỬ: file tạm → rename đè (rename là thao tác nguyên tử của hệ thống file).
+ *  Ghi thẳng mà tiến trình chết/hết đĩa giữa chừng là file JSON hỏng — với daily-rank.json
+ *  hay tracking.json thì mất luôn lịch sử rank. Dùng cho mọi file dữ liệu quan trọng. */
+function writeJsonAtomic(file, obj, space) {
+  const tmp = `${file}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, space === undefined ? JSON.stringify(obj) : JSON.stringify(obj, null, space));
+  fs.renameSync(tmp, file);
+}
+
 /* ===== Cache biến thể (parent/child) ===== */
 export function getProductVariants(asin) {
   const cache = readJson(VARIANTS_FILE(), {});
@@ -184,7 +193,7 @@ export function saveDailyRanks(asin, checkedAt, results, dateKey) {
       t: checkedAt
     };
   }
-  fs.writeFileSync(DAILY_FILE(), JSON.stringify(all));
+  writeJsonAtomic(DAILY_FILE(), all);
   // Tự đăng ký ASIN + keyword vào bảng theo dõi + ghi nhãn phiên
   trackingRegisterRun(asin, (results || []).filter((x) => !x.error).map((x) => x.keyword), date);
   // Gộp competitor snapshot của phiên (nếu có)
@@ -214,7 +223,7 @@ export function getTracking() {
 }
 function writeTracking(t) {
   ensureDirs();
-  fs.writeFileSync(TRACKING_FILE(), JSON.stringify(t, null, 1));
+  writeJsonAtomic(TRACKING_FILE(), t, 1);
 }
 
 /** Run xong tự đăng ký ASIN/keyword vào bảng + ghi nhãn phiên quét. */
@@ -245,7 +254,7 @@ export function trackingPatchAsin(asin, patch) {
   if (patch.delete) { // xoá hẳn: cấu hình + toàn bộ lịch sử rank + metrics + competitor
     delete t.asins[key];
     const daily = readJson(DAILY_FILE(), {}); delete daily[key];
-    fs.writeFileSync(DAILY_FILE(), JSON.stringify(daily));
+    writeJsonAtomic(DAILY_FILE(), daily);
     const met = readJson(METRICS_FILE(), {}); delete met[key];
     fs.writeFileSync(METRICS_FILE(), JSON.stringify(met, null, 1));
     const comp = readJson(COMPRANK_FILE(), {}); delete comp[key];
@@ -269,7 +278,7 @@ export function trackingPatchKeyword(asin, keyword, patch) {
   if (patch.delete) { // xoá keyword khỏi bảng + lịch sử của keyword đó
     delete t.asins[key].keywords[k];
     const daily = readJson(DAILY_FILE(), {});
-    if (daily[key]) { delete daily[key][k]; fs.writeFileSync(DAILY_FILE(), JSON.stringify(daily)); }
+    if (daily[key]) { delete daily[key][k]; writeJsonAtomic(DAILY_FILE(), daily); }
     writeTracking(t);
     return t;
   }
@@ -313,7 +322,7 @@ export function trackingDeleteDate(dateKey) {
   for (const asin of Object.keys(daily)) {
     for (const kw of Object.keys(daily[asin])) delete daily[asin][kw][dateKey];
   }
-  fs.writeFileSync(DAILY_FILE(), JSON.stringify(daily));
+  writeJsonAtomic(DAILY_FILE(), daily);
   const met = readJson(METRICS_FILE(), {});
   for (const asin of Object.keys(met)) delete met[asin][dateKey];
   fs.writeFileSync(METRICS_FILE(), JSON.stringify(met, null, 1));
@@ -805,7 +814,7 @@ const JOBS_FILE = () => path.join(userDataDir(), "jobs.json");
 function readJobs() { return readJson(JOBS_FILE(), []); }
 function writeJobs(jobs) {
   ensureDirs();
-  fs.writeFileSync(JOBS_FILE(), JSON.stringify(jobs.slice(-200), null, 1)); // giữ 200 job gần nhất
+  writeJsonAtomic(JOBS_FILE(), jobs.slice(-200), 1); // giữ 200 job gần nhất
 }
 
 export function enqueueJob(payload) {

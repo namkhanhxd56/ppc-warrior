@@ -92,19 +92,49 @@ app.use((req, res, next) => {
 
 /* ===== API AUTH ===== */
 app.use("/api/auth", express.json());
+
+/* CHỐNG DÒ MẬT KHẨU: server công khai trên internet, mật khẩu tối thiểu chỉ 6 ký tự nên
+   không có gì chặn thì dò được. Đếm trong RAM theo (IP + tên đăng nhập): sai 10 lần trong
+   15 phút → khoá 15 phút. Đăng nhập đúng thì xoá bộ đếm. Mất khi restart — chấp nhận được,
+   mục tiêu là chặn dò tự động chứ không phải chống tấn công có chủ đích kéo dài. */
+const LOGIN_MAX = 10, LOGIN_WINDOW_MS = 15 * 60000;
+const loginFails = new Map(); // key → {n, until}
+const clientIp = (req) => String(req.headers["x-forwarded-for"] || req.ip || "").split(",")[0].trim();
+const failKey = (req, name) => `${clientIp(req)}|${String(name || "").toLowerCase()}`;
+function loginBlockedFor(key) {
+  const f = loginFails.get(key);
+  if (!f) return 0;
+  if (Date.now() > f.until) { loginFails.delete(key); return 0; }
+  return f.n >= LOGIN_MAX ? Math.ceil((f.until - Date.now()) / 1000) : 0;
+}
+function noteLoginFail(key) {
+  const f = loginFails.get(key) || { n: 0, until: 0 };
+  f.n++; f.until = Date.now() + LOGIN_WINDOW_MS;
+  loginFails.set(f.n === 1 ? key : key, f);
+  if (loginFails.size > 5000) loginFails.clear(); // chặn phình RAM khi bị rải IP
+}
+// Cookie phiên: thêm Secure khi đứng sau HTTPS (Railway) — không đặt cứng vì local là http
+function sessionCookie(req, token) {
+  const https = String(req.headers["x-forwarded-proto"] || (req.secure ? "https" : "http")).split(",")[0].trim() === "https";
+  return `ppcw_sid=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${30 * 24 * 3600}${https ? "; Secure" : ""}`;
+}
 app.post("/api/auth/register", (req, res) => {
   try {
     const u = auth.register(req.body?.username, req.body?.password, req.body?.invite);
     const token = auth.createSession(u);
-    res.setHeader("Set-Cookie", `ppcw_sid=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${30 * 24 * 3600}`);
+    res.setHeader("Set-Cookie", sessionCookie(req, token));
     res.json({ ok: true, user: u, first: u.role === "admin" });
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 app.post("/api/auth/login", (req, res) => {
+  const key = failKey(req, req.body?.username);
+  const wait = loginBlockedFor(key);
+  if (wait) return res.status(429).json({ error: `Sai quá nhiều lần — thử lại sau ${Math.ceil(wait / 60)} phút` });
   const u = auth.verify(req.body?.username, req.body?.password);
-  if (!u) return res.status(401).json({ error: "Sai tên đăng nhập hoặc mật khẩu" });
+  if (!u) { noteLoginFail(key); return res.status(401).json({ error: "Sai tên đăng nhập hoặc mật khẩu" }); }
+  loginFails.delete(key);
   const token = auth.createSession(u);
-  res.setHeader("Set-Cookie", `ppcw_sid=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${30 * 24 * 3600}`);
+  res.setHeader("Set-Cookie", sessionCookie(req, token));
   res.json({ ok: true, user: u });
 });
 app.post("/api/auth/logout", (req, res) => {

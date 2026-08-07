@@ -103,7 +103,9 @@
 </main>
 <script>
 const $ = (id) => document.getElementById(id);
-const esc = (s) => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;');
+// Phải escape cả " — nhãn máy agent do NGƯỜI DÙNG đặt và ADMIN xem được nhãn của mọi người,
+// thiếu " thì chỉ cần một lần nội suy vào thuộc tính HTML là thành XSS lưu trữ member→admin.
+const esc = (s) => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 let mode = 'login', hasUsers = true;
 
 function syncTab() {
