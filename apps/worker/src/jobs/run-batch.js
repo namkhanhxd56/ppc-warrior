@@ -18,7 +18,9 @@ const VARIANT_TTL_DAYS = 7;
  * @param {(msg:string)=>void} p.log
  * @param {()=>boolean} p.shouldStop
  */
-export async function runBatch({ page, asin, keywords, opts, log, shouldStop, onBatch }) {
+export async function runBatch({ page: page0, asin, keywords, opts, log, shouldStop, onBatch, renewPage }) {
+  // page có thể bị THAY giữa chừng khi làm mới trình duyệt (xem "làm mới định kỳ" bên dưới)
+  let page = page0;
   // Chế độ COMPETITOR: chỉ cần ads + top 10 organic → quét 1 trang, luôn lưu snapshot
   if (opts.competitorMode) { opts = { ...opts, maxPages: 1, saveSnapshot: true }; }
   const maxPages = Math.min(Number(opts.maxPages) || 3, 5);
@@ -66,6 +68,8 @@ export async function runBatch({ page, asin, keywords, opts, log, shouldStop, on
      Vì sao không dồn tới cuối ASIN: 1 ASIN có thể 200 keyword (~20 phút) — đứt là mất sạch,
      và bảng trên web đứng im suốt lượt quét. */
   const BATCH_SIZE = Math.max(1, Number(opts.batchSize) || 5);
+  const RECYCLE_PAGES = Math.max(50, Number(opts.recycleAfterPages) || 400); // làm mới trình duyệt sau ngần này trang
+  let pagesScannedSinceRenew = 0;
   const results = [];
   let buf = [];
   async function flushBatch(why) {
@@ -90,6 +94,7 @@ export async function runBatch({ page, asin, keywords, opts, log, shouldStop, on
   for (let i = 0; i < keywords.length; i++) {
     if (shouldStop()) { log("⏹ Đã dừng theo yêu cầu."); break; }
     const kw = keywords[i];
+    let pagesThisKw = 0;
 
     try {
       let { pagesSlots, resultCount, adsTilesServed } = await scrapeKeyword(page, kw, maxPages, log, opts.debug, mode);
@@ -127,6 +132,7 @@ export async function runBatch({ page, asin, keywords, opts, log, shouldStop, on
       });
       queueResult(results[results.length - 1]);
       if (buf.length >= BATCH_SIZE) await flushBatch();
+      pagesThisKw = pagesSlots.length; // đếm trước khi giải phóng bộ nhớ ở dưới
 
       /* ===== Giải phóng bộ nhớ trước keyword kế ===== */
       pagesSlots.length = 0;
@@ -136,6 +142,22 @@ export async function runBatch({ page, asin, keywords, opts, log, shouldStop, on
     } catch (e) {
       log(`⚠️ [${i + 1}/${keywords.length}] "${kw}" lỗi: ${e.message}`);
       results.push({ keyword: kw, error: e.message });
+    }
+
+    /* LÀM MỚI TRÌNH DUYỆT ĐỊNH KỲ (đếm theo SỐ TRANG, không theo số ASIN):
+       1 ASIN có thể là 15 trang hoặc 600 trang (200 keyword × 3 trang), nên "cứ N ASIN thì
+       recycle" là sai đơn vị. Chrome sống lâu qua hàng trăm lượt tải trang sẽ phình bộ nhớ.
+       Chỉ làm mới GIỮA 2 KEYWORD (điểm an toàn) và sau khi đã điền hết lô đang chờ. */
+    pagesScannedSinceRenew += Number(pagesThisKw) || maxPages;
+    if (renewPage && pagesScannedSinceRenew >= RECYCLE_PAGES && i < keywords.length - 1 && !shouldStop()) {
+      await flushBatch("trước khi làm mới trình duyệt");
+      log(`♻️ Đã quét ${pagesScannedSinceRenew} trang — làm mới trình duyệt cho nhẹ bộ nhớ`);
+      try {
+        page = await renewPage();
+        pagesScannedSinceRenew = 0;
+      } catch (e) {
+        log(`⚠️ Làm mới trình duyệt lỗi: ${e.message} — chạy tiếp với trình duyệt cũ`);
+      }
     }
 
     await sleep(500 + Math.random() * 600);

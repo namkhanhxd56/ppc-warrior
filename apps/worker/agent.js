@@ -47,6 +47,46 @@ const headers = {
   ...(!AGENT_TOKEN && basicPair ? { Authorization: "Basic " + Buffer.from(basicPair).toString("base64") } : {})
 };
 
+/* ===== GIỮ BROWSER SỐNG GIỮA CÁC JOB =====
+   Mỗi job là 1 ASIN, trước đây mỗi job mở Chrome mới → tốn ~6,6s/ASIN (đo thật: Chrome 1,4s
+   + page 0,6s + kiểm zip 2,8s + verify session 1,8s). Giữ browser lại thì ASIN thứ 2 trở đi
+   chỉ tốn ~0,6s mở page. Vì hàng đợi đã single-flight (1 job tại một thời điểm) nên các job
+   chạy nối tiếp, dùng chung được ngay.
+   KHÔNG gộp nhiều ASIN vào 1 job: làm vậy phải đổi giao thức và agent bản cũ trong team sẽ
+   chỉ quét ASIN đầu rồi báo xong ⇒ mất dữ liệu. Cách này đạt cùng lợi ích mà không phá gì.
+   Tự đóng khi rảnh IDLE_CLOSE_MS để không để Chrome nằm mở cả ngày. */
+const RECYCLE_PAGES = Math.max(50, Number(process.env.RECYCLE_PAGES) || 400);
+const IDLE_CLOSE_MS = 60000;
+let hold = null; // { browser, verified, lastUsed }
+
+async function getBrowser(zip, log) {
+  if (hold?.browser?.connected === false) { hold = null; } // Chrome chết ngoài ý muốn
+  if (hold) return hold.browser;
+  const browser = await launchBrowser();
+  hold = { browser, verified: false, lastUsed: Date.now() };
+  return browser;
+}
+/** Page mới + zip + (lần đầu của browser này) kiểm session. */
+async function newReadyPage(zip, log) {
+  const browser = await getBrowser(zip, log);
+  const page = await newCleanPage(browser, loadCookies());
+  await ensureZipLocation(page, zip, log);
+  if (!hold.verified) {
+    log("🔐 Kiểm tra session...");
+    if (!(await verifySession(page))) throw new Error("Session lỗi/captcha trên máy agent — cập nhật cookies.json");
+    log("✅ Session hợp lệ");
+    hold.verified = true;
+  }
+  hold.lastUsed = Date.now();
+  return page;
+}
+async function closeBrowser(why) {
+  if (!hold) return;
+  const b = hold.browser; hold = null;
+  try { await Promise.race([b.close(), new Promise((r) => setTimeout(r, 5000))]); } catch {}
+  if (why) console.log(`  🧹 Đã đóng trình duyệt (${why})`);
+}
+
 async function api(path, body) {
   const r = await fetch(SERVER + path, { method: "POST", headers, body: JSON.stringify(body || {}) });
   // Bị redirect = URL sai (http→https, thiếu/thừa đường dẫn): fetch đi theo 301 nhưng ĐỔI POST
@@ -87,22 +127,24 @@ async function runJob(job) {
   const logger = makeLogger(job.id, markStop);
   const send = logger.send;
   if (job.payload?.kind === "libscan") return runLibScanJob(job, logger);
-  let browser = null;
+  let page = null;
   try {
     const p = job.payload;
     send(`🖥 Agent "${NAME}" nhận job: ${p.asin} × ${p.keywords.length} keyword`);
-    browser = await launchBrowser();
-    const page = await newCleanPage(browser, loadCookies());
-
-    await ensureZipLocation(page, p.zip, send); // zip lấy từ cấu hình server
-    send("🔐 Kiểm tra session...");
-    if (!(await verifySession(page))) throw new Error("Session lỗi/captcha trên máy agent — cập nhật cookies.json");
-    send("✅ Session hợp lệ");
+    // Browser dùng chung giữa các job — chỉ ASIN đầu tiên trả giá mở Chrome + verify session
+    page = await newReadyPage(p.zip, send);
 
     store.saveAsinSettings(p.asin, { trackParent: !!p.checkVariants });
     const runId = await runBatch({
       page, asin: p.asin, keywords: p.keywords,
-      opts: p, log: send, shouldStop: () => stopping,
+      opts: { ...p, recycleAfterPages: RECYCLE_PAGES }, log: send, shouldStop: () => stopping,
+      // Quét nhiều trang thì Chrome phình bộ nhớ → runBatch gọi cái này để thay browser mới
+      renewPage: async () => {
+        try { await page.close(); } catch {}
+        await closeBrowser();
+        page = await newReadyPage(p.zip, send);
+        return page;
+      },
       // Đẩy TỪNG LÔ lên server ngay khi runBatch điền xong lô đó (mặc định 5 keyword, lô
       // cuối của ASIN là phần dư). Lỗi mạng ở đây không làm hỏng lượt quét: dữ liệu đã nằm
       // ở store cục bộ, và bản run đầy đủ vẫn được đẩy lại ở cuối job.
@@ -127,7 +169,9 @@ async function runJob(job) {
     await api("/api/agent/fail", { jobId: job.id, error: e.message }).catch(() => {});
   } finally {
     await logger.flush(); // đừng để mất mấy dòng còn trong đệm
-    if (browser) { try { await browser.close(); } catch {} }
+    // Chỉ đóng PAGE — browser giữ lại cho job kế tiếp (tự đóng khi rảnh, xem vòng poll)
+    if (page) { try { await page.close(); } catch {} }
+    if (hold) hold.lastUsed = Date.now();
   }
 }
 
@@ -193,6 +237,9 @@ async function runLibScanJob(job, logger) {
       const { job } = await api("/api/agent/poll", { agent: NAME });
       lastErr = "";
       if (job) await runJob(job);
+      // Rảnh lâu thì đóng Chrome — giữ sống chỉ để tiết kiệm giữa các job liền nhau,
+      // không phải để nó nằm mở cả ngày ăn RAM.
+      else if (hold && Date.now() - hold.lastUsed > IDLE_CLOSE_MS) await closeBrowser("rảnh 60s");
     } catch (e) {
       if (e.message !== lastErr) { console.error("Poll lỗi:", e.message); lastErr = e.message; }
     }
