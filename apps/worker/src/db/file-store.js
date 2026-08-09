@@ -858,23 +858,68 @@ export function listProducts() { return readJson(PRODUCTS_FILE(), {}); }
 const JOBS_FILE = () => path.join(userDataDir(), "jobs.json");
 
 function readJobs() { return readJson(JOBS_FILE(), []); }
+
+const JOBS_KEEP_DONE = 200; // số job ĐÃ XONG giữ lại làm lịch sử
+/** Cắt bớt lịch sử nhưng KHÔNG BAO GIỜ cắt job chưa chạy xong.
+ *  Trước đây là slice(-200) cứng: xếp cả lượt Run một lúc (có thể >200 ASIN) thì job cuối
+ *  hàng đợi bị đẩy ra ngoài và biến mất IM LẶNG — quét thiếu mà không ai biết.
+ *  Giữ nguyên thứ tự mảng vì claimNextJob lấy job pending ĐẦU TIÊN và activeSession lấy job
+ *  hoạt động CŨ NHẤT làm chủ hàng đợi. */
 function writeJobs(jobs) {
   ensureDirs();
-  writeJsonAtomic(JOBS_FILE(), jobs.slice(-200), 1); // giữ 200 job gần nhất
+  const finished = [];
+  jobs.forEach((j, i) => { if (j.status !== "pending" && j.status !== "running") finished.push(i); });
+  const drop = new Set(finished.slice(0, Math.max(0, finished.length - JOBS_KEEP_DONE)));
+  writeJsonAtomic(JOBS_FILE(), drop.size ? jobs.filter((_, i) => !drop.has(i)) : jobs, 1);
+}
+
+const newJob = (payload, seq = 0) => ({
+  id: Date.now().toString(36) + seq.toString(36) + Math.random().toString(36).slice(2, 5),
+  status: "pending", // pending → running → done | error | cancelled
+  payload, agent: null, logs: [],
+  createdAt: new Date().toISOString(), startedAt: null, finishedAt: null,
+  resultRunId: null, error: null
+});
+
+/** Xếp NHIỀU job trong MỘT lần đọc-ghi — cả lượt Run vào hàng đợi cùng lúc.
+ *  Đây là thứ cho phép người dùng chuyển tab / đóng trình duyệt mà lượt quét vẫn chạy tiếp:
+ *  trước đây trình duyệt mới là nơi giữ vòng lặp "ASIN kế tiếp". */
+export function enqueueJobs(payloads) {
+  const jobs = readJobs();
+  const added = (payloads || []).map((p, i) => newJob(p, i));
+  jobs.push(...added);
+  writeJobs(jobs);
+  return added;
 }
 
 export function enqueueJob(payload) {
   const jobs = readJobs();
-  const job = {
-    id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
-    status: "pending", // pending → running → done | error
-    payload, agent: null, logs: [],
-    createdAt: new Date().toISOString(), startedAt: null, finishedAt: null,
-    resultRunId: null, error: null
-  };
+  const job = newJob(payload);
   jobs.push(job);
   writeJobs(jobs);
   return job;
+}
+
+/** Tiến độ lượt chạy đang chiếm hàng đợi (null = rảnh) — nguồn cho thanh trạng thái ở MỌI trang.
+ *  Nhờ nó mà mở tab Adjust/Launching vẫn thấy lượt quét đang chạy tới đâu. */
+export function activeRun() {
+  const jobs = readJobs();
+  const live = jobs.filter((j) => j.status === "pending" || j.status === "running");
+  if (!live.length) return null;
+  const runId = live[0].payload?.runId || null;
+  const mine = jobs.filter((j) => (j.payload?.runId || null) === runId);
+  const cur = live.find((j) => j.status === "running");
+  const count = (s) => mine.filter((j) => j.status === s).length;
+  return {
+    runId, dateKey: live[0].payload?.dateKey || null,
+    total: mine.length,
+    done: count("done"), error: count("error"), cancelled: count("cancelled"), pending: count("pending"),
+    current: cur ? {
+      id: cur.id, asin: cur.payload?.asin || null, agent: cur.agent,
+      keywords: (cur.payload?.keywords || []).length,
+      logs: (cur.logs || []).slice(-40)
+    } : null
+  };
 }
 
 // Mất heartbeat bao lâu thì coi là agent chết. Trước đây là "running > 30 phút" — sai với
@@ -1016,11 +1061,18 @@ export function isStopRequested(id) {
 // Chỉ chặn việc đổi trạng thái — dữ liệu quét được vẫn lưu bình thường ở /api/agent/result.
 const finalized = (j) => !j || j.status === "cancelled";
 
+/** Job xong rồi thì log chi tiết không còn tác dụng: người dùng đã xem trực tiếp lúc chạy, và
+ *  bản đầy đủ nằm ở results/<id>.json. Giữ nguyên 500 dòng × 200 job là jobs.json phình tới
+ *  ~6 MB — mà file này bị ĐỌC LẠI mỗi 3 giây bởi thanh tiến độ. Giữ 40 dòng cuối là đủ để
+ *  soi nguyên nhân lỗi. */
+const trimLogs = (j) => { if ((j.logs || []).length > 40) j.logs = j.logs.slice(-40); };
+
 export function completeJob(id, runId) {
   const jobs = readJobs();
   const j = jobs.find((x) => x.id === id);
   if (finalized(j)) return;
   j.status = "done"; j.resultRunId = runId; j.finishedAt = new Date().toISOString();
+  trimLogs(j);
   writeJobs(jobs);
 }
 
@@ -1029,6 +1081,7 @@ export function failJob(id, error) {
   const j = jobs.find((x) => x.id === id);
   if (finalized(j)) return;
   j.status = "error"; j.error = String(error); j.finishedAt = new Date().toISOString();
+  trimLogs(j);
   writeJobs(jobs);
 }
 

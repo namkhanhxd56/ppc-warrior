@@ -226,7 +226,7 @@
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;');
 
-const UI_VERSION = '0.30.2'; // PHẢI khớp APP_VERSION server.js
+const UI_VERSION = '0.31.0'; // PHẢI khớp APP_VERSION server.js
 (async () => {
   try {
     const v = (await (await fetch('/api/version')).json()).version;
@@ -857,39 +857,83 @@ function note(msg, ms = 5000) {
   s.textContent = msg;
   setTimeout(() => { if (s.textContent === msg) s.textContent = 'Idle'; }, ms); // chỉ xóa nếu chưa ai ghi đè
 }
+/* ▶ RUN: chỉ GỬI danh sách rồi thôi. Server xếp toàn bộ ASIN vào hàng đợi trong 1 request,
+   agent chạy tuần tự. Trang này KHÔNG còn là bộ điều phối — chuyển tab, đóng trình duyệt hay
+   tắt máy tính đều không làm gián đoạn lượt quét. */
 async function runTargets(targets, dateKey) {
   if (runLoop) return note('⏳ Đang có lượt chạy — bấm ⏹ Dừng trước khi chạy lượt mới');
-  runLoop = true; lockRun(true);
   stopped = false;
-  const runId = 'r' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
   $('logs').textContent = '';
-  // Kết quả được server GHI TỪNG KEYWORD ngay khi quét xong → bảng tự refresh 8s/lần trong lúc chạy
+  let r;
+  try {
+    r = await (await fetch('/api/run', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ targets, dateKey, maxPages: Number($('maxPages').value) || 3 }) })).json();
+  } catch (e) { return note('🚨 Không gọi được server: ' + e.message); }
+
+  if (r.mode === 'local') return runTargetsLocal(targets, dateKey); // RUN_MODE=local (máy dev)
+  if (!r.ok) { note('⚠️ ' + (r.message || 'Không xếp được job')); return; }
+
+  const kwTotal = r.keywords;
+  $('logs').textContent =
+    `📨 Đã xếp ${r.jobs} ASIN · ${kwTotal} keyword vào hàng đợi — phiên "${dateKey}".\n` +
+    `✅ Từ giờ agent tự chạy hết. Bạn có thể chuyển tab, đóng trình duyệt hoặc tắt máy này.\n\n`;
+  monitorRun();
+}
+
+/* Theo dõi lượt chạy đang có trên SERVER (không phải trạng thái của tab này).
+   Gọi lúc mở trang → mở tab mới/quay lại là thấy ngay tiến độ đang chạy tới đâu. */
+let monTimer = null, monLive = null;
+async function monitorRun() {
+  if (monTimer) return;
+  const tick = async () => {
+    let d;
+    try { d = await (await fetch('/api/run/active')).json(); } catch { return; }
+    const x = d.run;
+    if (!x) { // hàng đợi rỗng → lượt chạy kết thúc
+      clearInterval(monTimer); monTimer = null;
+      if (monLive) { clearInterval(monLive); monLive = null; }
+      runLoop = false; lockRun(false);
+      await loadTracking(); await loadRunList();
+      $('status').textContent = stopped ? 'Đã dừng' : 'Idle';
+      return;
+    }
+    if (!runLoop) { runLoop = true; lockRun(true); }
+    if (!monLive) monLive = setInterval(loadTracking, 8000); // bảng nhích theo từng lô 5 keyword
+    const xong = x.done + x.error + x.cancelled;
+    $('status').textContent = `Đang chạy ${xong}/${x.total} ASIN` +
+      (x.current ? ` · ${x.current.asin} (${x.current.keywords} kw)` : ' · chờ agent nhận job');
+    if (x.current) {
+      $('logs').textContent = `━━━ ${x.current.asin} · phiên "${x.dateKey}" · agent ${x.current.agent || '?'} ` +
+        `· ASIN ${xong + 1}/${x.total} ━━━\n` + (x.current.logs || []).join('\n');
+      $('logs').scrollTop = $('logs').scrollHeight;
+    }
+  };
+  await tick();                                    // tick đầu đặt runLoop nếu có việc đang chạy
+  if (runLoop && !monTimer) monTimer = setInterval(tick, 3000); // rảnh thì không tạo timer thừa
+}
+
+/* Chế độ local (RUN_MODE=local, chỉ dùng khi dev trên máy): server scrape trực tiếp nên vẫn
+   phải lặp từ trình duyệt như cũ. Production luôn là queue nên nhánh này không chạy. */
+async function runTargetsLocal(targets, dateKey) {
+  runLoop = true; lockRun(true);
   const live = setInterval(loadTracking, 8000);
-  let busy = false;
   try {
     for (let i = 0; i < targets.length; i++) {
       if (stopped) break;
       const t = targets[i];
       $('status').textContent = `Đang chạy ${i + 1}/${targets.length}: ${t.asin}...`;
-      $('logs').textContent += `\n━━━ [${i + 1}/${targets.length}] ${t.asin} · phiên "${dateKey}"${t.saveCompetitor ? ' · +competitor' : ''}${t.adsScan ? '' : ' · KHÔNG quét ads'} ━━━\n`;
-      // Setting theo ASIN quyết định: quét ads (adsScan) + quét competitor (saveSnapshot → bảng 🏆)
-      const r = await streamCheck({
+      $('logs').textContent += `\n━━━ [${i + 1}/${targets.length}] ${t.asin} · phiên "${dateKey}" ━━━\n`;
+      await streamCheck({
         asin: t.asin, keywords: t.kws.join('\n'),
         maxPages: Number($('maxPages').value) || 3,
         checkVariants: t.trackParent, saveSnapshot: t.saveCompetitor,
-        adsScan: t.adsScan, dateKey, runId
+        adsScan: t.adsScan, dateKey
       });
-      if (r === 'busy') { busy = stopped = true; break; } // lượt khác giữ hàng đợi — dừng hẳn, đừng thử ASIN kế
       await loadTracking();
     }
-  } finally {
-    clearInterval(live);
-    runLoop = false; lockRun(false);
-  }
-  await loadTracking();
-  await loadRunList();
-  $('status').textContent = busy ? '⚠️ Hàng đợi đang thuộc lượt chạy khác — bấm ⏹ Dừng để hủy'
-    : stopped ? 'Đã dừng' : 'Idle';
+  } finally { clearInterval(live); runLoop = false; lockRun(false); }
+  await loadTracking(); await loadRunList();
+  $('status').textContent = stopped ? 'Đã dừng' : 'Idle';
 }
 $('btnRun').onclick = () => {
   const targets = enabledTargets();
@@ -1326,6 +1370,9 @@ loadCompLib();
 function csvq(x){ x=String(x??''); return /[",\n]/.test(x) ? '"'+x.replace(/"/g,'""')+'"' : x; }
 
 loadTracking();
+// Mở trang (hoặc quay lại từ tab khác) mà server đang chạy lượt quét → bám vào theo dõi tiếp,
+// khóa nút Run, hiện đúng tiến độ. Không còn cảnh "F5 một cái là mất dấu lượt đang chạy".
+monitorRun();
 
 /* ===== 🖥 AGENT — cài 1 lệnh, máy KHÔNG lưu mật khẩu ===== */
 window.__agentSetup = async () => {

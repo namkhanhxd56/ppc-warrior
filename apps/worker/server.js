@@ -21,7 +21,7 @@ import * as auth from "./src/auth.js";
 import { als, runAsUser, userDataDir } from "./src/db/user-context.js";
 
 dotenv.config();
-export const APP_VERSION = "0.30.2"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
+export const APP_VERSION = "0.31.0"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
 
 // RUN_MODE:
 // - "local" (mặc định): bấm Kiểm tra là scrape NGAY trên máy này (dùng 1 người, chạy local)
@@ -352,6 +352,39 @@ app.post("/api/check", async (req, res) => {
   }
   res.end();
 });
+
+/* ===== ▶ RUN CẢ LƯỢT: server xếp TOÀN BỘ ASIN vào hàng đợi một lần =====
+   Trước đây trình duyệt mới là "bộ điều phối": nó gọi /api/check cho ASIN 1, đợi xong, rồi
+   mới gọi cho ASIN 2... Nghĩa là chuyển sang tab Adjust/Launching, đóng tab hay máy ngủ là
+   KHÔNG AI xếp ASIN tiếp theo — lượt quét chết giữa chừng dù agent vẫn khỏe (gặp thật).
+   Giờ một request xếp hết; hàng đợi single-flight tự chạy tuần tự đúng thứ tự trên xuống.
+   Trình duyệt tụt xuống vai trò xem tiến độ, muốn tắt lúc nào cũng được. */
+app.post("/api/run", (req, res) => {
+  if (RUN_MODE !== "queue") {
+    return res.status(409).json({ ok: false, mode: "local", message: "RUN_MODE=local — chạy trực tiếp trên server, UI dùng đường /api/check" });
+  }
+  try {
+    const { targets, dateKey, maxPages } = req.body || {};
+    if (!Array.isArray(targets) || !targets.length) throw new Error("Không có ASIN nào đang bật theo dõi");
+    const act = store.activeSession();
+    if (act) {
+      return res.status(409).json({ ok: false, busy: true, dateKey: act.dateKey, count: act.count,
+        message: `Đang có lượt chạy chiếm hàng đợi (phiên "${act.dateKey || "daily ⏰"}", còn ${act.count} job) — bấm ⏹ Dừng để hủy` });
+    }
+    const runId = "r" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    const payloads = targets.map((t) => buildJobPayload({
+      asin: t.asin, keywords: (t.kws || []).join("\n"), maxPages,
+      checkVariants: t.trackParent, saveSnapshot: t.saveCompetitor,
+      adsScan: t.adsScan, dateKey, runId
+    }));
+    const jobs = store.enqueueJobs(payloads);
+    res.json({ ok: true, runId, dateKey, jobs: jobs.length,
+      keywords: payloads.reduce((n, p) => n + p.keywords.length, 0) });
+  } catch (e) { res.status(400).json({ ok: false, message: e.message }); }
+});
+
+// Tiến độ lượt chạy hiện tại — MỌI trang đều poll được để hiện thanh trạng thái chung
+app.get("/api/run/active", (req, res) => res.json({ run: store.activeRun() }));
 
 /* ===== Job queue: UI theo dõi + agent kéo job ===== */
 /* ⏩ CONTINUE: server tự tính phần còn thiếu của CỘT DỞ DANG GẦN NHẤT.
