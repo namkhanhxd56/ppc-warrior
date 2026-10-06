@@ -21,7 +21,7 @@ import * as auth from "./src/auth.js";
 import { als, runAsUser, userDataDir } from "./src/db/user-context.js";
 
 dotenv.config();
-export const APP_VERSION = "0.31.0"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
+export const APP_VERSION = "0.31.1"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
 
 // RUN_MODE:
 // - "local" (mặc định): bấm Kiểm tra là scrape NGAY trên máy này (dùng 1 người, chạy local)
@@ -1457,6 +1457,11 @@ try {
     if (m && m[1] !== APP_VERSION) console.error(`🚨 public/${f}: UI_VERSION=${m[1]} ≠ APP_VERSION=${APP_VERSION} — banner "phiên bản cũ" sẽ hiện sai`);
   }
 } catch (e) { console.warn(`(bỏ qua kiểm tra UI_VERSION: ${e.message})`); }
+
+// QUÊN MẬT KHẨU: đặt ADMIN_RESET="tên_đăng_nhập:mật_khẩu_mới" trong Railway Variables →
+// server khởi động lại là mật khẩu được đặt lại → đăng nhập xong thì XOÁ biến đó đi.
+// Chi tiết và lý do không làm thành endpoint HTTP: xem src/auth.js.
+auth.applyAdminResetFromEnv(process.env.ADMIN_RESET);
 
 console.log(`▶ boot: PORT=${process.env.PORT || "(trống)"} WORKER_PORT=${process.env.WORKER_PORT || "(trống)"} RUN_MODE=${RUN_MODE} node=${process.version}`);
 const srv = app.listen(PORT, "0.0.0.0", () =>

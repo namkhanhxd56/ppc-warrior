@@ -134,6 +134,60 @@ export function parseCookie(req) {
   return m ? m[1] : null;
 }
 
+/* ===== KHÔI PHỤC MẬT KHẨU KHI QUÊN =====
+   Mật khẩu lưu bằng scrypt + salt nên không giải ngược được, và users.json nằm trên volume
+   của Railway nên máy cá nhân không với tới. Lối khôi phục duy nhất phải đi qua chính tiến
+   trình server.
+   CỐ Ý KHÔNG LÀM ENDPOINT HTTP: một đường reset mở ra internet là một cửa tấn công mới, dù
+   có gác bằng khoá bí mật. Thay vào đó kích hoạt bằng BIẾN MÔI TRƯỜNG — ai vào được Railway
+   Variables thì vốn đã toàn quyền với hệ thống, nên cách này không nới lỏng bảo mật thêm. */
+
+/** Đặt lại mật khẩu KHÔNG cần mật khẩu cũ. Chỉ dùng cho luồng khôi phục bên dưới. */
+export function forceSetPassword(username, password) {
+  const name = String(username || "").trim().toLowerCase();
+  const users = getUsers();
+  if (!users[name]) {
+    const e = new Error(`Không có tài khoản "${name}"`);
+    e.names = Object.keys(users); // để log gợi ý khi quên luôn cả tên đăng nhập
+    throw e;
+  }
+  if (String(password || "").length < 6) throw new Error("Mật khẩu tối thiểu 6 ký tự");
+  const salt = crypto.randomBytes(16).toString("hex");
+  users[name] = { ...users[name], salt, hash: hashPassword(password, salt), passwordResetAt: new Date().toISOString() };
+  writeJson(USERS_FILE, users);
+  // Huỷ mọi phiên cũ của tài khoản: đã phải đi đường khôi phục thì cookie cũ cũng không nên
+  // còn hiệu lực (có thể đang nằm trên máy/trình duyệt mà bạn không còn kiểm soát).
+  const sess = readJson(SESS_FILE, {});
+  let killed = 0;
+  for (const [t, s] of Object.entries(sess)) if (s?.user?.name === name) { delete sess[t]; killed++; }
+  if (killed) writeJson(SESS_FILE, sess);
+  return { user: publicUser(name, users[name]), sessionsKilled: killed };
+}
+
+/** Chạy MỘT LẦN lúc khởi động nếu có biến ADMIN_RESET="tên_đăng_nhập:mật_khẩu_mới".
+ *  Mật khẩu được phép chứa dấu ":" (chỉ tách ở dấu hai chấm ĐẦU TIÊN). */
+export function applyAdminResetFromEnv(raw) {
+  const v = String(raw || "").trim();
+  if (!v) return null;
+  const i = v.indexOf(":");
+  if (i < 1) {
+    console.error('🚨 ADMIN_RESET sai định dạng — cần "tên_đăng_nhập:mật_khẩu_mới"');
+    return null;
+  }
+  try {
+    const r = forceSetPassword(v.slice(0, i), v.slice(i + 1));
+    console.log(`🔑 ADMIN_RESET: đã đặt lại mật khẩu cho "${r.user.name}" (${r.user.role})`
+      + (r.sessionsKilled ? ` · huỷ ${r.sessionsKilled} phiên đăng nhập cũ` : ""));
+    console.log("   ⚠️  XOÁ biến ADMIN_RESET trong Railway Variables ngay sau khi đăng nhập được —");
+    console.log("       để nguyên thì mỗi lần server khởi động lại sẽ đặt lại mật khẩu về giá trị đó.");
+    return r.user;
+  } catch (e) {
+    console.error(`🚨 ADMIN_RESET thất bại: ${e.message}`);
+    if (e.names) console.error(`   Tài khoản đang có: ${e.names.join(", ") || "(chưa có tài khoản nào)"}`);
+    return null;
+  }
+}
+
 /* ===== Quản trị (admin) ===== */
 export function listUsers() {
   return Object.entries(getUsers()).map(([name, u]) => ({

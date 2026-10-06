@@ -78,6 +78,21 @@ Script tự tải bundle từ chính server, `npm install`, và ghi `.env`
 (`SERVER_URL` / `AGENT_TOKEN` / `AGENT_NAME` / `HEADFUL=0` / `CHROME_CHANNEL=chrome` / `WORKER_PROFILE=1`).
 Token gắn với tài khoản người dùng và thu hồi được ở UI. Cập nhật agent = chạy lại đúng lệnh trên.
 
+## Quên mật khẩu đăng nhập
+
+Mật khẩu lưu bằng scrypt + salt nên không ai đọc lại được, kể cả admin. Khôi phục bằng biến
+môi trường — cố ý KHÔNG làm endpoint HTTP để không mở thêm cửa tấn công nào ra internet:
+
+1. Railway → **Variables** → thêm `ADMIN_RESET=ten_dang_nhap:mat_khau_moi`
+   (mật khẩu ≥ 6 ký tự, được phép chứa dấu `:` — chỉ tách ở dấu hai chấm ĐẦU TIÊN)
+2. Railway tự khởi động lại → xem tab **Deploy Logs**, phải thấy `🔑 ADMIN_RESET: đã đặt lại…`
+   (gõ sai tên đăng nhập thì log liệt kê các tên đang có)
+3. Đăng nhập bằng mật khẩu mới
+4. **XOÁ biến `ADMIN_RESET` đi** — để nguyên thì mỗi lần khởi động lại mật khẩu bị đặt lại về
+   giá trị đó
+
+Mọi phiên đăng nhập cũ của tài khoản đó bị huỷ, các tài khoản khác không bị ảnh hưởng.
+
 ## Triển khai lên Railway
 
 Đã có sẵn `Dockerfile` (Node 20 + Chrome thật + xvfb headful) — Railway tự nhận và build.
