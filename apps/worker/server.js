@@ -21,7 +21,7 @@ import * as auth from "./src/auth.js";
 import { als, runAsUser, userDataDir } from "./src/db/user-context.js";
 
 dotenv.config();
-export const APP_VERSION = "0.31.1"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
+export const APP_VERSION = "0.32.0"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
 
 // RUN_MODE:
 // - "local" (mặc định): bấm Kiểm tra là scrape NGAY trên máy này (dùng 1 người, chạy local)
@@ -808,6 +808,42 @@ app.get("/api/competitor-snapshot/:asin", (req, res) => {
     .sort((x, y) => y.count - x.count);
 
   res.json({ asin, runsScanned, runsWithSnapshot, competitors });
+});
+
+/* ===================== DANH MỤC (ASIN|SKU|Type + Portfolio) ===================== */
+app.get("/api/catalog", (req, res) => {
+  const s = store.getLaunchSettings();
+  res.json({ products: store.listCatalog(), portfolios: store.listPortfolioDir(), manager: s.manager || "" });
+});
+
+app.post("/api/catalog/products", (req, res) => {
+  try {
+    const rows = req.body?.rows;
+    if (!Array.isArray(rows)) throw new Error("Thiếu danh sách dòng");
+    const bad = rows.filter((r) => String(r.asin || "").trim() && !/^[A-Z0-9]{10}$/i.test(String(r.asin).trim()));
+    // Gửi bảng rỗng = XOÁ SẠCH danh mục. Bắt xác nhận rõ ràng để một lỗi UI không thổi bay
+    // toàn bộ SKU đã nạp (products cũng là nơi form Tạo Campaign lưu hồ sơ sản phẩm).
+    if (!rows.length && Object.keys(store.getLaunchSettings().products || {}).length && !req.body?.confirmEmpty) {
+      throw new Error("Bảng rỗng — gửi kèm confirmEmpty nếu thật sự muốn xoá toàn bộ danh mục");
+    }
+    const saved = store.saveCatalog(rows);
+    res.json({ ok: true, products: saved, skipped: bad.map((r) => r.asin) });
+  } catch (e) { res.status(400).json({ ok: false, message: e.message }); }
+});
+
+app.post("/api/catalog/portfolios", (req, res) => {
+  try {
+    const rows = req.body?.rows;
+    if (!Array.isArray(rows)) throw new Error("Thiếu danh sách dòng");
+    res.json({ ok: true, portfolios: store.savePortfolioDir(rows) });
+  } catch (e) { res.status(400).json({ ok: false, message: e.message }); }
+});
+
+// Mã cá nhân: mặc định theo TÀI KHOẢN (trước đây gõ lại ở mỗi lần tạo campaign)
+app.post("/api/catalog/manager", (req, res) => {
+  const manager = String(req.body?.manager || "").trim().slice(0, 5);
+  store.saveLaunchSettings({ manager });
+  res.json({ ok: true, manager });
 });
 
 /* ===================== MODULE ADJUST (chỉnh sửa ads từ file bulk) ===================== */

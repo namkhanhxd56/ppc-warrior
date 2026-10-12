@@ -120,6 +120,7 @@
   <h1>⚔️ PPC Warrior</h1>
   <nav style="display:flex;gap:4px;margin-left:10px">
     <a href="/" style="color:#fff;background:var(--b);text-decoration:none;font-size:13px;padding:6px 14px;border-radius:8px;font-weight:600">📊 Check Ranking</a>
+    <a href="/catalog.html" style="color:#9fb0c8;text-decoration:none;font-size:13px;padding:6px 14px;border-radius:8px">📋 Danh mục</a>
     <a href="/launching.html" style="color:#9fb0c8;text-decoration:none;font-size:13px;padding:6px 14px;border-radius:8px">🚀 Tạo Campaign</a>
     <a href="/adjust.html" style="color:#9fb0c8;text-decoration:none;font-size:13px;padding:6px 14px;border-radius:8px">⚙️ Adjust</a>
     <a href="/data.html" style="color:#9fb0c8;text-decoration:none;font-size:13px;padding:6px 14px;border-radius:8px">📈 Data</a>
@@ -226,7 +227,7 @@
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;');
 
-const UI_VERSION = '0.31.1'; // PHẢI khớp APP_VERSION server.js
+const UI_VERSION = '0.32.0'; // PHẢI khớp APP_VERSION server.js
 (async () => {
   try {
     const v = (await (await fetch('/api/version')).json()).version;

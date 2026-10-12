@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<title>PPC Warrior — Danh mục</title>
+<style>
+  :root { --b:#2455e6; --ok:#1a9e50; --bad:#e04545; --warn:#d98a00; --mut:#667; }
+  * { box-sizing:border-box; }
+  body { font-family:-apple-system,Segoe UI,Arial,sans-serif; margin:0; background:#f4f6fa; color:#1b2330; }
+  header { background:#101828; color:#fff; padding:14px 24px; display:flex; align-items:center; gap:14px; }
+  header h1 { font-size:17px; margin:0; }
+  header nav { display:flex; gap:4px; margin-left:10px; }
+  header nav a { color:#9fb0c8; text-decoration:none; font-size:13px; padding:6px 14px; border-radius:8px; }
+  header nav a.active { background:var(--b); color:#fff; font-weight:600; }
+  header nav a:hover:not(.active) { background:#1d2739; }
+  main { max-width:1180px; margin:20px auto; padding:0 16px; }
+  .card { background:#fff; border:1px solid #e3e8f0; border-radius:12px; padding:18px 20px; margin-bottom:16px; }
+  .card > h2 { font-size:14px; margin:0 0 4px; }
+  .card .sub { font-size:12px; color:var(--mut); margin:0 0 12px; line-height:1.6; }
+  label { font-size:11.5px; color:var(--mut); display:block; margin:8px 0 4px; font-weight:600; }
+  input, select { padding:7px 9px; border:1px solid #ccd3e0; border-radius:7px; font-size:13px; font-family:inherit; background:#fff; }
+  input:focus, select:focus { outline:2px solid #c7d5ff; border-color:var(--b); }
+  button { padding:8px 16px; border:none; border-radius:7px; cursor:pointer; font-size:13px; font-weight:600; }
+  button:disabled { opacity:.45; cursor:not-allowed; }
+  .btn-primary { background:var(--b); color:#fff; }
+  .btn-sm { padding:5px 12px; font-size:12px; background:#eef1f7; }
+  table { border-collapse:collapse; width:100%; font-size:12.5px; }
+  th, td { border:1px solid #e3e8f0; padding:0; text-align:left; }
+  th { background:#f0f3f9; padding:6px 8px; font-size:11.5px; color:var(--mut); }
+  td input, td select { border:none; border-radius:0; width:100%; background:transparent; font-size:12.5px; padding:6px 8px; }
+  td input:focus, td select:focus { outline:2px solid #c7d5ff; outline-offset:-2px; }
+  td.del { width:34px; text-align:center; }
+  td.del button { background:transparent; color:#b7c0cf; padding:4px 8px; }
+  td.del button:hover { color:var(--bad); }
+  .mono { font-family:ui-monospace,Menlo,monospace; }
+  .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  .msg { font-size:12.5px; } .msg.ok { color:var(--ok); } .msg.err { color:var(--bad); }
+  .hint { font-size:11.5px; color:var(--mut); }
+  #verWarn { display:none; background:#b45309; color:#fff; padding:8px 16px; font-size:13px; text-align:center; }
+</style>
+</head>
+<body>
+<div id="verWarn"></div>
+<header>
+  <h1>⚔️ PPC Warrior</h1>
+  <nav>
+    <a href="/">📊 Check Ranking</a>
+    <a href="/catalog.html" class="active">📋 Danh mục</a>
+    <a href="/launching.html">🚀 Tạo Campaign</a>
+    <a href="/adjust.html">⚙️ Adjust</a>
+    <a href="/data.html">📈 Data</a>
+  </nav>
+</header>
+
+<main>
+  <div class="card">
+    <h2>👤 Mặc định tài khoản</h2>
+    <p class="sub">Mã cá nhân đi vào <span class="mono">{NameID}</span> của mọi tên campaign. Đặt một lần ở đây, khỏi gõ lại mỗi lần tạo campaign.</p>
+    <div class="row">
+      <div style="max-width:160px"><label style="margin:0 0 4px">Mã cá nhân (≤5 ký tự)</label>
+        <input type="text" id="manager" maxlength="5" placeholder="KHANH" style="width:100%"></div>
+      <button class="btn-sm" id="btnMgr" style="align-self:flex-end">💾 Lưu</button>
+      <span class="msg" id="mgrMsg"></span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>📦 Danh mục sản phẩm</h2>
+    <p class="sub">
+      Mỗi dòng là một sản phẩm. <b>Type</b> quyết định tiền tố tên campaign qua <span class="mono">{Type}</span> — FBA hay FBM.<br>
+      Dán thẳng từ Excel được: copy 4 cột <span class="mono">Tên list · ASIN · SKU · Type</span> rồi bấm vào một ô và dán.
+    </p>
+    <table>
+      <thead><tr><th style="width:28%">Tên list</th><th style="width:22%">ASIN</th><th style="width:28%">SKU</th><th style="width:14%">Type</th><th style="width:34px"></th></tr></thead>
+      <tbody id="pBody"></tbody>
+    </table>
+    <div class="row" style="margin-top:10px">
+      <button class="btn-sm" id="pAdd">➕ Thêm dòng</button>
+      <button class="btn-primary" id="pSave">💾 Lưu danh mục</button>
+      <span class="msg" id="pMsg"></span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>🗂 Danh mục portfolio</h2>
+    <p class="sub">
+      Nạp Portfolio ID và tên. Sau khi lưu, <b>13 ô portfolio</b> trong trang Tạo Campaign đổi từ gõ tay sang chọn theo tên — hết nhầm ID.<br>
+      Tên portfolio cũng đi vào tên campaign khi một campaign gom nhiều ASIN hoặc nhiều keyword.
+    </p>
+    <table>
+      <thead><tr><th style="width:38%">Portfolio ID</th><th style="width:62%">Tên portfolio</th><th style="width:34px"></th></tr></thead>
+      <tbody id="fBody"></tbody>
+    </table>
+    <div class="row" style="margin-top:10px">
+      <button class="btn-sm" id="fAdd">➕ Thêm dòng</button>
+      <button class="btn-primary" id="fSave">💾 Lưu portfolio</button>
+      <span class="msg" id="fMsg"></span>
+    </div>
+  </div>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+
+const UI_VERSION = '0.32.0';
+(async () => {
+  try { const v = (await (await fetch('/api/version')).json()).version; if (v !== UI_VERSION) throw new Error(v); }
+  catch (e) { $('verWarn').style.display = 'block'; $('verWarn').textContent = `⚠️ Server phiên bản cũ (${e.message}) — hãy restart (npm start).`; }
+})();
+
+/* Bảng nhập liệu kiểu bảng tính: mỗi ô là một <input>, dán từ Excel thì tự trải ra nhiều
+   dòng/cột. Cố ý KHÔNG tự lưu từng phím gõ — người dùng bấm Lưu, để còn sửa thoải mái. */
+function cellsOf(tr) { return [...tr.querySelectorAll('input,select')]; }
+
+function pasteInto(tbody, startTr, startCol, text, addRow) {
+  const lines = text.replace(/\r/g, '').split('\n').filter((l, i, a) => l.trim() || i < a.length - 1);
+  let tr = startTr;
+  for (const line of lines) {
+    if (!tr) { addRow(); tr = tbody.lastElementChild; }
+    const cells = cellsOf(tr);
+    line.split('\t').forEach((val, i) => {
+      const c = cells[startCol + i];
+      if (!c) return;
+      c.value = c.tagName === 'SELECT' ? (String(val).trim().toUpperCase() === 'FBM' ? 'FBM' : 'FBA') : String(val).trim();
+    });
+    tr = tr.nextElementSibling;
+  }
+}
+
+function wirePaste(tbody, addRow) {
+  tbody.addEventListener('paste', (e) => {
+    const txt = (e.clipboardData || window.clipboardData).getData('text');
+    if (!txt || !/[\t\n]/.test(txt)) return; // dán 1 ô thì để trình duyệt tự xử lý
+    e.preventDefault();
+    const tr = e.target.closest('tr');
+    const col = cellsOf(tr).indexOf(e.target);
+    pasteInto(tbody, tr, col, txt, addRow);
+  });
+}
+
+/* ===== Bảng sản phẩm ===== */
+function pRow(r = {}) {
+  const tr = document.createElement('tr');
+  tr.innerHTML = `
+    <td><input type="text" value="${esc(r.list)}" placeholder="Pickle jar 2026"></td>
+    <td><input type="text" class="mono" value="${esc(r.asin)}" placeholder="B0XXXXXXXX" maxlength="10"></td>
+    <td><input type="text" class="mono" value="${esc(r.sku)}" placeholder="SKU-ABC-01"></td>
+    <td><select><option${r.type === 'FBM' ? '' : ' selected'}>FBA</option><option${r.type === 'FBM' ? ' selected' : ''}>FBM</option></select></td>
+    <td class="del"><button title="Xoá dòng">✕</button></td>`;
+  tr.querySelector('.del button').onclick = () => tr.remove();
+  $('pBody').appendChild(tr);
+}
+const pAddRow = () => pRow();
+$('pAdd').onclick = () => pRow();
+wirePaste($('pBody'), pAddRow);
+
+function pRead() {
+  return [...$('pBody').children].map((tr) => {
+    const c = cellsOf(tr);
+    return { list: c[0].value.trim(), asin: c[1].value.trim().toUpperCase(), sku: c[2].value.trim(), type: c[3].value };
+  }).filter((r) => r.asin);
+}
+
+$('pSave').onclick = async () => {
+  const rows = pRead();
+  const bad = rows.filter((r) => !/^[A-Z0-9]{10}$/.test(r.asin));
+  if (bad.length) { $('pMsg').className = 'msg err'; $('pMsg').textContent = `✕ ASIN không hợp lệ: ${bad.map((b) => b.asin).join(', ')}`; return; }
+  if (!rows.length && !confirm('Bảng đang trống — lưu sẽ XOÁ toàn bộ danh mục sản phẩm. Tiếp tục?')) return;
+  const r = await (await fetch('/api/catalog/products', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ rows, confirmEmpty: !rows.length }) })).json();
+  $('pMsg').className = r.ok ? 'msg ok' : 'msg err';
+  $('pMsg').textContent = r.ok ? `✓ Đã lưu ${r.products.length} sản phẩm` : '✕ ' + (r.message || 'Lỗi');
+  if (r.ok) render(r.products, null);
+};
+
+/* ===== Bảng portfolio ===== */
+function fRow(r = {}) {
+  const tr = document.createElement('tr');
+  tr.innerHTML = `
+    <td><input type="text" class="mono" value="${esc(r.id)}" placeholder="123456789012345"></td>
+    <td><input type="text" value="${esc(r.name)}" placeholder="Pickle jar – Exact"></td>
+    <td class="del"><button title="Xoá dòng">✕</button></td>`;
+  tr.querySelector('.del button').onclick = () => tr.remove();
+  $('fBody').appendChild(tr);
+}
+$('fAdd').onclick = () => fRow();
+wirePaste($('fBody'), () => fRow());
+
+$('fSave').onclick = async () => {
+  const rows = [...$('fBody').children].map((tr) => {
+    const c = cellsOf(tr);
+    return { id: c[0].value.trim(), name: c[1].value.trim() };
+  }).filter((r) => r.id);
+  const r = await (await fetch('/api/catalog/portfolios', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ rows }) })).json();
+  $('fMsg').className = r.ok ? 'msg ok' : 'msg err';
+  $('fMsg').textContent = r.ok ? `✓ Đã lưu ${r.portfolios.length} portfolio` : '✕ ' + (r.message || 'Lỗi');
+};
+
+$('btnMgr').onclick = async () => {
+  const r = await (await fetch('/api/catalog/manager', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ manager: $('manager').value }) })).json();
+  $('mgrMsg').className = 'msg ok';
+  $('mgrMsg').textContent = '✓ đã lưu';
+  setTimeout(() => { $('mgrMsg').textContent = ''; }, 2500);
+};
+
+function render(products, portfolios) {
+  if (products) {
+    $('pBody').innerHTML = '';
+    products.forEach(pRow);
+    if (!products.length) { pRow(); pRow(); pRow(); }
+  }
+  if (portfolios) {
+    $('fBody').innerHTML = '';
+    portfolios.forEach(fRow);
+    if (!portfolios.length) { fRow(); fRow(); fRow(); }
+  }
+}
+
+(async () => {
+  const d = await (await fetch('/api/catalog')).json();
+  $('manager').value = d.manager || '';
+  render(d.products, d.portfolios);
+})();
+</script>
+</body>
+</html>

@@ -688,6 +688,84 @@ export function saveLaunchSettings(s) {
   return getLaunchSettings();
 }
 
+/* ===== DANH MỤC (catalog) =====
+   Hai bảng người dùng tự nạp, dùng làm nguồn cho trang Tạo Campaign:
+     1. Sản phẩm:  tên list | ASIN | SKU | Type (FBA/FBM)
+     2. Portfolio: Portfolio ID | Tên
+   CỐ Ý không tạo kho sản phẩm thứ hai: bảng sản phẩm ghi thẳng vào launch-settings.products
+   — chỗ form Tạo Campaign vốn đã lưu SKU/category/manager theo ASIN. Thêm kho mới là có hai
+   nơi chứa cùng một SKU, sửa một bên lệch bên kia.
+   Type (FBA/FBM) là thứ quyết định tiền tố tên campaign qua placeholder {Type}. */
+
+export function listCatalog() {
+  const s = getLaunchSettings();
+  return Object.entries(s.products || {})
+    .map(([asin, p]) => ({
+      asin,
+      list: p.list || "", sku: p.sku || "", type: p.type === "FBM" ? "FBM" : "FBA",
+      category: p.category || ""
+    }))
+    .sort((a, b) => (a.list || "~").localeCompare(b.list || "~") || a.asin.localeCompare(b.asin));
+}
+
+/** Ghi đè danh sách sản phẩm (bảng nhập liệu gửi nguyên bảng lên).
+ *  Giữ lại các trường form cũ (manager…) của ASIN đã có — chỉ đụng 4 cột của danh mục. */
+export function saveCatalog(rows) {
+  ensureDirs();
+  const s = getLaunchSettings();
+  const old = s.products || {};
+  const next = {};
+  for (const r of rows || []) {
+    const asin = String(r.asin || "").trim().toUpperCase();
+    if (!/^[A-Z0-9]{10}$/.test(asin)) continue;
+    next[asin] = {
+      ...(old[asin] || {}),
+      list: String(r.list || "").trim().slice(0, 60),
+      sku: String(r.sku || "").trim().slice(0, 60),
+      type: String(r.type || "").toUpperCase() === "FBM" ? "FBM" : "FBA",
+      category: String(r.category ?? old[asin]?.category ?? "").trim().slice(0, 60),
+      updatedAt: new Date().toISOString()
+    };
+  }
+  fs.writeFileSync(LAUNCH_FILE(), JSON.stringify({ ...s, products: next, updatedAt: new Date().toISOString() }, null, 2));
+  return listCatalog();
+}
+
+/** ASIN → {sku, type, list} — dùng khi dựng tên campaign và điền Product Ad. */
+export function catalogMap() {
+  const out = {};
+  for (const r of listCatalog()) out[r.asin] = r;
+  return out;
+}
+
+/* Danh bạ portfolio: { "<id>": {name, updatedAt} }. Trước đây 13 ô portfolio trong form
+   Tạo Campaign đều phải GÕ TAY Portfolio ID — sai một chữ số là campaign rơi nhầm chỗ và
+   chỉ phát hiện sau khi đã upload lên Amazon. */
+const PORTFOLIOS_FILE = () => path.join(userDataDir(), "portfolios.json");
+
+export function listPortfolioDir() {
+  const all = readJson(PORTFOLIOS_FILE(), {});
+  return Object.entries(all)
+    .map(([id, v]) => ({ id, name: v.name || "" }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+export function savePortfolioDir(rows) {
+  ensureDirs();
+  const next = {};
+  for (const r of rows || []) {
+    const id = String(r.id || "").trim();
+    if (!id) continue;
+    next[id] = { name: String(r.name || "").trim().slice(0, 80), updatedAt: new Date().toISOString() };
+  }
+  writeJsonAtomic(PORTFOLIOS_FILE(), next, 1);
+  return listPortfolioDir();
+}
+/** ID → tên (tên portfolio đi vào tên campaign khi campaign gom nhiều ASIN/keyword). */
+export function portfolioName(id) {
+  if (!id) return "";
+  return readJson(PORTFOLIOS_FILE(), {})[String(id).trim()]?.name || "";
+}
+
 /* Kho keyword theo tag (mục 3.1-3.2 file kiến thức): PPC | manual | removal
    Dedup theo keyword+ASIN; ưu tiên tag: removal > PPC > manual (removal không bị ghi đè). */
 const BANK_FILE = () => path.join(userDataDir(), "keyword-bank.json");
