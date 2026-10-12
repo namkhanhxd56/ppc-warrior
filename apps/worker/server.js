@@ -21,7 +21,7 @@ import * as auth from "./src/auth.js";
 import { als, runAsUser, userDataDir } from "./src/db/user-context.js";
 
 dotenv.config();
-export const APP_VERSION = "0.32.1"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
+export const APP_VERSION = "0.33.0"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
 
 // RUN_MODE:
 // - "local" (mặc định): bấm Kiểm tra là scrape NGAY trên máy này (dùng 1 người, chạy local)
@@ -293,6 +293,14 @@ async function executeCheck({ asin, keywords, maxPages, checkVariants, saveSnaps
     running = false; // nhả cờ trước — browser.close() treo không khoá phiên sau
     if (browser) { try { await Promise.race([browser.close(), new Promise((r) => setTimeout(r, 5000))]); } catch {} }
   }
+}
+
+/** id → tên portfolio, bơm vào planCampaigns để dựng nhãn "ASINs - <tên portfolio>".
+ *  bulk-builder là hàm thuần (không đọc store) nên map này phải đi từ ngoài vào. */
+function withPortfolioNames(body) {
+  const names = {};
+  for (const p of store.listPortfolioDir()) names[p.id] = p.name;
+  return { ...(body || {}), portfolioNames: names };
 }
 
 /* Chuẩn hóa payload check thành job cho agent (kèm zip cấu hình của server) */
@@ -646,7 +654,7 @@ function buildHarvestCreateRows(items, opts = {}) {
       matches: { exact: { on: true, levels: 1, step: 0.02, note: g.note }, phrase: { on: false }, broad: { on: false } },
       campaignMode: g.mode
     };
-    const { plans, trackingKeywords } = planCampaigns(input);
+    const { plans, trackingKeywords } = planCampaigns(withPortfolioNames(input));
     allRows.push(...buildRowsFromPlans(plans, input));
     store.upsertKeywords(asin, trackingKeywords.map((k) => k.keyword || k), "PPC", "adjust-harvest");
     total += plans.length;
@@ -690,9 +698,9 @@ app.post("/api/adjust/create-campaigns", (req, res) => {
 
 app.post("/api/launch/preview", (req, res) => {
   try {
-    const { plans, stats, trackingKeywords, asin, dropped } = planCampaigns(req.body || {});
+    const { plans, stats, trackingKeywords, asin, dropped, badPlaceholders } = planCampaigns(withPortfolioNames(req.body));
     res.json({ ok: true, stats, totalCampaigns: plans.length,
-      plans: plans.slice(0, 1000), trackingCount: trackingKeywords.length, asin, dropped });
+      plans: plans.slice(0, 1000), trackingCount: trackingKeywords.length, asin, dropped, badPlaceholders });
   } catch (e) {
     res.status(400).json({ ok: false, message: e.message });
   }
@@ -705,10 +713,11 @@ app.post("/api/launch/export", (req, res) => {
     const body = req.body || {};
     // Có plans từ danh sách tích lũy → dùng thẳng (không phụ thuộc form hiện tại);
     // không có → dựng từ form
+    const withPf = withPortfolioNames(body);
     const plans = Array.isArray(body.plans) && body.plans.length
       ? body.plans
-      : planCampaigns(body).plans;
-    const rows = buildRowsFromPlans(plans, body);       // SP → sheet "Sponsored Products Campaigns" (kèm Negative Keyword đính kèm)
+      : planCampaigns(withPf).plans;
+    const rows = buildRowsFromPlans(plans, withPf);       // SP → sheet "Sponsored Products Campaigns" (kèm Negative Keyword đính kèm)
     const sdRows = buildSdRows(plans, body);             // SD → sheet "Sponsored Display Campaigns" (22 cột)
     const sbRows = buildSbRows(plans, body);             // SB Video → sheet "Sponsored Brands Campaigns" (32 cột)
     const campaigns = plans.filter((p) => p?.name);

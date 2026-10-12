@@ -157,6 +157,9 @@
     <h2>1️⃣ Thông tin sản phẩm</h2>
     <p class="sub">💾 Lưu = ghi hồ sơ sản phẩm theo ASIN. Sau này gõ <b>ASIN hoặc SKU</b> là các trường còn lại (SKU/ASIN, Tên phân loại, mã cá nhân) tự điền lại. Ngày tạo không lưu — luôn mặc định hôm nay.</p>
     <div class="row">
+      <div style="min-width:260px"><label>Sản phẩm (từ 📋 Danh mục) — chọn nhiều bằng Ctrl/Cmd</label>
+        <select id="prodPick" multiple size="4" style="width:100%;height:auto"></select>
+        <div class="hint" id="prodMsg" style="margin-top:3px">Chọn nhiều = 1 campaign quảng cáo nhiều sản phẩm (mỗi sản phẩm 1 dòng Product Ad)</div></div>
       <div><label>SKU *</label><input type="text" id="sku" placeholder="SKU-ABC-01"></div>
       <div><label>ASIN *</label><input type="text" id="asin" placeholder="B0XXXXXXXX" maxlength="10"></div>
       <div><label>Tên phân loại</label><input type="text" id="category" placeholder="VD: Pickle Jar"></div>
@@ -214,7 +217,7 @@
     <p class="sub" style="margin-top:8px">1 keyword × 1 mức bid = 1 campaign. <b>Số mức</b> = số campaign tạo cho mỗi keyword với bid giảm dần · <b>Bước nhảy</b> = khoảng cách giữa các mức. VD bid gốc 0.78, số mức 3, bước 0.02 → 3 campaign: 0.78 / 0.76 / 0.74 (rải bid tìm mức thắng auction rẻ nhất).</p>
 
     <div class="row" style="margin-bottom:12px">
-      <div style="max-width:220px"><label>Portfolio chung (mặc định mọi mục)</label><input type="text" id="pfGlobal" placeholder="Portfolio ID chung"></div>
+      <div style="max-width:220px"><label>Portfolio chung (mặc định mọi mục)</label><select id="pfGlobal" class="pfSel"></select></div>
     </div>
 
     <fieldset style="border:1px solid #e3e8f0;border-radius:10px;padding:10px 14px;margin:0 0 12px">
@@ -250,7 +253,7 @@
           <div><label title="Số campaign tạo cho mỗi keyword, bid giảm dần">Số mức ⓘ</label><input type="number" id="levelsExact" value="5" min="1" max="10"></div>
           <div><label title="Khoảng cách bid giữa 2 mức liền nhau">Bước nhảy ⓘ</label><input type="number" id="stepExact" value="0.02" step="0.01"></div>
         </div>
-        <label>Portfolio (trống = dùng chung)</label><input type="text" id="pfExact">
+        <label>Portfolio (trống = dùng chung)</label><select id="pfExact" class="pfSel"></select>
         <label>Note / chiến lược (optional)</label><input type="text" id="noteExact" placeholder="VD: RANK">
       </div>
 
@@ -271,7 +274,7 @@
           <div><label title="Chỉ tạo Phrase cho keyword có số từ ≤ N">Keyword ≤ N từ</label><input type="number" id="wordLimitPhrase" value="3" min="1" max="6"></div>
           <div><label title="Campaign Phrase có start date = ngày Exact + N ngày">Chạy sau Exact (ngày)</label><input type="number" id="offsetPhrase" value="3" min="0"></div>
         </div>
-        <label>Portfolio (trống = dùng chung)</label><input type="text" id="pfPhrase">
+        <label>Portfolio (trống = dùng chung)</label><select id="pfPhrase" class="pfSel"></select>
         <label>Note / chiến lược (optional)</label><input type="text" id="notePhrase" placeholder="VD: HARVEST">
       </div>
 
@@ -292,7 +295,7 @@
           <div><label title="Chỉ tạo Broad cho keyword có số từ ≤ N">Keyword ≤ N từ</label><input type="number" id="wordLimitBroad" value="3" min="1" max="6"></div>
           <div><label title="Campaign Broad có start date = ngày Exact + N ngày">Chạy sau Exact (ngày)</label><input type="number" id="offsetBroad" value="3" min="0"></div>
         </div>
-        <label>Portfolio (trống = dùng chung)</label><input type="text" id="pfBroad">
+        <label>Portfolio (trống = dùng chung)</label><select id="pfBroad" class="pfSel"></select>
         <label>Note / chiến lược (optional)</label><input type="text" id="noteBroad" placeholder="VD: HARVEST">
       </div>
 
@@ -311,7 +314,7 @@
             <label style="margin:0" title='asin-expanded="..." — cả biến thể/sản phẩm liên quan'><b>Expanded</b></label></span>
         </div>
         <div class="hint">Tick 1 hoặc cả 2 — chọn cả 2 = 2 product targeting trong cùng 1 ad group</div>
-        <label>Portfolio (trống = dùng chung)</label><input type="text" id="pfPt">
+        <label>Portfolio (trống = dùng chung)</label><select id="pfPt" class="pfSel"></select>
         <label>Note / chiến lược (optional)</label><input type="text" id="notePt" placeholder="VD: ATTACK / DEFEND">
       </div>
 
@@ -332,7 +335,7 @@
             <label style="margin:0" title='asin-expanded="..." — cả biến thể/sản phẩm liên quan'><b>Expanded</b></label></span>
         </div>
         <div class="hint">Tick 1 hoặc cả 2 — chọn cả 2 = mỗi ASIN có 2 product targeting trong cùng ad group</div>
-        <label>Portfolio (trống = dùng chung)</label><input type="text" id="pfPtG">
+        <label>Portfolio (trống = dùng chung)</label><select id="pfPtG" class="pfSel"></select>
         <label>Note / chiến lược (optional)</label><input type="text" id="notePtG" placeholder="VD: ATTACK">
       </div>
 
@@ -351,7 +354,7 @@
         <div class="row">
           <div><label title="Mỗi ad type × mỗi mức bid = 1 campaign. Thập phân dùng dấu chấm">Các mức bid (cách nhau dấu phẩy, thập phân dấu chấm)</label>
             <input type="text" id="autoBids" value="0.23, 0.33, 0.39"></div>
-          <div style="max-width:180px"><label>Portfolio (trống = dùng chung)</label><input type="text" id="pfAuto"></div>
+          <div style="max-width:180px"><label>Portfolio (trống = dùng chung)</label><select id="pfAuto" class="pfSel"></select></div>
           <div style="max-width:160px"><label>Note / chiến lược (optional)</label><input type="text" id="noteAuto" placeholder="VD: HARVEST"></div>
         </div>
         <div class="hint">Tên campaign Auto dùng <b>Tên phân loại</b> (mục 1) qua placeholder {Category}</div>
@@ -401,7 +404,7 @@
           <div><label>Bước nhảy ⓘ</label><input type="text" inputmode="decimal" id="stepSbKw" value="0.03"></div>
           <div><label>Budget</label><input type="text" inputmode="decimal" id="sbBudgetKw" value="6"></div>
         </div>
-        <label>Portfolio (trống = dùng chung)</label><input type="text" id="pfSbKw">
+        <label>Portfolio (trống = dùng chung)</label><select id="pfSbKw" class="pfSel"></select>
         <label>Note / chiến lược (optional)</label><input type="text" id="noteSbKw" placeholder="VD: VIDEO">
       </div>
 
@@ -415,7 +418,7 @@
           <div><label>Số mức ⓘ</label><input type="number" id="levelsSbPt" value="1" min="1" max="10"></div>
           <div><label>Bước nhảy ⓘ</label><input type="text" inputmode="decimal" id="stepSbPt" value="0.03"></div>
         </div>
-        <label>Portfolio (trống = dùng chung)</label><input type="text" id="pfSbPt">
+        <label>Portfolio (trống = dùng chung)</label><select id="pfSbPt" class="pfSel"></select>
         <label>Note / chiến lược (optional)</label><input type="text" id="noteSbPt" placeholder="VD: VIDEO">
       </div>
     </div>
@@ -459,7 +462,7 @@
         <div class="mt-grid" style="margin-top:6px">
           <div><label>Budget</label><input type="text" inputmode="decimal" id="sdBudgetRem" value="8"></div>
         </div>
-        <label>Portfolio (trống = dùng chung)</label><input type="text" id="pfSdRem">
+        <label>Portfolio (trống = dùng chung)</label><select id="pfSdRem" class="pfSel"></select>
         <label>Note / chiến lược (optional)</label><input type="text" id="noteSdRem" placeholder="VD: RETARGET">
       </div>
 
@@ -472,7 +475,7 @@
           <div><label>Bước nhảy ⓘ</label><input type="text" inputmode="decimal" id="stepSdPt" value="0.1"></div>
           <div><label>Budget</label><input type="text" inputmode="decimal" id="sdBudgetPt" value="10"></div>
         </div>
-        <label>Portfolio (trống = dùng chung)</label><input type="text" id="pfSdPt">
+        <label>Portfolio (trống = dùng chung)</label><select id="pfSdPt" class="pfSel"></select>
         <label>Note / chiến lược (optional)</label><input type="text" id="noteSdPt" placeholder="VD: ATTACK">
       </div>
 
@@ -488,7 +491,7 @@
         </div>
         <div class="chk" style="margin-top:8px"><input type="checkbox" id="expandedSdPtG">
           <label style="margin:0" title='Bật: asin-expanded="..." — target cả biến thể/sản phẩm liên quan'>Dùng <b>asin-expanded</b></label></div>
-        <label>Portfolio (trống = dùng chung)</label><input type="text" id="pfSdPtG">
+        <label>Portfolio (trống = dùng chung)</label><select id="pfSdPtG" class="pfSel"></select>
         <label>Note / chiến lược (optional)</label><input type="text" id="noteSdPtG" placeholder="VD: ATTACK">
       </div>
     </div>
@@ -559,7 +562,7 @@ const TYPE_LABEL = { SP_KW_EXACT:'Exact', SP_KW_PHRASE:'Phrase', SP_KW_BROAD:'Br
 const STRATEGIES = ['Dynamic bids - down only','Dynamic bids - up and down','Fixed bid'];
 
 /* ===== Cảnh báo server chạy code cũ ===== */
-const UI_VERSION = '0.32.1';
+const UI_VERSION = '0.33.0';
 /* ===== THANH TIẾN ĐỘ QUÉT RANKING (dùng chung mọi trang) =====
    Lượt quét sống ở HÀNG ĐỢI trên server, không phải ở tab nào. Trước đây chuyển sang trang
    này là mất dấu — tệ hơn, bản cũ còn làm CHẾT luôn lượt quét vì vòng lặp điều phối nằm ở
@@ -690,8 +693,56 @@ const SAVE_FIELDS = ['sku','asin','category','manager','nameKw','namePt','namePt
   'modeBroad','ratioBroad','valueBroad','wordLimitBroad','offsetBroad',
   'dailyBudget','autoDailyBudget','biddingStrategy','placementTop','placementProductPage','placementRestOfSearch','placementAmazonBusiness',
   'adGroupDefaultBid','autoAdGroupDefaultBid'];
+/* Danh mục portfolio → 12 ô chọn. PHẢI nạp option TRƯỚC restoreForm: gán value cho <select>
+   mà option chưa tồn tại thì trình duyệt bỏ qua im lặng, portfolio đã chọn sẽ biến mất.
+   ID cũ không còn trong danh mục vẫn được giữ làm option riêng — không tự ý đổi campaign cũ. */
+/* ===== Sản phẩm từ Danh mục ===== */
+let catalog = [];
+function pickedProducts() {
+  const sel = $('prodPick');
+  const chosen = sel ? [...sel.selectedOptions].map((o) => catalog.find((c) => c.asin === o.value)).filter(Boolean) : [];
+  if (chosen.length) return chosen.map((c) => ({ asin: c.asin, sku: c.sku, type: c.type }));
+  // không chọn gì → dùng ô gõ tay (giữ nguyên cách làm cũ)
+  const a = $('asin').value.trim().toUpperCase();
+  return a ? [{ asin: a, sku: $('sku').value.trim(), type: 'FBA' }] : [];
+}
+async function loadCatalogPick() {
+  try { catalog = (await (await fetch('/api/catalog')).json()).products || []; } catch { catalog = []; }
+  const sel = $('prodPick');
+  if (!sel) return;
+  sel.innerHTML = catalog.length
+    ? catalog.map((c) => `<option value="${c.asin}">${c.list ? c.list + ' · ' : ''}${c.asin} · ${c.sku || '(chưa có SKU)'} · ${c.type}</option>`).join('')
+    : '<option disabled>Danh mục trống — nạp ở tab 📋 Danh mục</option>';
+  sel.onchange = () => {
+    const ps = [...sel.selectedOptions].map((o) => catalog.find((c) => c.asin === o.value)).filter(Boolean);
+    if (!ps.length) return;
+    $('asin').value = ps[0].asin;            // sản phẩm chính = cái chọn đầu tiên
+    $('sku').value = ps[0].sku || '';
+    $('prodMsg').textContent = ps.length > 1
+      ? `${ps.length} sản phẩm · tên campaign sẽ dùng "ASINs - <tên portfolio>" thay cho mã ASIN`
+      : `1 sản phẩm · ${ps[0].type}`;
+  };
+}
+
+let pfDir = [];
+async function loadPortfolioDir(keepValues = {}) {
+  try { pfDir = (await (await fetch('/api/catalog')).json()).portfolios || []; } catch { pfDir = []; }
+  document.querySelectorAll('select.pfSel').forEach((sel) => {
+    const cur = keepValues[sel.id] ?? sel.value;
+    const known = new Set(pfDir.map((p) => p.id));
+    let html = '<option value="">— không chọn —</option>'
+      + pfDir.map((p) => `<option value="${p.id}">${p.name || '(chưa đặt tên)'} · ${p.id}</option>`).join('');
+    if (cur && !known.has(cur)) html += `<option value="${cur}">ID cũ · ${cur}</option>`;
+    sel.innerHTML = html;
+    sel.value = cur || '';
+  });
+}
+
 (async () => {
+  await Promise.all([loadPortfolioDir(), loadCatalogPick()]);
   const restored = restoreForm();
+  // restoreForm gán value cho select — chạy lại để giữ ID lạ không có trong danh mục
+  await loadPortfolioDir();
   try {
     const { saved } = await (await fetch('/api/launch/settings')).json();
     settingsCache = saved || {};
@@ -832,6 +883,10 @@ function buildPayload() {
   const adTypes = [...document.querySelectorAll('#adTypes input:checked')].map(c => c.value);
   return {
     info: { sku: $('sku').value.trim(), asin: $('asin').value.trim().toUpperCase(),
+      // products = các sản phẩm đã chọn trong Danh mục (cái đầu là sản phẩm chính). Không chọn
+      // gì thì về đúng hành vi cũ: 1 sản phẩm theo ô SKU/ASIN gõ tay.
+      products: pickedProducts(),
+      type: (pickedProducts()[0] || {}).type || 'FBA',
       category: $('category').value.trim(), startDate: $('startDate').value, manager: $('manager').value.trim() },
     portfolios: { global: $('pfGlobal').value.trim(), exact: $('pfExact').value.trim(),
       phrase: $('pfPhrase').value.trim(), broad: $('pfBroad').value.trim(),
@@ -961,6 +1016,10 @@ $('btnPreview').onclick = async () => {
     const dr = r.dropped || {};
     const lọc = [dr.dupTargets > 0 ? `${dr.dupTargets} ASIN target trùng` : '', dr.dupKeywords > 0 ? `${dr.dupKeywords} keyword trùng` : '']
       .filter(Boolean).join(' + ');
+    const bad = r.badPlaceholders || [];
+    if (bad.length) { $('exportMsg').className = 'msg err';
+      $('exportMsg').textContent = `🚨 Mẫu tên còn biến chưa thay được: ${bad.join(' ')} — Amazon sẽ từ chối cả file vì ký tự { }. Sửa ở mục Đặt tên campaign.`;
+      return; }
     $('exportMsg').textContent = `➕ Thêm ${fresh.length} campaign · tổng ${plans.length}`
       + (lọc ? ` · đã bỏ ${lọc} (Amazon từ chối cả file nếu để trùng)` : '')
       + (dup ? ` · ⚠ ${dup} dòng TRÙNG TÊN (bôi đỏ)` : '');

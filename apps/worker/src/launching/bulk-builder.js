@@ -146,8 +146,11 @@ export function addDays(d, days) {
 export function planCampaigns(input) {
   const d = DEFAULTS;
   const info = input.info || {};
-  if (!info.sku) throw new Error("Thiếu SKU");
-  if (!/^[A-Z0-9]{10}$/i.test(info.asin || "")) throw new Error("ASIN không hợp lệ");
+  // Chọn sản phẩm từ Danh mục thì SKU/ASIN nằm trong info.products — không bắt phải điền
+  // thêm hai ô cũ nữa. Vẫn chấp nhận cách gọi cũ chỉ có info.sku + info.asin.
+  const head = (Array.isArray(info.products) && info.products[0]) || {};
+  if (!info.sku && !head.sku) throw new Error("Thiếu SKU");
+  if (!/^[A-Z0-9]{10}$/i.test(info.asin || head.asin || "")) throw new Error("ASIN không hợp lệ");
   if (!info.startDate) throw new Error("Thiếu ngày tạo");
   if (info.manager && String(info.manager).length > 5) throw new Error("Mã cá nhân tối đa 5 ký tự");
 
@@ -170,6 +173,14 @@ export function planCampaigns(input) {
     ptGroup: nm.ptGroup || d.namePtGroup, auto: nm.auto || d.nameAuto,
     sdPt: nm.sdPt || d.nameSdPt, sdPtG: nm.sdPtG || d.nameSdPtG, sdRem: nm.sdRem || d.nameSdRem,
     sbKw: nm.sbKw || d.nameSbKw, sbPt: nm.sbPt || d.nameSbPt };
+  /* Mẫu tên lưu từ trước ghi cứng "FBA" nên không ăn theo cột Type trong Danh mục.
+     Đổi tiền tố đó thành {Type} lúc chạy — khỏi phải sửa tay từng mẫu đã lưu. */
+  const withType = (t) => (/\{Type\}/.test(String(t)) ? String(t) : String(t).replace(/^\s*(FBA|FBM)\b/i, "{Type}"));
+  /* {Name} là tên biến ĐỜI CŨ của {NameID}. Mẫu lưu từ trước vẫn còn nó, mà renderName chỉ
+     biết {NameID} → chuỗi "{Name}" NẰM NGUYÊN trong tên campaign. Nhánh Adjust harvest đã
+     quy đổi từ lâu, nhánh Tạo Campaign thì chưa — nên mẫu cũ sinh ra tên campaign hỏng. */
+  for (const k of Object.keys(naming)) naming[k] = withType(String(naming[k]).replace(/\{Name\}/g, "{NameID}"));
+
   const portfolios = { global: "", ...(input.portfolios || {}) };
   const pf = (sec) => String(portfolios[sec] || portfolios.global || "").trim();
 
@@ -199,20 +210,42 @@ export function planCampaigns(input) {
   };
   const auto = { on: false, adTypes: ["close-match"], bids: [], note: "", ...(input.auto || {}) };
 
-  const asin = String(info.asin).toUpperCase();
+  const asin = String(info.asin || head.asin).toUpperCase();
   const exactDate = toBulkDate(info.startDate);
   // Offset ngày RIÊNG cho Phrase và Broad (16/07: tách khỏi cài đặt chung, fallback pbOffsetDays)
   const phraseDate = toBulkDate(addDays(info.startDate, Number(phrase.offsetDays ?? pbOffsetDays)));
   const broadDate = toBulkDate(addDays(info.startDate, Number(broad.offsetDays ?? pbOffsetDays)));
 
-  const baseCtx = { ASIN: asin, SKU: info.sku, NameID: info.manager || "",
-    Category: String(info.category || "").trim(), PortfolioId: "" };
+  /* NHIỀU SẢN PHẨM TRONG 1 CAMPAIGN: info.products = [{asin, sku, type}] lấy từ Danh mục,
+     phần tử ĐẦU là sản phẩm chính. Mỗi sản phẩm thành 1 dòng Product Ad trong cùng ad group.
+     Thiếu products thì quay về 1 sản phẩm như cũ — mọi lệnh gọi cũ vẫn chạy. */
+  const prodList = (Array.isArray(info.products) && info.products.length
+    ? info.products
+    : [{ asin: info.asin, sku: info.sku, type: info.type }])
+    .map((x) => ({ asin: cleanText(x.asin).toUpperCase(), sku: cleanText(x.sku), type: String(x.type || "").toUpperCase() === "FBM" ? "FBM" : "FBA" }))
+    .filter((x) => /^[A-Z0-9]{10}$/.test(x.asin));
+  const prods = prodList.length ? prodList : [{ asin, sku: info.sku, type: "FBA" }];
+  const multiAsin = prods.length > 1;
+  const pfNames = input.portfolioNames || {};
+  const pfLabel = (id) => String(pfNames[String(id || "").trim()] || "").trim();
+
+  const baseCtx = { ASIN: asin, SKU: prods[0].sku || info.sku, NameID: info.manager || "",
+    Type: prods[0].type, Category: String(info.category || "").trim(), PortfolioId: "" };
+
+  /* {ASIN} khi campaign gom NHIỀU sản phẩm → "ASINs - <tên portfolio>". Nhãn phụ thuộc
+     portfolio của chính mục đó, nên context phải dựng theo từng mục chứ không dùng chung. */
+  const ctx = (pfId) => (multiAsin
+    ? { ...baseCtx, ASIN: ["ASINs", pfLabel(pfId)].filter(Boolean).join(" - ") }
+    : baseCtx);
 
   const plans = [];
   const seen = new Set();
+  const productAds = prods.map((x) => ({ sku: x.sku, asin: x.asin }));
   const push = (p) => {
     if (seen.has(p.name)) return;
     seen.add(p.name);
+    // Gắn 1 dòng Product Ad cho MỖI sản phẩm vào mọi ad group chưa tự khai
+    for (const ag of p.adGroups || []) if (!ag.productAds) ag.productAds = productAds;
     plans.push(p);
   };
 
@@ -234,7 +267,7 @@ export function planCampaigns(input) {
   // mỗi ad group có targets (kw/pt/auto), negatives (Negative Keyword cấp ad group),
   // negPt (Negative Product Targeting); plan.negatives = Campaign Negative Keyword (cả campaign)
   const kwPlan = (text, matchType, bid, date, template, portfolio, note) => {
-    const name = renderName(template, { ...baseCtx, Keyword: text, MatchType: matchType[0].toUpperCase() + matchType.slice(1),
+    const name = renderName(template, { ...ctx(portfolio), Keyword: text, MatchType: matchType[0].toUpperCase() + matchType.slice(1),
       Bid: bid.toFixed(2), StartDate: date, Note: note });
     return {
       type: `SP_KW_${matchType.toUpperCase()}`, name,
@@ -259,12 +292,16 @@ export function planCampaigns(input) {
     const bidFor = (matchType, kw) => matchType === "exact"
       ? r2(exactBase(kw))
       : r2(derived(matchType === "phrase" ? phrase : broad, exactBase(kw)));
+    const kwLabel = (kws, portfolio) => (kws.length > 1
+      ? ["keywords", pfLabel(portfolio)].filter(Boolean).join(" - ")
+      : kws[0].text);
     const mkMulti = (matchType, kws, date, portfolio, note) => {
       if (!kws.length) return;
-      const label = kws.length > 1 ? `${kws[0].text} +${kws.length - 1}` : kws[0].text;
+      // Nhiều keyword trong 1 campaign → {Keyword} = "keywords - <tên portfolio>"
+      const label = kwLabel(kws, portfolio);
       // {Bid} trong tên campaign = bid ĐÚNG match type của keyword đầu (không lấy bid Exact cho campaign Phrase/Broad)
       const headBid = bidFor(matchType, kws[0]);
-      const name = renderName(naming.kw, { ...baseCtx, Keyword: label,
+      const name = renderName(naming.kw, { ...ctx(portfolio), Keyword: kwLabel(kws, portfolio),
         MatchType: matchType[0].toUpperCase() + matchType.slice(1),
         Bid: headBid.toFixed(2), StartDate: date, Note: note });
       push({
@@ -323,7 +360,7 @@ export function planCampaigns(input) {
     const ptBase = r2(pt.bid || bidRule.defaultBid);
     for (const target of ptTargets) {
       for (const bid of ladderBids(ptBase, pt.step, pt.levels, bidRule.minBid)) {
-        const nm1 = renderName(naming.pt, { ...baseCtx, TargetAsin: target, Bid: bid.toFixed(2), StartDate: exactDate, Note: pt.note || "" });
+        const nm1 = renderName(naming.pt, { ...ctx(pf("pt")), TargetAsin: target, Bid: bid.toFixed(2), StartDate: exactDate, Note: pt.note || "" });
         push({
           type: "SP_PT", name: nm1,
           targetAsin: target, bid, budget: Number(camp.dailyBudget),
@@ -345,7 +382,7 @@ export function planCampaigns(input) {
     groups.forEach((grp, gi) => {
       const label = `${gName} ${gi + 1}`;
       for (const bid of ladderBids(gBase, ptGroup.step, ptGroup.levels, bidRule.minBid)) {
-        const nm2 = renderName(naming.ptGroup, { ...baseCtx, Group: label, TargetAsin: label, Bid: bid.toFixed(2), StartDate: exactDate, Note: ptGroup.note || "" });
+        const nm2 = renderName(naming.ptGroup, { ...ctx(pf("ptGroup") || pf("pt")), Group: label, TargetAsin: label, Bid: bid.toFixed(2), StartDate: exactDate, Note: ptGroup.note || "" });
         push({
           type: "SP_PT_GROUP", name: nm2,
           targetAsins: grp, groupLabel: label, expanded: !!ptGroup.expanded, bid, budget: Number(camp.dailyBudget),
@@ -378,7 +415,7 @@ export function planCampaigns(input) {
       for (const bid of ladderBids(base, sdPt.step, sdPt.levels, bidRule.minBid)) {
         push({
           type: "SD_PT",
-          name: renderName(naming.sdPt, { ...baseCtx, TargetAsin: target, Bid: bid.toFixed(2), StartDate: exactDate, Note: sdPt.note || "" }),
+          name: renderName(naming.sdPt, { ...ctx(pf("sdPt") || pf("pt")), TargetAsin: target, Bid: bid.toFixed(2), StartDate: exactDate, Note: sdPt.note || "" }),
           targetAsin: target, bid, budget: Number(sdPt.budget) || d.sdBudgetPt,
           portfolioId: pf("sdPt") || pf("pt"), startDateBulk: exactDate, note: sdPt.note || "",
           ...sdShared, ...productLevel
@@ -399,7 +436,7 @@ export function planCampaigns(input) {
       for (const bid of ladderBids(base, sdPtG.step, sdPtG.levels, bidRule.minBid)) {
         push({
           type: "SD_PT_GROUP",
-          name: renderName(naming.sdPtG, { ...baseCtx, Group: label, TargetAsin: label, Bid: bid.toFixed(2), StartDate: exactDate, Note: sdPtG.note || "" }),
+          name: renderName(naming.sdPtG, { ...ctx(pf("sdPtG") || pf("pt")), Group: label, TargetAsin: label, Bid: bid.toFixed(2), StartDate: exactDate, Note: sdPtG.note || "" }),
           targetAsins: grp, groupLabel: label, expanded: !!sdPtG.expanded, bid,
           budget: Number(sdPtG.budget) || d.sdBudgetPtG,
           portfolioId: pf("sdPtG") || pf("pt"), startDateBulk: exactDate, note: sdPtG.note || "",
@@ -417,7 +454,7 @@ export function planCampaigns(input) {
     if (lookbacks.length) {
       push({
         type: "SD_REMARKETING",
-        name: renderName(naming.sdRem, { ...baseCtx, StartDate: exactDate, Note: sdRem.note || "" }),
+        name: renderName(naming.sdRem, { ...ctx(pf("sdRem") || pf("global")), StartDate: exactDate, Note: sdRem.note || "" }),
         lookbacks, bid: lookbacks[0].bid, budget: Number(sdRem.budget) || d.sdBudgetRem,
         portfolioId: pf("sdRem") || pf("global"), startDateBulk: exactDate, note: sdRem.note || "",
         ...sdShared, ...productLevel
@@ -450,7 +487,7 @@ export function planCampaigns(input) {
       for (const bid of ladderBids(base, sbKw.step, sbKw.levels, bidRule.minBid)) {
         push({
           type: "SB_KW",
-          name: renderName(naming.sbKw, { ...baseCtx, Keyword: text, MatchType: "Exact", Bid: bid.toFixed(2), StartDate: exactDate, Note: sbKw.note || "" }),
+          name: renderName(naming.sbKw, { ...ctx(pf("sbKw") || pf("global")), Keyword: text, MatchType: "Exact", Bid: bid.toFixed(2), StartDate: exactDate, Note: sbKw.note || "" }),
           keyword: text, matchType: "exact", bid, budget: Number(sbKw.budget) || d.sbBudgetKw,
           portfolioId: pf("sbKw") || pf("global"), startDateBulk: exactDate, note: sbKw.note || "",
           ...sbShared, ...productLevel
@@ -470,7 +507,7 @@ export function planCampaigns(input) {
       for (const bid of ladderBids(r2(sbPt.bid), sbPt.step, sbPt.levels, bidRule.minBid)) {
         push({
           type: "SB_PT_GROUP",
-          name: renderName(naming.sbPt, { ...baseCtx, Group: label, TargetAsin: label, Bid: bid.toFixed(2), StartDate: exactDate, Note: sbPt.note || "" }),
+          name: renderName(naming.sbPt, { ...ctx(pf("sbPt") || pf("global")), Group: label, TargetAsin: label, Bid: bid.toFixed(2), StartDate: exactDate, Note: sbPt.note || "" }),
           targetAsins: grp, groupLabel: label, bid, budget: Number(sbPt.budget) || d.sbBudgetPt,
           portfolioId: pf("sbPt") || pf("global"), startDateBulk: exactDate, note: sbPt.note || "",
           ...sbShared, ...productLevel
@@ -484,7 +521,7 @@ export function planCampaigns(input) {
     for (const adType of auto.adTypes || []) {
       if (!AD_TYPE_MATRIX[adType]) continue;
       for (const bid of bids.length ? bids : [bidRule.defaultBid]) {
-        const nm3 = renderName(naming.auto, { ...baseCtx, AdType: adType, Bid: bid.toFixed(2), StartDate: exactDate, Note: auto.note || "" });
+        const nm3 = renderName(naming.auto, { ...ctx(pf("auto")), AdType: adType, Bid: bid.toFixed(2), StartDate: exactDate, Note: auto.note || "" });
         const states = AD_TYPE_MATRIX[adType];
         push({
           type: "SP_AUTO", name: nm3,
@@ -510,11 +547,16 @@ export function planCampaigns(input) {
     }
   }
   // Báo cho UI biết đã lọc bớt gì — bỏ trùng âm thầm thì người dùng tưởng tool nuốt mất dòng
+  // Placeholder gõ sai (VD {Keywrod}) sẽ nằm nguyên trong tên campaign và Amazon từ chối cả
+  // file vì ký tự { }. Soát lại tên đã dựng rồi báo ra thay vì để phát hiện lúc upload.
+  const badPlaceholders = [...new Set(plans.flatMap((pl) =>
+    (String(pl.name).match(/\{[A-Za-z]+\}/g) || [])))];
+
   const dropped = {
     dupTargets: (input.targetAsins || []).filter((t) => /^[A-Z0-9]{10}$/.test(cleanText(t).toUpperCase())).length - ptTargets.length,
     dupKeywords: (input.keywords || []).filter((k) => cleanText(k.text)).length - kwListClean.length
   };
-  return { plans, stats, trackingKeywords, asin, dropped };
+  return { plans, stats, trackingKeywords, asin, dropped, badPlaceholders };
 }
 
 /* ============================================================
