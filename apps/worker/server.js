@@ -21,7 +21,7 @@ import * as auth from "./src/auth.js";
 import { als, runAsUser, userDataDir } from "./src/db/user-context.js";
 
 dotenv.config();
-export const APP_VERSION = "0.32.0"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
+export const APP_VERSION = "0.32.1"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
 
 // RUN_MODE:
 // - "local" (mặc định): bấm Kiểm tra là scrape NGAY trên máy này (dùng 1 người, chạy local)
@@ -690,9 +690,9 @@ app.post("/api/adjust/create-campaigns", (req, res) => {
 
 app.post("/api/launch/preview", (req, res) => {
   try {
-    const { plans, stats, trackingKeywords, asin } = planCampaigns(req.body || {});
+    const { plans, stats, trackingKeywords, asin, dropped } = planCampaigns(req.body || {});
     res.json({ ok: true, stats, totalCampaigns: plans.length,
-      plans: plans.slice(0, 1000), trackingCount: trackingKeywords.length, asin });
+      plans: plans.slice(0, 1000), trackingCount: trackingKeywords.length, asin, dropped });
   } catch (e) {
     res.status(400).json({ ok: false, message: e.message });
   }

@@ -559,7 +559,7 @@ const TYPE_LABEL = { SP_KW_EXACT:'Exact', SP_KW_PHRASE:'Phrase', SP_KW_BROAD:'Br
 const STRATEGIES = ['Dynamic bids - down only','Dynamic bids - up and down','Fixed bid'];
 
 /* ===== Cảnh báo server chạy code cũ ===== */
-const UI_VERSION = '0.32.0';
+const UI_VERSION = '0.32.1';
 /* ===== THANH TIẾN ĐỘ QUÉT RANKING (dùng chung mọi trang) =====
    Lượt quét sống ở HÀNG ĐỢI trên server, không phải ở tab nào. Trước đây chuyển sang trang
    này là mất dấu — tệ hơn, bản cũ còn làm CHẾT luôn lượt quét vì vòng lặp điều phối nằm ở
@@ -958,7 +958,12 @@ $('btnPreview').onclick = async () => {
     plans.forEach(p => cnt[p.name] = (cnt[p.name] || 0) + 1);
     const dup = plans.filter(p => cnt[p.name] > 1).length;
     $('exportMsg').className = dup ? 'msg err' : 'msg ok';
-    $('exportMsg').textContent = `➕ Thêm ${fresh.length} campaign · tổng ${plans.length}` + (dup ? ` · ⚠ ${dup} dòng TRÙNG TÊN (bôi đỏ)` : '');
+    const dr = r.dropped || {};
+    const lọc = [dr.dupTargets > 0 ? `${dr.dupTargets} ASIN target trùng` : '', dr.dupKeywords > 0 ? `${dr.dupKeywords} keyword trùng` : '']
+      .filter(Boolean).join(' + ');
+    $('exportMsg').textContent = `➕ Thêm ${fresh.length} campaign · tổng ${plans.length}`
+      + (lọc ? ` · đã bỏ ${lọc} (Amazon từ chối cả file nếu để trùng)` : '')
+      + (dup ? ` · ⚠ ${dup} dòng TRÙNG TÊN (bôi đỏ)` : '');
   } catch (e) {
     $('exportMsg').className = 'msg err';
     $('exportMsg').textContent = '❌ ' + e.message;

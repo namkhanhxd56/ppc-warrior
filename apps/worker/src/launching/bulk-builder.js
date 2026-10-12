@@ -98,11 +98,20 @@ export function ladderBids(base, step, levels, min = 0.02) {
   return out.length ? out : [r2(Math.max(base, min))];
 }
 
+/* KÝ TỰ VÔ HÌNH — Amazon từ chối CẢ FILE với "campaign name has invalid characters".
+   Hay dính nhất là U+FFFC (object replacement) khi copy keyword từ web hoặc Helium 10:
+   nó hiện thành ô vuông ￼ hoặc không hiện gì, nhìn mắt thường không thấy. Kèm theo:
+   zero-width, BOM, soft hyphen, ký tự điều khiển, và nbsp (đổi thành khoảng trắng thường). */
+const INVISIBLE_RE = /[\u0000-\u001F\u007F\u00AD\u200B-\u200F\u2028\u2029\u2060\uFEFF\uFFFC]/g;
+export const cleanText = (s) =>
+  String(s ?? "").replace(INVISIBLE_RE, "").replace(/\u00A0/g, " ").replace(/\s+/g, " ").trim();
+
 export function renderName(template, ctx) {
   let s = String(template || "");
   for (const [k, v] of Object.entries(ctx)) {
     s = s.split(`{${k}}`).join(v === null || v === undefined ? "" : String(v));
   }
+  s = cleanText(s); // ctx có thể mang keyword/note dính ký tự ẩn → lọc TRƯỚC khi thành tên campaign
   return s.replace(/(\s*-\s*){2,}/g, " - ").replace(/\s*-\s*$/, "").replace(/^\s*-\s*/, "").replace(/\s{2,}/g, " ").trim();
 }
 
@@ -240,9 +249,10 @@ export function planCampaigns(input) {
   //                          "multi"  = 1 campaign - NHIỀU ad group (mỗi keyword 1 ad group, bid riêng)
   // multi: ladder KHÔNG áp (mỗi keyword dùng bid gốc của nó); tên campaign: {Keyword} = "kw đầu +N"
   const campaignMode = input.campaignMode === "multi" ? "multi" : "single";
+  const kwSeen = new Set();
   const kwListClean = (input.keywords || [])
-    .map((kw) => ({ ...kw, text: String(kw.text || "").trim().toLowerCase() }))
-    .filter((kw) => kw.text);
+    .map((kw) => ({ ...kw, text: cleanText(kw.text).toLowerCase() }))
+    .filter((kw) => kw.text && !kwSeen.has(kw.text) && kwSeen.add(kw.text));
 
   if (campaignMode === "multi") {
     // bid của 1 keyword theo match type (exact = bid gốc; phrase/broad = suy ra từ bid gốc)
@@ -298,9 +308,15 @@ export function planCampaigns(input) {
     }
   }
 
-  const ptTargets = (input.targetAsins || [])
-    .map((t) => String(t).trim().toUpperCase())
-    .filter((t) => /^[A-Z0-9]{10}$/.test(t));
+  /* BỎ TRÙNG — bắt buộc. ASIN lặp trong cùng nhóm sinh ra 2 dòng Product Targeting y hệt
+     (asin= và asin-expanded=), Amazon báo 'Duplicate "Product Targeting Expression"' và từ
+     chối TOÀN BỘ file, không chỉ dòng lỗi. Danh sách đối thủ dán tay hoặc lấy từ nhiều phiên
+     quét rất dễ lặp. Cả 5 nhánh PT đều đọc mảng này nên lọc một lần là đủ. */
+  const ptTargets = [...new Set(
+    (input.targetAsins || [])
+      .map((t) => cleanText(t).toUpperCase())
+      .filter((t) => /^[A-Z0-9]{10}$/.test(t))
+  )];
 
   // PT (1 ASIN): mỗi target = 1 campaign
   if (pt.on) {
@@ -493,7 +509,12 @@ export function planCampaigns(input) {
       if (!ag.productAds || !ag.productAds.length) ag.productAds = [{ sku: p.sku || info.sku || "", asin: p.asin || asin }];
     }
   }
-  return { plans, stats, trackingKeywords, asin };
+  // Báo cho UI biết đã lọc bớt gì — bỏ trùng âm thầm thì người dùng tưởng tool nuốt mất dòng
+  const dropped = {
+    dupTargets: (input.targetAsins || []).filter((t) => /^[A-Z0-9]{10}$/.test(cleanText(t).toUpperCase())).length - ptTargets.length,
+    dupKeywords: (input.keywords || []).filter((k) => cleanText(k.text)).length - kwListClean.length
+  };
+  return { plans, stats, trackingKeywords, asin, dropped };
 }
 
 /* ============================================================
