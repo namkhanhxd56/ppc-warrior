@@ -10,7 +10,7 @@ import { setZipLocation, ensureZipLocation } from "./src/scraper/set-location.js
 import { runBatch } from "./src/jobs/run-batch.js";
 import { planCampaigns, buildRowsFromPlans, buildSdRows, buildSbRows, BULK_HEADER, SD_HEADER, SB_HEADER, DEFAULTS as LAUNCH_DEFAULTS } from "./src/launching/bulk-builder.js";
 import { parseH10 } from "./src/launching/h10-parser.js";
-import { etlBulk, queryRows, buildUpdateRows, rowKey, groupTerms, listPortfolios } from "./src/adjust/bulk-etl.js";
+import { etlBulk, queryRows, buildUpdateRows, rowKey, groupTerms, listPortfolios, stampAsins } from "./src/adjust/bulk-etl.js";
 import { evaluate as evaluateRules } from "./src/adjust/rule-engine.js";
 import { DEFAULT_RULES } from "./src/adjust/default-rules.js";
 import { buildMetrics, summarize, cellOf, buildAsinDaily } from "./src/data/consolidate.js";
@@ -21,7 +21,7 @@ import * as auth from "./src/auth.js";
 import { als, runAsUser, userDataDir } from "./src/db/user-context.js";
 
 dotenv.config();
-export const APP_VERSION = "0.33.0"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
+export const APP_VERSION = "0.34.0"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
 
 // RUN_MODE:
 // - "local" (mặc định): bấm Kiểm tra là scrape NGAY trên máy này (dùng 1 người, chạy local)
@@ -890,6 +890,7 @@ function loadDataset(id) {
   if (hit) return hit;
   try {
     const ds = JSON.parse(fs.readFileSync(`${ADJUST_DIR_FN()}/${id}.json`, "utf8"));
+    stampAsins(ds); // chạy lúc ĐỌC để dataset nạp từ trước cũng được nối ASIN, khỏi import lại
     ds.byKey = new Map(ds.records.map((r) => [rowKey(r), r]));
     cachePut(id, ds);
     return ds;
@@ -909,6 +910,7 @@ app.post("/api/adjust/import", (req, res, next) => uploadBig.single("file")(req,
     const idx = adjustIndex().filter((d) => d.id !== id);
     idx.unshift({ id, ...ds.meta });
     fs.writeFileSync(`${ADJUST_DIR_FN()}/index.json`, JSON.stringify(idx.slice(0, 20), null, 1));
+    stampAsins(ds);
     ds.byKey = new Map(ds.records.map((r) => [rowKey(r), r]));
     cachePut(id, ds);
 

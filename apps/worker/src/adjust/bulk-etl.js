@@ -146,6 +146,39 @@ export function etlBulk(buffer, filename) {
 }
 
 /* ============================================================
+   GẮN ASIN CHO MỌI DÒNG — qua Product Ad cùng ad group, không moi từ TÊN campaign
+   ============================================================
+   Chỉ dòng Product Ad mới mang sẵn SKU và ASIN; dòng Keyword/Product Targeting thì không.
+   Trước đây Adjust moi ASIN từ TÊN campaign bằng mẫu B0xxxxxxxx. Cách đó hỏng ngay khi
+   campaign gom nhiều sản phẩm (tên thành "ASINs - <portfolio>") hoặc khi ai đó đổi tên
+   campaign — mà tên thì người ta đổi suốt, SKU thì không.
+   Ba tầng, chính xác giảm dần: ad group → campaign → tên campaign (dự phòng cuối, giữ lại
+   cho ad group rỗng không có Product Ad nào).
+   Ad group nhiều sản phẩm → KHÔNG quy về một ASIN (ghi vào .asins), vì một campaign quảng
+   cáo 5 ASIN thì không thuộc về ASIN nào cả; rule cần target ACoS theo ASIN sẽ bỏ qua. */
+const asinFromCampName = (n) => (String(n || "").toUpperCase().match(/B0[A-Z0-9]{8}/) || [""])[0];
+
+export function stampAsins(ds) {
+  if (!ds || !Array.isArray(ds.records)) return ds;
+  const byAg = new Map(), byCid = new Map();
+  const add = (m, k, v) => { if (!k || !v) return; if (!m.has(k)) m.set(k, new Set()); m.get(k).add(v); };
+  for (const r of ds.records) {
+    if (r.e !== "Product Ad") continue;
+    add(byAg, r.agid, r.asin); add(byCid, r.cid, r.asin);
+  }
+  const apply = (row) => {
+    if (row.asin) return;
+    const s = byAg.get(row.agid) || byCid.get(row.cid) || null;
+    if (!s) { row.asin = asinFromCampName(row.name); return; }
+    if (s.size === 1) row.asin = [...s][0];
+    else row.asins = [...s]; // nhiều sản phẩm — để asin rỗng là CỐ Ý
+  };
+  for (const r of ds.records) apply(r);
+  for (const t of ds.terms || []) apply(t);
+  return ds;
+}
+
+/* ============================================================
    Query server-side: filter + sort + phân trang (dữ liệu lớn không đưa hết lên browser)
    ============================================================ */
 export function queryRows(list, q = {}) {
@@ -254,7 +287,10 @@ export function listPortfolios(records) {
    Search Term GOM NHÓM: theo (ASIN) → search term → occurrences (ad group).
    Mỗi group: tổng chỉ số của term; children = từng dòng ad group/campaign của term đó.
    ============================================================ */
+// ASIN của 1 dòng search term: ưu tiên cái stampAsins() đã nối qua ad group; tên campaign
+// chỉ là dự phòng (campaign nhiều ASIN không có mã nào trong tên).
 const asinFromName = (name) => { const m = String(name || "").toUpperCase().match(/B0[A-Z0-9]{8}/); return m ? m[0] : ""; };
+const asinOfTerm = (r) => r.asin || asinFromName(r.name);
 
 export function groupTerms(terms, q = {}) {
   const f = q.filters || {};
@@ -266,12 +302,12 @@ export function groupTerms(terms, q = {}) {
       (r.name && r.name.toLowerCase().includes(s)) ||
       (r.targeting && r.targeting.toLowerCase().includes(s)));
   }
-  if (f.asin) { const a = String(f.asin).toUpperCase(); list = list.filter((r) => asinFromName(r.name) === a); }
+  if (f.asin) { const a = String(f.asin).toUpperCase(); list = list.filter((r) => asinOfTerm(r) === a); }
 
   // Gom theo (asin | term) — "tổng của keyword đó đối với 1 ASIN"
   const map = new Map();
   for (const r of list) {
-    const asin = asinFromName(r.name);
+    const asin = asinOfTerm(r);
     const key = asin + "|" + r.term;
     if (!map.has(key)) map.set(key, { term: r.term, asin, children: [], sp: 0, sa: 0, or: 0, clk: 0, imp: 0 });
     const g = map.get(key);

@@ -201,6 +201,22 @@ export function planCampaigns(input) {
     exact: true, expanded: false, ...(input.pt || {}) }; // exact → asin="", expanded → asin-expanded="", cả 2 → 2 targeting cùng ad group
   const ptGroup = { on: false, groupName: "", groupSize: 10, exact: true, expanded: false, // exact → asin="", expanded → asin-expanded="", cả 2 được
     bid: null, step: d.ladder.pt.step, levels: d.ladder.pt.levels, note: "", ...(input.ptGroup || {}) };
+  /* TÁCH ĐÔI Exact / Expanded thành HAI CAMPAIGN RIÊNG (chốt với người dùng 12/10/2026).
+     Trước đây tick cả hai ra MỘT campaign chứa cả asin= lẫn asin-expanded= trong cùng ad
+     group — không đặt bid riêng cho từng loại được, trong khi asin-expanded ăn traffic rộng
+     hơn hẳn nên gần như luôn cần bid khác. Tên campaign cũng không phân biệt nổi hai loại.
+     Mẫu tên Expanded suy ra từ chính mẫu gốc (chèn " - Expanded" sau {TargetAsin}/{Group}),
+     nên người dùng không phải khai thêm mẫu thứ hai. */
+  const ptVariants = (cfg) => {
+    const out = [];
+    if (cfg.exact || (!cfg.exact && !cfg.expanded)) out.push({ expanded: false });
+    if (cfg.expanded) out.push({ expanded: true });
+    return out;
+  };
+  const expandedTpl = (tpl, token) => String(tpl).includes(token)
+    ? String(tpl).replace(token, `${token} - Expanded`)
+    : `${tpl} - Expanded`;
+
   // helper: expression list theo flag exact/expanded (không tick gì → coi như exact)
   const ptExprs = (cfg, ta) => {
     const out = [];
@@ -359,15 +375,18 @@ export function planCampaigns(input) {
   if (pt.on) {
     const ptBase = r2(pt.bid || bidRule.defaultBid);
     for (const target of ptTargets) {
-      for (const bid of ladderBids(ptBase, pt.step, pt.levels, bidRule.minBid)) {
-        const nm1 = renderName(naming.pt, { ...ctx(pf("pt")), TargetAsin: target, Bid: bid.toFixed(2), StartDate: exactDate, Note: pt.note || "" });
-        push({
-          type: "SP_PT", name: nm1,
-          targetAsin: target, bid, budget: Number(camp.dailyBudget),
-          portfolioId: pf("pt"), startDateBulk: exactDate, endDateBulk: "", note: pt.note || "", ...campLevel, ...productLevel,
-          adGroups: [{ name: nm1, defaultBid: Number(camp.adGroupDefaultBid) || d.adGroupDefaultBid,
-            targets: ptExprs(pt, target).map((expr) => ({ kind: "pt", expr, bid })), negatives: [], negPt: [] }]
-        });
+      for (const v of ptVariants(pt)) {
+        const tpl = v.expanded ? expandedTpl(naming.pt, "{TargetAsin}") : naming.pt;
+        for (const bid of ladderBids(ptBase, pt.step, pt.levels, bidRule.minBid)) {
+          const nm1 = renderName(tpl, { ...ctx(pf("pt")), TargetAsin: target, Bid: bid.toFixed(2), StartDate: exactDate, Note: pt.note || "" });
+          push({
+            type: "SP_PT", name: nm1,
+            targetAsin: target, expanded: v.expanded, bid, budget: Number(camp.dailyBudget),
+            portfolioId: pf("pt"), startDateBulk: exactDate, endDateBulk: "", note: pt.note || "", ...campLevel, ...productLevel,
+            adGroups: [{ name: nm1, defaultBid: Number(camp.adGroupDefaultBid) || d.adGroupDefaultBid,
+              targets: [{ kind: "pt", expr: `${v.expanded ? "asin-expanded" : "asin"}="${target}"`, bid }], negatives: [], negPt: [] }]
+          });
+        }
       }
     }
   }
@@ -381,15 +400,18 @@ export function planCampaigns(input) {
     const gName = String(ptGroup.groupName || "Target").trim() || "Target";
     groups.forEach((grp, gi) => {
       const label = `${gName} ${gi + 1}`;
-      for (const bid of ladderBids(gBase, ptGroup.step, ptGroup.levels, bidRule.minBid)) {
-        const nm2 = renderName(naming.ptGroup, { ...ctx(pf("ptGroup") || pf("pt")), Group: label, TargetAsin: label, Bid: bid.toFixed(2), StartDate: exactDate, Note: ptGroup.note || "" });
-        push({
-          type: "SP_PT_GROUP", name: nm2,
-          targetAsins: grp, groupLabel: label, expanded: !!ptGroup.expanded, bid, budget: Number(camp.dailyBudget),
-          portfolioId: pf("ptGroup") || pf("pt"), startDateBulk: exactDate, endDateBulk: "", note: ptGroup.note || "", ...campLevel, ...productLevel,
-          adGroups: [{ name: nm2, defaultBid: Number(camp.adGroupDefaultBid) || d.adGroupDefaultBid,
-            targets: grp.flatMap((ta) => ptExprs(ptGroup, ta).map((expr) => ({ kind: "pt", expr, bid }))), negatives: [], negPt: [] }]
-        });
+      for (const v of ptVariants(ptGroup)) {
+        const tpl = v.expanded ? expandedTpl(naming.ptGroup, "{Group}") : naming.ptGroup;
+        for (const bid of ladderBids(gBase, ptGroup.step, ptGroup.levels, bidRule.minBid)) {
+          const nm2 = renderName(tpl, { ...ctx(pf("ptGroup") || pf("pt")), Group: label, TargetAsin: label, Bid: bid.toFixed(2), StartDate: exactDate, Note: ptGroup.note || "" });
+          push({
+            type: "SP_PT_GROUP", name: nm2,
+            targetAsins: grp, groupLabel: label, expanded: v.expanded, bid, budget: Number(camp.dailyBudget),
+            portfolioId: pf("ptGroup") || pf("pt"), startDateBulk: exactDate, endDateBulk: "", note: ptGroup.note || "", ...campLevel, ...productLevel,
+            adGroups: [{ name: nm2, defaultBid: Number(camp.adGroupDefaultBid) || d.adGroupDefaultBid,
+              targets: grp.map((ta) => ({ kind: "pt", expr: `${v.expanded ? "asin-expanded" : "asin"}="${ta}"`, bid })), negatives: [], negPt: [] }]
+          });
+        }
       }
     });
   }
