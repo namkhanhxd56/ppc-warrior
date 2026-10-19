@@ -26,6 +26,12 @@
   input:focus, textarea:focus, select:focus { outline:2px solid #c7d5ff; border-color:var(--b); }
   /* Ô chọn nhiều gọn 1 DÒNG: nút tóm tắt + bảng xổ xuống có checkbox. Thẻ <select multiple>
      thật vẫn nằm bên dưới (ẩn) để phần lưu/khôi phục form và buildPayload không phải sửa. */
+  /* 4 ô của mục 1 phải thẳng hàng: nhãn cao cố định, ô cao bằng nhau. Trước đây nhãn dài
+     ngắn khác nhau + dòng gợi ý nằm trong cột ASIN làm cả hàng lệch nhau. */
+  .row.fields { align-items:flex-start; }
+  .row.fields > div > label { height:16px; line-height:16px; margin:0 0 5px; white-space:nowrap; }
+  .row.fields input, .row.fields select, .row.fields .ms-btn { height:36px; }
+  .req { color:var(--bad); }
   .ms { position:relative; }
   .ms-btn { width:100%; text-align:left; padding:8px 28px 8px 10px; border:1px solid #ccd3e0; border-radius:7px;
     font-size:13px; font-weight:400; background:#fff; cursor:pointer; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
@@ -175,31 +181,29 @@
   <!-- ===== 1. Thông tin sản phẩm ===== -->
   <div class="card">
     <h2>1️⃣ Thông tin sản phẩm</h2>
-    <p class="sub">ASIN lấy từ <a href="/catalog.html">📋 Danh mục</a>. Chọn ASIN là <b>SKU</b> và <b>Portfolio</b> tự điền — SKU khoá (sửa ở Danh mục), Portfolio sửa được tại đây cho riêng lượt tạo này. Mã cá nhân cũng lấy từ Danh mục. Ngày tạo luôn mặc định hôm nay.</p>
-    <div class="row">
-      <div style="min-width:250px"><label>ASIN * <span class="hint">(chọn được nhiều)</span></label>
+    <p class="sub">ASIN lấy từ <a href="/catalog.html">📋 Danh mục</a>. Chọn ASIN là <b>SKU</b> và <b>Portfolio</b> tự điền — SKU khoá (sửa ở Danh mục), Portfolio sửa được tại đây cho riêng lượt này. Tên phân loại và mã cá nhân cũng lấy từ Danh mục.</p>
+    <div class="row fields">
+      <div style="flex:0 0 268px"><label>ASIN <span class="req">*</span></label>
         <div class="ms" id="asinMs">
           <button type="button" class="ms-btn empty" id="asinBtn">— chọn ASIN —</button>
           <div class="ms-pop" id="asinPop"></div>
         </div>
-        <select id="asin" multiple style="display:none"></select>
-        <div class="hint" id="prodMsg" style="margin-top:3px">Chọn nhiều = 1 campaign quảng cáo nhiều sản phẩm (mỗi ASIN 1 dòng Product Ad)</div></div>
-      <div><label>SKU <span class="hint">(từ Danh mục — không sửa ở đây)</span></label>
+        <select id="asin" multiple style="display:none"></select></div>
+      <div style="flex:0 0 190px"><label>SKU</label>
         <input type="text" id="sku" readonly style="background:#f4f6fa;color:#667"></div>
-      <div style="max-width:230px"><label>Portfolio chung <span class="hint">(mặc định theo list — sửa được)</span></label>
+      <div style="flex:0 0 224px"><label>Portfolio chung</label>
         <select id="pfGlobal" class="pfSel"></select></div>
-      <div><label>Tên phân loại</label><input type="text" id="category" placeholder="VD: Pickle Jar"></div>
-      <div><label>Ngày tạo (Exact)</label><input type="date" id="startDate"></div>
+      <div style="flex:0 0 168px"><label>Ngày tạo (Exact)</label><input type="date" id="startDate"></div>
+      <input type="hidden" id="category">
       <input type="hidden" id="manager">
-      <div style="max-width:150px"><button class="btn-sm" id="btnSaveInfo">💾 Lưu thông tin</button></div>
     </div>
+    <div class="hint" id="prodMsg" style="margin-top:7px">Chọn nhiều ASIN = 1 campaign quảng cáo nhiều sản phẩm (mỗi ASIN 1 dòng Product Ad)</div>
     <div class="row" style="margin-top:6px">
       <div><label title="Định danh brand đã đăng ký Brand Registry (dạng ENTITY...) — TUỲ CHỌN, chỉ cần khi tạo campaign SB Video">Brand Entity ID <span class="hint">(tuỳ chọn — cho SB)</span></label>
         <input type="text" id="sbBrandEntityId" placeholder="ENTITY3GJWQD2AN907C"></div>
       <div style="flex:2"><label title="Video đã upload Asset Library — TUỲ CHỌN, chỉ cần khi tạo campaign SB Video">Video Media ID <span class="hint">(tuỳ chọn — cho SB)</span></label>
         <input type="text" id="sbMediaId" placeholder="amzn1.assetlibrary.asset1.xxxx:version_v1"></div>
     </div>
-    <div class="hint" id="infoMsg"></div>
   </div>
 
   <!-- ===== 2. Keyword & Target ASIN ===== -->
@@ -571,7 +575,9 @@
       <button class="btn-primary" id="btnPreview">➕ Tạo campaign</button>
       <button class="btn-ok" id="btnExport">📦 Xuất bulk XLSX</button>
       <label class="chk" style="margin:0"><input type="checkbox" id="saveToBank" checked> Lưu keyword vào kho (tag PPC)</label>
+      <button class="btn-sm" id="btnSaveInfo" title="Ghi nhớ mẫu đặt tên, cấu hình bid, portfolio và note cho những lần sau">💾 Lưu cấu hình</button>
       <span class="msg" id="exportMsg"></span>
+      <span class="hint" id="infoMsg"></span>
     </div>
     <div class="hint" style="margin-top:6px">Đổi ASIN/keyword rồi bấm ➕ là campaign mới <b>THÊM VÀO</b> danh sách (không xoá kết quả cũ — chỉ mất khi reload trang hoặc bấm 🗑 Xoá toàn bộ) · mọi cột sửa được từng dòng · tick nhiều dòng dùng Bulk edit · nút − bỏ chạy (↩ khôi phục)</div>
     <div id="previewArea" style="margin-top:12px"></div>
@@ -586,7 +592,7 @@ const TYPE_LABEL = { SP_KW_EXACT:'Exact', SP_KW_PHRASE:'Phrase', SP_KW_BROAD:'Br
 const STRATEGIES = ['Dynamic bids - down only','Dynamic bids - up and down','Fixed bid'];
 
 /* ===== Cảnh báo server chạy code cũ ===== */
-const UI_VERSION = '0.35.1';
+const UI_VERSION = '0.35.2';
 /* ===== THANH TIẾN ĐỘ QUÉT RANKING (dùng chung mọi trang) =====
    Lượt quét sống ở HÀNG ĐỢI trên server, không phải ở tab nào. Trước đây chuyển sang trang
    này là mất dấu — tệ hơn, bản cũ còn làm CHẾT luôn lượt quét vì vòng lặp điều phối nằm ở
@@ -831,6 +837,7 @@ async function loadCatalogPick() {
     // SKU luôn bám theo ASIN đang chọn. Nhiều ASIN thì ô này chỉ để NHÌN — mỗi ASIN vẫn ra
     // một dòng Product Ad với SKU riêng của nó.
     $('sku').value = ps.length > 1 ? ps.map((p) => p.sku).join(' · ') : (ps[0].sku || '');
+    $('category').value = ps[0].category || ''; // {Category} trong tên campaign Auto — từ Danh mục
 
     /* Portfolio LUÔN nhảy theo ASIN vừa chọn, kể cả khi người dùng vừa tự đổi tay — đổi ASIN
        là đổi sản phẩm, portfolio cũ không còn đúng nữa.

@@ -678,8 +678,12 @@ export function saveLaunchSettings(s) {
   // HỒ SƠ SẢN PHẨM: lưu theo ASIN — sau này gõ ASIN hoặc SKU là các trường còn lại
   // (SKU/ASIN, Tên phân loại, mã cá nhân) tự điền lại
   if (s.asin && /^[A-Z0-9]{10}$/i.test(s.asin)) {
+    const key = String(s.asin).toUpperCase();
     merged.products = { ...(cur.products || {}) };
-    merged.products[String(s.asin).toUpperCase()] = {
+    // GỘP, không ghi đè: products[] giờ còn mang list/type/portfolioId của Danh mục. Ghi đè
+    // trọn object là bấm "Lưu" ở form Tạo Campaign xoá sạch mấy trường đó của ASIN đang chọn.
+    merged.products[key] = {
+      ...(cur.products?.[key] || {}),
       sku: s.sku || "", category: s.category || "", manager: s.manager || "",
       updatedAt: new Date().toISOString()
     };
