@@ -24,6 +24,26 @@
   input[type=text], input[type=number], input[type=date], textarea, select {
     width:100%; padding:8px 10px; border:1px solid #ccd3e0; border-radius:7px; font-size:13px; font-family:inherit; background:#fff; }
   input:focus, textarea:focus, select:focus { outline:2px solid #c7d5ff; border-color:var(--b); }
+  /* Ô chọn nhiều gọn 1 DÒNG: nút tóm tắt + bảng xổ xuống có checkbox. Thẻ <select multiple>
+     thật vẫn nằm bên dưới (ẩn) để phần lưu/khôi phục form và buildPayload không phải sửa. */
+  .ms { position:relative; }
+  .ms-btn { width:100%; text-align:left; padding:8px 28px 8px 10px; border:1px solid #ccd3e0; border-radius:7px;
+    font-size:13px; font-weight:400; background:#fff; cursor:pointer; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .ms-btn:focus { outline:2px solid #c7d5ff; border-color:var(--b); }
+  .ms-btn::after { content:"▾"; position:absolute; right:10px; top:50%; transform:translateY(-50%); color:#8a94a8; pointer-events:none; }
+  .ms-btn.empty { color:#9aa4b5; }
+  .ms-pop { display:none; position:absolute; z-index:40; left:0; right:0; top:calc(100% + 3px); background:#fff;
+    border:1px solid #ccd3e0; border-radius:8px; box-shadow:0 6px 18px rgba(16,24,40,.14); max-height:260px; overflow:auto; padding:4px; }
+  .ms.open .ms-pop { display:block; }
+  .ms-opt { display:flex; align-items:center; gap:8px; padding:6px 8px; border-radius:6px; font-size:12.5px; cursor:pointer; }
+  .ms-opt:hover { background:#f2f5fb; }
+  .ms-opt input { width:auto; margin:0; }
+  .ms-empty { padding:10px; font-size:12px; color:var(--mut); }
+  /* Ô tìm kiếm dính trên đầu bảng xổ — danh mục vài trăm ASIN thì cuộn tay không xuể */
+  .ms-search { position:sticky; top:-4px; background:#fff; padding:4px 4px 6px; border-bottom:1px solid #eef1f6; margin:-4px -4px 4px; }
+  .ms-search input { width:100%; padding:6px 9px; font-size:12.5px; border:1px solid #ccd3e0; border-radius:6px; }
+  .ms-foot { padding:6px 8px; font-size:11.5px; color:var(--mut); border-top:1px solid #eef1f6; display:flex; gap:10px; }
+  .ms-foot a { color:var(--b); cursor:pointer; text-decoration:none; }
   input:disabled { background:#eef0f5; color:#aab; cursor:not-allowed; }
   textarea { font-family:ui-monospace,Menlo,monospace; font-size:12.5px; }
   .row { display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; }
@@ -157,8 +177,12 @@
     <h2>1️⃣ Thông tin sản phẩm</h2>
     <p class="sub">ASIN lấy từ <a href="/catalog.html">📋 Danh mục</a>. Chọn ASIN là <b>SKU</b> và <b>Portfolio</b> tự điền — SKU khoá (sửa ở Danh mục), Portfolio sửa được tại đây cho riêng lượt tạo này. Mã cá nhân cũng lấy từ Danh mục. Ngày tạo luôn mặc định hôm nay.</p>
     <div class="row">
-      <div style="min-width:250px"><label>ASIN * — chọn nhiều bằng Ctrl/Cmd</label>
-        <select id="asin" multiple size="4" style="width:100%;height:auto"></select>
+      <div style="min-width:250px"><label>ASIN * <span class="hint">(chọn được nhiều)</span></label>
+        <div class="ms" id="asinMs">
+          <button type="button" class="ms-btn empty" id="asinBtn">— chọn ASIN —</button>
+          <div class="ms-pop" id="asinPop"></div>
+        </div>
+        <select id="asin" multiple style="display:none"></select>
         <div class="hint" id="prodMsg" style="margin-top:3px">Chọn nhiều = 1 campaign quảng cáo nhiều sản phẩm (mỗi ASIN 1 dòng Product Ad)</div></div>
       <div><label>SKU <span class="hint">(từ Danh mục — không sửa ở đây)</span></label>
         <input type="text" id="sku" readonly style="background:#f4f6fa;color:#667"></div>
@@ -562,7 +586,7 @@ const TYPE_LABEL = { SP_KW_EXACT:'Exact', SP_KW_PHRASE:'Phrase', SP_KW_BROAD:'Br
 const STRATEGIES = ['Dynamic bids - down only','Dynamic bids - up and down','Fixed bid'];
 
 /* ===== Cảnh báo server chạy code cũ ===== */
-const UI_VERSION = '0.35.0';
+const UI_VERSION = '0.35.1';
 /* ===== THANH TIẾN ĐỘ QUÉT RANKING (dùng chung mọi trang) =====
    Lượt quét sống ở HÀNG ĐỢI trên server, không phải ở tab nào. Trước đây chuyển sang trang
    này là mất dấu — tệ hơn, bản cũ còn làm CHẾT luôn lượt quét vì vòng lặp điều phối nằm ở
@@ -706,6 +730,85 @@ function pickedProducts() {
     .map((c) => ({ asin: c.asin, sku: c.sku, type: c.type }));
 }
 let catalogManager = '';
+
+/* ===== Ô ASIN: 1 dòng + bảng xổ xuống có checkbox =====
+   <select multiple> gốc vẫn còn (ẩn) và là NGUỒN SỰ THẬT — persistForm/restoreForm/
+   buildPayload đọc nó như mọi ô khác, không phải sửa gì. Lớp hiển thị chỉ đồng bộ hai chiều. */
+function asinSummary() {
+  const sel = $('asin');
+  const picked = [...sel.selectedOptions].map((o) => o.value);
+  const btn = $('asinBtn');
+  if (!picked.length) { btn.textContent = '— chọn ASIN —'; btn.classList.add('empty'); return; }
+  btn.classList.remove('empty');
+  if (picked.length === 1) {
+    const c = catalog.find((x) => x.asin === picked[0]);
+    btn.textContent = c ? `${c.asin} · ${c.sku || '(chưa có SKU)'}` : picked[0];
+  } else {
+    btn.textContent = `${picked.length} ASIN · ${picked.slice(0, 2).join(', ')}${picked.length > 2 ? '…' : ''}`;
+  }
+}
+function buildAsinPop() {
+  const pop = $('asinPop');
+  if (!pop) return;
+  if (!catalog.length) {
+    pop.innerHTML = '<div class="ms-empty">Danh mục trống — nạp ASIN ở tab 📋 Danh mục trước</div>';
+    asinSummary(); return;
+  }
+  const chosen = new Set([...$('asin').selectedOptions].map((o) => o.value));
+  pop.innerHTML = '<div class="ms-search"><input type="text" id="asinFind" placeholder="Tìm theo ASIN, SKU hoặc tên list…" autocomplete="off"></div>'
+    + catalog.map((c) => `<label class="ms-opt" data-find="${esc(((c.list || '') + ' ' + c.asin + ' ' + (c.sku || '') + ' ' + c.type).toLowerCase())}">
+    <input type="checkbox" value="${c.asin}"${chosen.has(c.asin) ? ' checked' : ''}>
+    <span>${c.list ? c.list + ' · ' : ''}<b>${c.asin}</b> · ${c.sku || '(chưa có SKU)'} · ${c.type}</span></label>`).join('')
+    + '<div class="ms-empty" id="asinNone" style="display:none">Không có ASIN nào khớp</div>'
+    + '<div class="ms-foot"><a id="asinClear">Bỏ chọn hết</a><a id="asinAllShown">Chọn hết đang hiện</a></div>';
+
+  // Lọc = ẨN dòng, KHÔNG dựng lại danh sách — dựng lại là mất trạng thái đã tick
+  const find = $('asinFind');
+  find.oninput = () => {
+    const q = find.value.trim().toLowerCase();
+    let hien = 0;
+    pop.querySelectorAll('.ms-opt').forEach((el) => {
+      const hit = !q || el.dataset.find.includes(q);
+      el.style.display = hit ? '' : 'none';
+      if (hit) hien++;
+    });
+    $('asinNone').style.display = hien ? 'none' : 'block';
+  };
+  find.onkeydown = (e) => { if (e.key === 'Escape') { e.stopPropagation(); find.value = ''; find.oninput(); } };
+
+  const syncAll = () => { $('asin').dispatchEvent(new Event('change')); };
+  $('asinClear').onclick = () => {
+    pop.querySelectorAll('input[type=checkbox]').forEach((cb) => { cb.checked = false; });
+    [...$('asin').options].forEach((o) => { o.selected = false; });
+    syncAll();
+  };
+  $('asinAllShown').onclick = () => {
+    pop.querySelectorAll('.ms-opt').forEach((el) => {
+      if (el.style.display === 'none') return;
+      const cb = el.querySelector('input');
+      cb.checked = true;
+      const o = [...$('asin').options].find((x) => x.value === cb.value);
+      if (o) o.selected = true;
+    });
+    syncAll();
+  };
+
+  pop.querySelectorAll('.ms-opt input[type=checkbox]').forEach((cb) => {
+    cb.onchange = () => {
+      const o = [...$('asin').options].find((x) => x.value === cb.value);
+      if (o) o.selected = cb.checked;
+      $('asin').dispatchEvent(new Event('change')); // chạy đúng luồng cũ: SKU + portfolio + ghi chú
+    };
+  });
+  asinSummary();
+}
+$('asinBtn').onclick = (e) => {
+  e.stopPropagation();
+  const open = $('asinMs').classList.toggle('open');
+  if (open && $('asinFind')) { $('asinFind').value = ''; $('asinFind').oninput(); $('asinFind').focus(); }
+};
+document.addEventListener('click', (e) => { if (!e.target.closest('#asinMs')) $('asinMs').classList.remove('open'); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') $('asinMs').classList.remove('open'); });
 async function loadCatalogPick() {
   try {
     const d = await (await fetch('/api/catalog')).json();
@@ -713,13 +816,18 @@ async function loadCatalogPick() {
   } catch { catalog = []; }
   const sel = $('asin');
   if (!sel) return;
-  sel.innerHTML = catalog.length
-    ? catalog.map((c) => `<option value="${c.asin}">${c.list ? c.list + ' · ' : ''}${c.asin} · ${c.sku || '(chưa có SKU)'} · ${c.type}</option>`).join('')
-    : '<option value="" disabled>Danh mục trống — nạp ASIN ở tab 📋 Danh mục trước</option>';
+  sel.innerHTML = catalog.map((c) => `<option value="${c.asin}">${c.asin}</option>`).join('');
+  buildAsinPop();
   sel.onchange = () => {
     const ps = [...sel.selectedOptions].map((o) => catalog.find((c) => c.asin === o.value)).filter(Boolean);
     const g = $('pfGlobal');
-    if (!ps.length) { $('sku').value = ''; return; }
+    if (!ps.length) {
+      // Bỏ chọn hết: phải cập nhật CẢ nhãn nút, không thoát sớm (trước đây nút còn ghi "2 ASIN")
+      $('sku').value = '';
+      $('prodMsg').textContent = 'Chọn nhiều = 1 campaign quảng cáo nhiều sản phẩm (mỗi ASIN 1 dòng Product Ad)';
+      asinSummary();
+      return;
+    }
     // SKU luôn bám theo ASIN đang chọn. Nhiều ASIN thì ô này chỉ để NHÌN — mỗi ASIN vẫn ra
     // một dòng Product Ad với SKU riêng của nó.
     $('sku').value = ps.length > 1 ? ps.map((p) => p.sku).join(' · ') : (ps[0].sku || '');
@@ -738,6 +846,7 @@ async function loadCatalogPick() {
     $('prodMsg').textContent = ps.length > 1
       ? `${ps.length} sản phẩm · tên campaign dùng "ASINs - <tên portfolio>" · chọn portfolio bên cạnh`
       : `1 sản phẩm · ${ps[0].type}${ps[0].portfolioId ? ' · portfolio mặc định đã điền' : ' · chưa gán portfolio trong Danh mục'}`;
+    asinSummary();
   };
 }
 
@@ -764,6 +873,7 @@ async function loadPortfolioDir(keepValues = {}) {
   // restoreForm khôi phục ASIN đã chọn nhưng KHÔNG bắn sự kiện change → ô SKU còn giá trị cũ
   // trong localStorage. Bắn tay một lần để SKU/portfolio khớp đúng ASIN đang chọn.
   if ($('asin') && $('asin').selectedOptions.length) $('asin').dispatchEvent(new Event('change'));
+  buildAsinPop(); // tick lại checkbox cho khớp ASIN vừa khôi phục
   try {
     const { saved } = await (await fetch('/api/launch/settings')).json();
     settingsCache = saved || {};
