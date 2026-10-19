@@ -703,6 +703,7 @@ export function listCatalog() {
     .map(([asin, p]) => ({
       asin,
       list: p.list || "", sku: p.sku || "", type: p.type === "FBM" ? "FBM" : "FBA",
+      portfolioId: p.portfolioId || "",  // portfolio mặc định — gán theo TÊN LIST, tự điền khi chọn ASIN
       category: p.category || ""
     }))
     .sort((a, b) => (a.list || "~").localeCompare(b.list || "~") || a.asin.localeCompare(b.asin));
@@ -723,6 +724,7 @@ export function saveCatalog(rows) {
       list: String(r.list || "").trim().slice(0, 60),
       sku: String(r.sku || "").trim().slice(0, 60),
       type: String(r.type || "").toUpperCase() === "FBM" ? "FBM" : "FBA",
+      portfolioId: String(r.portfolioId || "").trim(),
       category: String(r.category ?? old[asin]?.category ?? "").trim().slice(0, 60),
       updatedAt: new Date().toISOString()
     };

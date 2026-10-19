@@ -155,16 +155,18 @@
   <!-- ===== 1. Thông tin sản phẩm ===== -->
   <div class="card">
     <h2>1️⃣ Thông tin sản phẩm</h2>
-    <p class="sub">💾 Lưu = ghi hồ sơ sản phẩm theo ASIN. Sau này gõ <b>ASIN hoặc SKU</b> là các trường còn lại (SKU/ASIN, Tên phân loại, mã cá nhân) tự điền lại. Ngày tạo không lưu — luôn mặc định hôm nay.</p>
+    <p class="sub">ASIN lấy từ <a href="/catalog.html">📋 Danh mục</a>. Chọn ASIN là <b>SKU</b> và <b>Portfolio</b> tự điền — SKU khoá (sửa ở Danh mục), Portfolio sửa được tại đây cho riêng lượt tạo này. Mã cá nhân cũng lấy từ Danh mục. Ngày tạo luôn mặc định hôm nay.</p>
     <div class="row">
-      <div style="min-width:260px"><label>Sản phẩm (từ 📋 Danh mục) — chọn nhiều bằng Ctrl/Cmd</label>
-        <select id="prodPick" multiple size="4" style="width:100%;height:auto"></select>
-        <div class="hint" id="prodMsg" style="margin-top:3px">Chọn nhiều = 1 campaign quảng cáo nhiều sản phẩm (mỗi sản phẩm 1 dòng Product Ad)</div></div>
-      <div><label>SKU *</label><input type="text" id="sku" placeholder="SKU-ABC-01"></div>
-      <div><label>ASIN *</label><input type="text" id="asin" placeholder="B0XXXXXXXX" maxlength="10"></div>
+      <div style="min-width:250px"><label>ASIN * — chọn nhiều bằng Ctrl/Cmd</label>
+        <select id="asin" multiple size="4" style="width:100%;height:auto"></select>
+        <div class="hint" id="prodMsg" style="margin-top:3px">Chọn nhiều = 1 campaign quảng cáo nhiều sản phẩm (mỗi ASIN 1 dòng Product Ad)</div></div>
+      <div><label>SKU <span class="hint">(từ Danh mục — không sửa ở đây)</span></label>
+        <input type="text" id="sku" readonly style="background:#f4f6fa;color:#667"></div>
+      <div style="max-width:230px"><label>Portfolio chung <span class="hint">(mặc định theo list — sửa được)</span></label>
+        <select id="pfGlobal" class="pfSel"></select></div>
       <div><label>Tên phân loại</label><input type="text" id="category" placeholder="VD: Pickle Jar"></div>
       <div><label>Ngày tạo (Exact)</label><input type="date" id="startDate"></div>
-      <div style="max-width:130px"><label>Mã cá nhân (≤5 ký tự)</label><input type="text" id="manager" maxlength="5" placeholder="KHA"></div>
+      <input type="hidden" id="manager">
       <div style="max-width:150px"><button class="btn-sm" id="btnSaveInfo">💾 Lưu thông tin</button></div>
     </div>
     <div class="row" style="margin-top:6px">
@@ -216,9 +218,7 @@
     <summary class="h2"><input type="checkbox" id="onSP" checked onclick="event.stopPropagation()"> 3.1 SP — Sponsored Products</summary>
     <p class="sub" style="margin-top:8px">1 keyword × 1 mức bid = 1 campaign. <b>Số mức</b> = số campaign tạo cho mỗi keyword với bid giảm dần · <b>Bước nhảy</b> = khoảng cách giữa các mức. VD bid gốc 0.78, số mức 3, bước 0.02 → 3 campaign: 0.78 / 0.76 / 0.74 (rải bid tìm mức thắng auction rẻ nhất).</p>
 
-    <div class="row" style="margin-bottom:12px">
-      <div style="max-width:220px"><label>Portfolio chung (mặc định mọi mục)</label><select id="pfGlobal" class="pfSel"></select></div>
-    </div>
+
 
     <fieldset style="border:1px solid #e3e8f0;border-radius:10px;padding:10px 14px;margin:0 0 12px">
       <legend style="font-size:12px;font-weight:700;color:var(--mut);padding:0 6px">Nguồn bid Exact — áp dụng cho campaign target Keyword</legend>
@@ -562,7 +562,7 @@ const TYPE_LABEL = { SP_KW_EXACT:'Exact', SP_KW_PHRASE:'Phrase', SP_KW_BROAD:'Br
 const STRATEGIES = ['Dynamic bids - down only','Dynamic bids - up and down','Fixed bid'];
 
 /* ===== Cảnh báo server chạy code cũ ===== */
-const UI_VERSION = '0.34.0';
+const UI_VERSION = '0.35.0';
 /* ===== THANH TIẾN ĐỘ QUÉT RANKING (dùng chung mọi trang) =====
    Lượt quét sống ở HÀNG ĐỢI trên server, không phải ở tab nào. Trước đây chuyển sang trang
    này là mất dấu — tệ hơn, bản cũ còn làm CHẾT luôn lượt quét vì vòng lặp điều phối nằm ở
@@ -699,28 +699,45 @@ const SAVE_FIELDS = ['sku','asin','category','manager','nameKw','namePt','namePt
 /* ===== Sản phẩm từ Danh mục ===== */
 let catalog = [];
 function pickedProducts() {
-  const sel = $('prodPick');
-  const chosen = sel ? [...sel.selectedOptions].map((o) => catalog.find((c) => c.asin === o.value)).filter(Boolean) : [];
-  if (chosen.length) return chosen.map((c) => ({ asin: c.asin, sku: c.sku, type: c.type }));
-  // không chọn gì → dùng ô gõ tay (giữ nguyên cách làm cũ)
-  const a = $('asin').value.trim().toUpperCase();
-  return a ? [{ asin: a, sku: $('sku').value.trim(), type: 'FBA' }] : [];
+  const sel = $('asin');
+  return [...(sel ? sel.selectedOptions : [])]
+    .map((o) => catalog.find((c) => c.asin === o.value))
+    .filter(Boolean)
+    .map((c) => ({ asin: c.asin, sku: c.sku, type: c.type }));
 }
+let catalogManager = '';
 async function loadCatalogPick() {
-  try { catalog = (await (await fetch('/api/catalog')).json()).products || []; } catch { catalog = []; }
-  const sel = $('prodPick');
+  try {
+    const d = await (await fetch('/api/catalog')).json();
+    catalog = d.products || []; catalogManager = d.manager || '';
+  } catch { catalog = []; }
+  const sel = $('asin');
   if (!sel) return;
   sel.innerHTML = catalog.length
     ? catalog.map((c) => `<option value="${c.asin}">${c.list ? c.list + ' · ' : ''}${c.asin} · ${c.sku || '(chưa có SKU)'} · ${c.type}</option>`).join('')
-    : '<option disabled>Danh mục trống — nạp ở tab 📋 Danh mục</option>';
+    : '<option value="" disabled>Danh mục trống — nạp ASIN ở tab 📋 Danh mục trước</option>';
   sel.onchange = () => {
     const ps = [...sel.selectedOptions].map((o) => catalog.find((c) => c.asin === o.value)).filter(Boolean);
-    if (!ps.length) return;
-    $('asin').value = ps[0].asin;            // sản phẩm chính = cái chọn đầu tiên
-    $('sku').value = ps[0].sku || '';
+    const g = $('pfGlobal');
+    if (!ps.length) { $('sku').value = ''; return; }
+    // SKU luôn bám theo ASIN đang chọn. Nhiều ASIN thì ô này chỉ để NHÌN — mỗi ASIN vẫn ra
+    // một dòng Product Ad với SKU riêng của nó.
+    $('sku').value = ps.length > 1 ? ps.map((p) => p.sku).join(' · ') : (ps[0].sku || '');
+
+    /* Portfolio LUÔN nhảy theo ASIN vừa chọn, kể cả khi người dùng vừa tự đổi tay — đổi ASIN
+       là đổi sản phẩm, portfolio cũ không còn đúng nữa.
+       Chọn NHIỀU ASIN thì để TRỐNG: các ASIN có thể thuộc nhiều list với portfolio khác
+       nhau, đoán bừa một cái là sai, bắt người dùng tự chọn. */
+    if (g) {
+      const pfDefault = ps.length > 1 ? '' : (ps[0].portfolioId || '');
+      if (pfDefault && ![...g.options].some((o) => o.value === pfDefault)) {
+        g.insertAdjacentHTML('beforeend', `<option value="${pfDefault}">ID cũ · ${pfDefault}</option>`);
+      }
+      g.value = pfDefault;
+    }
     $('prodMsg').textContent = ps.length > 1
-      ? `${ps.length} sản phẩm · tên campaign sẽ dùng "ASINs - <tên portfolio>" thay cho mã ASIN`
-      : `1 sản phẩm · ${ps[0].type}`;
+      ? `${ps.length} sản phẩm · tên campaign dùng "ASINs - <tên portfolio>" · chọn portfolio bên cạnh`
+      : `1 sản phẩm · ${ps[0].type}${ps[0].portfolioId ? ' · portfolio mặc định đã điền' : ' · chưa gán portfolio trong Danh mục'}`;
   };
 }
 
@@ -743,6 +760,10 @@ async function loadPortfolioDir(keepValues = {}) {
   const restored = restoreForm();
   // restoreForm gán value cho select — chạy lại để giữ ID lạ không có trong danh mục
   await loadPortfolioDir();
+  $('manager').value = catalogManager; // mã cá nhân là mặc định của tài khoản, không lưu theo form
+  // restoreForm khôi phục ASIN đã chọn nhưng KHÔNG bắn sự kiện change → ô SKU còn giá trị cũ
+  // trong localStorage. Bắn tay một lần để SKU/portfolio khớp đúng ASIN đang chọn.
+  if ($('asin') && $('asin').selectedOptions.length) $('asin').dispatchEvent(new Event('change'));
   try {
     const { saved } = await (await fetch('/api/launch/settings')).json();
     settingsCache = saved || {};
