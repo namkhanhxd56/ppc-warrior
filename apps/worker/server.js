@@ -21,7 +21,7 @@ import * as auth from "./src/auth.js";
 import { als, runAsUser, userDataDir } from "./src/db/user-context.js";
 
 dotenv.config();
-export const APP_VERSION = "0.41.4"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
+export const APP_VERSION = "0.41.5"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
 
 // RUN_MODE:
 // - "local" (mặc định): bấm Kiểm tra là scrape NGAY trên máy này (dùng 1 người, chạy local)
@@ -247,6 +247,7 @@ const PS_SETUP = [
   "}",
   "$dir = Join-Path $env:USERPROFILE \"ppc-warrior-agent\"",
   "Write-Host \"[1/3] Tai agent tu $Server vao $dir ...\"",
+  "Write-Host \"      (neu lenh dung toi day roi dung, nghia la buoc tai that bai)\" -ForegroundColor DarkGray",
   "New-Item -ItemType Directory -Force -Path $dir | Out-Null",
   "Set-Location $dir",
   "$tgz = Join-Path $env:TEMP \"ppc-agent.tgz\"",

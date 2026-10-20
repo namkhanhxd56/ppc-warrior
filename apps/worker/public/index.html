@@ -228,7 +228,7 @@
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;');
 
-const UI_VERSION = '0.41.4'; // PHẢI khớp APP_VERSION server.js
+const UI_VERSION = '0.41.5'; // PHẢI khớp APP_VERSION server.js
 (async () => {
   try {
     const v = (await (await fetch('/api/version')).json()).version;
@@ -1412,8 +1412,12 @@ window.__newAgentToken = async () => {
     body: JSON.stringify({ label: document.getElementById('agLabel').value }) })).json();
   // Lệnh cài khác nhau theo hệ điều hành — máy chạy H10 thường là Windows
   const base = location.origin;
-  const winCmd = `iwr -useb "${base}/setup-agent.ps1" -OutFile "$env:TEMP\\setup-agent.ps1"\n`
-    + `powershell -ExecutionPolicy Bypass -File "$env:TEMP\\setup-agent.ps1" -Server "${base}" -Token "${r.token}"`;
+  /* MỘT lệnh duy nhất: tải script rồi chạy thẳng trong phiên hiện tại.
+     Bản hai bước (iwr -OutFile rồi powershell -File) hay bị chạy sót một bước, và kết quả là
+     thư mục trống mà không ai biết hỏng ở đâu. Chạy từ scriptblock cũng không dính
+     ExecutionPolicy vì không nạp file .ps1 từ đĩa. */
+  const winCmd = `& ([scriptblock]::Create((iwr -useb "${base}/setup-agent.ps1").Content)) `
+    + `-Server "${base}" -Token "${r.token}"`;
   const box = (t) => `<div style="background:#0b1020;color:#7ef0a8;border-radius:8px;padding:10px 12px;font:11.5px/1.6 ui-monospace,Menlo,monospace;word-break:break-all;white-space:pre-wrap">${esc(t)}</div>`;
   document.getElementById('agCmd').innerHTML = `
     <div style="font-size:11.5px;font-weight:700;margin:4px 0 4px">🍎 macOS / Linux — dán vào Terminal</div>
