@@ -935,6 +935,73 @@ export function getProductsMap(asins) {
 }
 export function listProducts() { return readJson(PRODUCTS_FILE(), {}); }
 
+/* ===== PHÂN TÍCH KEYWORD (Helium 10 Cerebro) =====
+   Ba thứ tách bạch:
+     1. cookie H10   — phiên đăng nhập, agent dùng để mở Cerebro (h10-cookie.json)
+     2. bộ quy tắc   — đúng các ô lọc của Cerebro + cách quét (h10-rules.json)
+     3. bộ keyword   — kết quả đã lọc, lưu theo TỪNG FILE (h10/<id>.json) + index
+   Lưu mỗi bộ một file vì một bộ có thể vài nghìn keyword; gộp chung một file là mỗi lần
+   lưu lại phải đọc-ghi toàn bộ lịch sử — đúng vết xe của daily-rank.json trước đây. */
+const H10_COOKIE_FILE = () => path.join(userDataDir(), "h10-cookie.json");
+const H10_RULES_FILE = () => path.join(userDataDir(), "h10-rules.json");
+const H10_DIR = () => path.join(userDataDir(), "h10");
+const H10_INDEX = () => path.join(H10_DIR(), "index.json");
+
+/** Cookie H10. Trả {cookies, note, updatedAt} — KHÔNG log ra ngoài. */
+export function getH10Cookie() {
+  return readJson(H10_COOKIE_FILE(), { cookies: [], note: "", updatedAt: null });
+}
+export function saveH10Cookie(cookies, note) {
+  ensureDirs();
+  const list = Array.isArray(cookies) ? cookies : [];
+  writeJsonAtomic(H10_COOKIE_FILE(), { cookies: list, note: String(note || "").slice(0, 200), updatedAt: new Date().toISOString() }, 1);
+  return { count: list.length, updatedAt: new Date().toISOString() };
+}
+/** Tóm tắt an toàn để hiện lên UI — không trả giá trị cookie. */
+export function h10CookieStatus() {
+  const c = getH10Cookie();
+  const domains = [...new Set((c.cookies || []).map((x) => x.domain).filter(Boolean))];
+  return { count: (c.cookies || []).length, domains, note: c.note || "", updatedAt: c.updatedAt };
+}
+
+export function listH10Rules() { return readJson(H10_RULES_FILE(), []); }
+export function saveH10Rules(rules) {
+  ensureDirs();
+  const clean = (Array.isArray(rules) ? rules : []).slice(0, 50).map((r) => ({
+    ...r,
+    id: r.id || uid(),
+    name: String(r.name || "Bộ quy tắc").slice(0, 60),
+    updatedAt: new Date().toISOString()
+  }));
+  writeJsonAtomic(H10_RULES_FILE(), clean, 1);
+  return clean;
+}
+
+export function listH10Sets() { return readJson(H10_INDEX(), []); }
+export function getH10Set(id) {
+  if (!/^[\w-]+$/.test(String(id || ""))) return null;
+  return readJson(path.join(H10_DIR(), `${id}.json`), null);
+}
+export function saveH10Set(set) {
+  fs.mkdirSync(H10_DIR(), { recursive: true });
+  const id = set.id && /^[\w-]+$/.test(set.id) ? set.id : uid();
+  const kws = Array.isArray(set.keywords) ? set.keywords : [];
+  const full = { ...set, id, keywords: kws, savedAt: new Date().toISOString() };
+  writeJsonAtomic(path.join(H10_DIR(), `${id}.json`), full);
+  const idx = listH10Sets().filter((x) => x.id !== id);
+  idx.unshift({ id, name: full.name || "(chưa đặt tên)", asins: full.asins || [],
+    ruleName: full.ruleName || "", count: kws.length, savedAt: full.savedAt });
+  writeJsonAtomic(H10_INDEX(), idx.slice(0, 200), 1);
+  return { id, count: kws.length };
+}
+export function deleteH10Set(id) {
+  if (!/^[\w-]+$/.test(String(id || ""))) return false;
+  try { fs.unlinkSync(path.join(H10_DIR(), `${id}.json`)); } catch {}
+  // Xoá cả file LẪN index — chỉ cắt index là file nằm lại trên đĩa mãi (đã dính ở adjust)
+  writeJsonAtomic(H10_INDEX(), listH10Sets().filter((x) => x.id !== id), 1);
+  return true;
+}
+
 /* ===== Job queue (RUN_MODE=queue) =====
    Server trung tâm XẾP job — agent trên máy cá nhân KÉO về chạy (Phương án A, mục 8.6
    file kiến thức). Job "running" quá 30 phút coi như agent chết → trả lại hàng đợi.

@@ -21,7 +21,7 @@ import * as auth from "./src/auth.js";
 import { als, runAsUser, userDataDir } from "./src/db/user-context.js";
 
 dotenv.config();
-export const APP_VERSION = "0.35.3"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
+export const APP_VERSION = "0.36.0"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
 
 // RUN_MODE:
 // - "local" (mặc định): bấm Kiểm tra là scrape NGAY trên máy này (dùng 1 người, chạy local)
@@ -854,6 +854,65 @@ app.post("/api/catalog/manager", (req, res) => {
   store.saveLaunchSettings({ manager });
   res.json({ ok: true, manager });
 });
+
+/* ===================== PHÂN TÍCH KEYWORD (Helium 10 Cerebro) ===================== */
+
+// Cookie H10: chỉ GHI vào, đọc ra chỉ trả tóm tắt — không bao giờ trả giá trị cookie về UI
+app.get("/api/h10/cookie", (req, res) => res.json(store.h10CookieStatus()));
+app.post("/api/h10/cookie", (req, res) => {
+  try {
+    let { cookies, raw, note } = req.body || {};
+    if (!Array.isArray(cookies)) cookies = parseCookieInput(raw);
+    if (!cookies.length) throw new Error("Không đọc được cookie nào — dán JSON từ EditThisCookie hoặc chuỗi name=value; name2=value2");
+    store.saveH10Cookie(cookies, note);
+    res.json({ ok: true, ...store.h10CookieStatus() });
+  } catch (e) { res.status(400).json({ ok: false, message: e.message }); }
+});
+
+/** Nhận 2 dạng dán: JSON mảng cookie (EditThisCookie/Cookie-Editor) hoặc chuỗi "a=1; b=2".
+ *  Chuỗi thô không mang domain nên mặc định .helium10.com. */
+function parseCookieInput(raw) {
+  const s = String(raw || "").trim();
+  if (!s) return [];
+  if (s.startsWith("[") || s.startsWith("{")) {
+    const j = JSON.parse(s);
+    const arr = Array.isArray(j) ? j : [j];
+    return arr.filter((c) => c && c.name).map((c) => ({
+      name: String(c.name), value: String(c.value ?? ""),
+      domain: c.domain || ".helium10.com", path: c.path || "/",
+      secure: c.secure !== false, httpOnly: !!c.httpOnly,
+      ...(c.expirationDate ? { expires: Math.floor(c.expirationDate) } : {})
+    }));
+  }
+  return s.split(";").map((part) => {
+    const i = part.indexOf("=");
+    if (i < 1) return null;
+    return { name: part.slice(0, i).trim(), value: part.slice(i + 1).trim(),
+      domain: ".helium10.com", path: "/", secure: true, httpOnly: false };
+  }).filter(Boolean);
+}
+
+// Bộ quy tắc = đúng các ô lọc của Cerebro + cách quét
+app.get("/api/h10/rules", (req, res) => res.json({ rules: store.listH10Rules() }));
+app.post("/api/h10/rules", (req, res) => {
+  try { res.json({ ok: true, rules: store.saveH10Rules(req.body?.rules) }); }
+  catch (e) { res.status(400).json({ ok: false, message: e.message }); }
+});
+
+// Bộ keyword đã phân tích
+app.get("/api/h10/sets", (req, res) => res.json({ sets: store.listH10Sets() }));
+app.get("/api/h10/sets/:id", (req, res) => {
+  const s = store.getH10Set(req.params.id);
+  s ? res.json(s) : res.status(404).json({ error: "not found" });
+});
+app.post("/api/h10/sets", (req, res) => {
+  try {
+    const b = req.body || {};
+    if (!Array.isArray(b.keywords) || !b.keywords.length) throw new Error("Bộ keyword rỗng");
+    res.json({ ok: true, ...store.saveH10Set(b) });
+  } catch (e) { res.status(400).json({ ok: false, message: e.message }); }
+});
+app.delete("/api/h10/sets/:id", (req, res) => res.json({ ok: store.deleteH10Set(req.params.id) }));
 
 /* ===================== MODULE ADJUST (chỉnh sửa ads từ file bulk) ===================== */
 const ADJUST_DIR_FN = () => `${userDataDir()}/adjust`;
