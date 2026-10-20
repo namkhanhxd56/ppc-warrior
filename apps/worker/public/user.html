@@ -96,8 +96,8 @@
       <div class="hint" style="margin-top:10px">Cách dùng: bấm tạo lệnh → copy → dán vào Terminal (macOS) hoặc PowerShell (Windows) của máy cần quét.<br>
         Cài xong chạy agent — <b>lệnh khác nhau theo hệ điều hành</b>:<br>
         · macOS/Linux: <b>cd ~/ppc-warrior-agent &amp;&amp; npm run agent</b><br>
-        · Windows: <b>cd "$env:USERPROFILE\ppc-warrior-agent"</b> rồi <b>npm run agent</b>
-        <span style="color:#b45309">(PowerShell bản đi kèm Windows không hiểu <b>&amp;&amp;</b> — dùng dấu <b>;</b> hoặc tách 2 dòng)</span><br>
+        · Windows: <b>cd "$env:USERPROFILE\ppc-warrior-agent"</b> rồi <b>npm.cmd run agent</b>
+        <span style="color:#b45309">(PowerShell không hiểu <b>&amp;&amp;</b> — dùng dấu <b>;</b> hoặc tách 2 dòng; và phải gọi <b>npm.cmd</b> vì <b>npm</b> bị ExecutionPolicy chặn)</span><br>
         Job bấm Run trên web sẽ do máy này quét.</div>
     </div>
 

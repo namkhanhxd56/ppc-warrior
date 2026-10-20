@@ -21,7 +21,7 @@ import * as auth from "./src/auth.js";
 import { als, runAsUser, userDataDir } from "./src/db/user-context.js";
 
 dotenv.config();
-export const APP_VERSION = "0.41.2"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
+export const APP_VERSION = "0.41.3"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
 
 // RUN_MODE:
 // - "local" (mặc định): bấm Kiểm tra là scrape NGAY trên máy này (dùng 1 người, chạy local)
@@ -229,7 +229,11 @@ echo "   (Token gắn với tài khoản của bạn trên server — máy này 
    setup-agent.sh là bash — Windows không chạy được. Bản PowerShell này chỉ dùng curl.exe và
    tar.exe CÓ SẴN trong Windows 10 (1803+) và 11, nên ngoài Node.js không phải cài thêm gì.
    Ghi .env bằng Out-File -Encoding ascii: PowerShell 5.1 mặc định thêm BOM, dotenv sẽ đọc
-   dòng đầu thành "\uFEFFSERVER_URL" rồi agent báo thiếu SERVER_URL. */
+   dòng đầu thành "\uFEFFSERVER_URL" rồi agent báo thiếu SERVER_URL.
+   Gọi npm.cmd chứ không phải npm: PowerShell phân giải "npm" thành npm.ps1 và từ chối chạy
+   khi ExecutionPolicy còn Restricted (mặc định trên Windows) — "running scripts is disabled
+   on this system". npm.cmd là file batch nên không dính chính sách đó, khỏi phải bảo người
+   dùng hạ cài đặt bảo mật của máy. */
 const PS_SETUP = [
   "param(",
   "  [Parameter(Mandatory=$true)][string]$Server,",
@@ -252,7 +256,7 @@ const PS_SETUP = [
   "Remove-Item $tgz -Force",
   "",
   "Write-Host \"[2/3] Cai thu vien (1-2 phut)...\"",
-  "npm install --omit=dev --silent",
+  "npm.cmd install --omit=dev --silent",
   "",
   "Write-Host \"[3/3] Ghi .env ...\"",
   "$envPath = Join-Path $dir \".env\"",
@@ -274,7 +278,9 @@ const PS_SETUP = [
   "Write-Host \"\"",
   "Write-Host \"[OK] Xong. Chay agent:\" -ForegroundColor Green",
   "Write-Host \"     cd $dir\"",
-  "Write-Host \"     npm run agent\""
+  "Write-Host \"     npm.cmd run agent\"",
+  "Write-Host \"\"",
+  "Write-Host \"Luu y: dung npm.cmd (khong phai npm). PowerShell chan npm.ps1 neu may chua mo ExecutionPolicy.\" -ForegroundColor Yellow"
 ];
 app.get("/setup-agent.ps1", (req, res) => {
   res.setHeader("Content-Type", "text/plain; charset=utf-8");
