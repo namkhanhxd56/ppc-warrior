@@ -59,6 +59,23 @@ const headers = {
    Đặt H10_BROWSER_URL= (rỗng) trong .env để tắt hẳn, quay về cách nạp cookie/localStorage. */
 const H10_BROWSER_URL = process.env.H10_BROWSER_URL === undefined ? "http://127.0.0.1:9222" : process.env.H10_BROWSER_URL;
 
+/* Máy này có làm được việc H10 không = có Chrome mở cổng điều khiển hay không.
+   Hỏi bằng HTTP thường chứ không dựng Puppeteer: rẻ hơn nhiều vì mỗi nhịp poll đều hỏi.
+   Nhớ kết quả 60 giây để người dùng vừa mở Chrome là agent nhận ra trong vòng 1 phút. */
+let h10Cap = { ok: false, at: 0 };
+async function h10Ready() {
+  if (!H10_BROWSER_URL) return false;
+  if (Date.now() - h10Cap.at < 60000) return h10Cap.ok;
+  let ok = false;
+  try {
+    const r = await fetch(H10_BROWSER_URL.replace(/\/$/, "") + "/json/version", { signal: AbortSignal.timeout(2500) });
+    ok = r.ok;
+  } catch {}
+  if (ok !== h10Cap.ok) console.log(ok ? "  🔗 Đã thấy Chrome H10 — máy này nhận được job phân tích keyword" : "  ⚠️ Mất Chrome H10 — máy này sẽ không nhận job phân tích keyword");
+  h10Cap = { ok, at: Date.now() };
+  return ok;
+}
+
 const RECYCLE_PAGES = Math.max(50, Number(process.env.RECYCLE_PAGES) || 400);
 const IDLE_CLOSE_MS = 60000;
 let hold = null; // { browser, verified, lastUsed }
@@ -414,7 +431,7 @@ async function runLibScanJob(job, logger) {
   let lastErr = "";
   while (true) {
     try {
-      const { job } = await api("/api/agent/poll", { agent: NAME });
+      const { job } = await api("/api/agent/poll", { agent: NAME, caps: { h10: await h10Ready() } });
       lastErr = "";
       if (job) await runJob(job);
       // Rảnh lâu thì đóng Chrome — giữ sống chỉ để tiết kiệm giữa các job liền nhau,

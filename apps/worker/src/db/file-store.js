@@ -1070,8 +1070,13 @@ export function enqueueJob(payload) {
 
 /** Tiến độ lượt chạy đang chiếm hàng đợi (null = rảnh) — nguồn cho thanh trạng thái ở MỌI trang.
  *  Nhờ nó mà mở tab Adjust/Launching vẫn thấy lượt quét đang chạy tới đâu. */
+/* CHỈ xét job quét ranking (payload không có kind). Job H10/libscan là việc độc lập — để
+   chúng chiếm khóa hàng đợi thì một lượt phân tích keyword đang chờ sẽ chặn đứng cả việc
+   bấm Run quét ranking, trong khi hai thứ chẳng liên quan gì nhau. */
+const isRankJob = (j) => !j.payload?.kind;
+
 export function activeRun() {
-  const jobs = readJobs();
+  const jobs = readJobs().filter(isRankJob);
   const live = jobs.filter((j) => j.status === "pending" || j.status === "running");
   if (!live.length) return null;
   const runId = live[0].payload?.runId || null;
@@ -1101,7 +1106,17 @@ const JOB_STALE_MS = 5 * 60000;
  *  trong 1 tiến trình Node nó không thể bị chen ngang → 2 agent không thể cùng giành 1 job.
  *  ⚠️ Nếu sau này Railway scale ≥2 replica (2 tiến trình chung volume) thì điều này KHÔNG
  *  còn đúng — lúc đó phải thêm lock file (O_EXCL) hoặc chuyển hàng đợi sang Postgres. */
-export function claimNextJob(agentName) {
+/* Job nào cần máy có khả năng gì. Job H10 phải chạy trên máy có cửa sổ Chrome đã đăng nhập
+   Helium 10 — giao cho máy chỉ quét ranking là chắc chắn hỏng. Agent khai khả năng của mình
+   khi poll; agent bản cũ không khai gì thì coi như KHÔNG làm được việc cần khả năng đặc biệt
+   (thà job nằm chờ đúng máy còn hơn hỏng ở máy sai). */
+const JOB_NEEDS = { h10check: "h10", h10scan: "h10" };
+const agentCan = (job, caps) => {
+  const need = JOB_NEEDS[job.payload?.kind];
+  return !need || !!(caps && caps[need]);
+};
+
+export function claimNextJob(agentName, caps) {
   const jobs = readJobs();
   const now = Date.now();
   let dirty = false;
@@ -1127,15 +1142,18 @@ export function claimNextJob(agentName) {
       + (skipped > 0 ? ` (bỏ ${skipped} keyword đã có dữ liệu)` : ""));
   }
 
-  // 2. SINGLE-FLIGHT: đang có job chạy (còn heartbeat) → không phát job cho agent nào khác.
-  //    Nhiều agent vẫn cắm được nhưng chỉ 1 cái làm việc tại một thời điểm — tránh quét
-  //    song song và tránh 2 agent cùng đọc-sửa-ghi daily-rank.json.
-  if (jobs.some((j) => j.status === "running")) {
-    if (dirty) writeJobs(jobs);
-    return null;
-  }
+  /* 2. SINGLE-FLIGHT THEO LÀN, không phải toàn cục.
+     Mỗi loại việc là một làn riêng; trong một làn chỉ 1 job chạy tại một thời điểm.
+     - làn "rank": lý do gốc của single-flight — tránh 2 agent cùng đọc-sửa-ghi chuỗi rank
+     - làn "h10check"/"h10scan": chạy trên Chrome riêng, không đụng gì tới dữ liệu rank
+     Khoá toàn cục như trước thì máy B không làm được việc H10 chỉ vì máy A đang quét
+     ranking — hai việc chẳng liên quan, mà người dùng lại cắm 2 máy đúng để làm song song. */
+  const laneOf = (j) => j.payload?.kind || "rank";
+  const busyLanes = new Set(jobs.filter((j) => j.status === "running").map(laneOf));
 
-  const job = jobs.find((j) => j.status === "pending");
+  /* Bỏ qua job mà máy này không làm được hoặc làn đang bận, XÉT TIẾP job sau — không trả
+     null, nếu không một job H10 nằm đầu hàng đợi sẽ chặn đứng mọi job ranking phía sau. */
+  const job = jobs.find((j) => j.status === "pending" && agentCan(j, caps) && !busyLanes.has(laneOf(j)));
   // 3. Hàng đợi rỗng → KHÔNG ghi file. Trước đây mọi lần poll đều rewrite jobs.json:
   //    4 lần/phút/agent = ~5.760 lượt ghi volume Railway mỗi ngày dù không có việc gì.
   if (!job) {
@@ -1174,7 +1192,7 @@ export function appendJobLog(id, line) { appendJobLogs(id, [line]); } // giữ c
  *  ngay ở server nên khóa ăn cả trường hợp mở 2 tab / 2 máy, không chỉ 1 tab.
  *  Lấy job hoạt động CŨ NHẤT làm chủ — người đến trước giữ chỗ. */
 export function activeSession() {
-  const act = readJobs().filter((j) => j.status === "pending" || j.status === "running");
+  const act = readJobs().filter(isRankJob).filter((j) => j.status === "pending" || j.status === "running");
   if (!act.length) return null;
   const owner = act[0];
   return {

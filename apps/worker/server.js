@@ -21,7 +21,7 @@ import * as auth from "./src/auth.js";
 import { als, runAsUser, userDataDir } from "./src/db/user-context.js";
 
 dotenv.config();
-export const APP_VERSION = "0.39.1"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
+export const APP_VERSION = "0.40.0"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
 
 // RUN_MODE:
 // - "local" (mặc định): bấm Kiểm tra là scrape NGAY trên máy này (dùng 1 người, chạy local)
@@ -415,7 +415,9 @@ app.get("/api/jobs/:id", (req, res) => {
 
 // Agent poll job (xác thực bằng chung WORKER_PASSWORD qua Basic-auth middleware phía trên)
 app.post("/api/agent/poll", (req, res) => {
-  const job = store.claimNextJob(String(req.body?.agent || "?").slice(0, 40));
+  // caps: agent tự khai làm được gì (vd {h10:true} khi máy đó có Chrome đã đăng nhập H10)
+  const caps = (req.body && typeof req.body.caps === "object") ? req.body.caps : {};
+  const job = store.claimNextJob(String(req.body?.agent || "?").slice(0, 40), caps);
   res.json({ job });
 });
 app.post("/api/agent/log", (req, res) => {
