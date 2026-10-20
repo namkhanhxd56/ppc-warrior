@@ -21,7 +21,7 @@ import * as auth from "./src/auth.js";
 import { als, runAsUser, userDataDir } from "./src/db/user-context.js";
 
 dotenv.config();
-export const APP_VERSION = "0.41.5"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
+export const APP_VERSION = "0.41.6"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
 
 // RUN_MODE:
 // - "local" (mặc định): bấm Kiểm tra là scrape NGAY trên máy này (dùng 1 người, chạy local)
@@ -205,7 +205,7 @@ app.get("/setup-agent.sh", (req, res) => {
 # PPC Warrior — cài agent 1 lệnh (không cần git). Dùng: curl -fsSL <url>/setup-agent.sh | bash -s -- <SERVER_URL> <TOKEN>
 set -e
 SERVER="\${1:?Thiếu SERVER_URL}"; TOKEN="\${2:?Thiếu TOKEN}"
-command -v node >/dev/null || { echo "❌ Cần Node.js 20+ (https://nodejs.org)"; exit 1; }
+command -v node >/dev/null || { echo "❌ Cần Node.js 20+ (https://nodejs.org)"; return; }
 DIR="$HOME/ppc-warrior-agent"
 echo "📦 Tải agent từ $SERVER vào $DIR ..."
 mkdir -p "$DIR" && cd "$DIR"
@@ -230,6 +230,9 @@ echo "   (Token gắn với tài khoản của bạn trên server — máy này 
    tar.exe CÓ SẴN trong Windows 10 (1803+) và 11, nên ngoài Node.js không phải cài thêm gì.
    Ghi .env bằng Out-File -Encoding ascii: PowerShell 5.1 mặc định thêm BOM, dotenv sẽ đọc
    dòng đầu thành "\uFEFFSERVER_URL" rồi agent báo thiếu SERVER_URL.
+   Dùng "return" chứ KHÔNG dùng "exit": lệnh cài chạy script qua
+   [scriptblock]::Create(...) ngay trong phiên hiện tại, mà "exit" trong scriptblock đóng
+   LUÔN CỬA SỔ PowerShell — người dùng mất sạch thông báo lỗi vừa in ra.
    Gọi npm.cmd chứ không phải npm: PowerShell phân giải "npm" thành npm.ps1 và từ chối chạy
    khi ExecutionPolicy còn Restricted (mặc định trên Windows) — "running scripts is disabled
    on this system". npm.cmd là file batch nên không dính chính sách đó, khỏi phải bảo người
@@ -243,7 +246,7 @@ const PS_SETUP = [
   "",
   "if (-not (Get-Command node -ErrorAction SilentlyContinue)) {",
   "  Write-Host \"[X] Can Node.js 20+ - tai tai https://nodejs.org roi chay lai\" -ForegroundColor Red",
-  "  exit 1",
+  "  return",
   "}",
   "$dir = Join-Path $env:USERPROFILE \"ppc-warrior-agent\"",
   "Write-Host \"[1/3] Tai agent tu $Server vao $dir ...\"",
@@ -252,16 +255,16 @@ const PS_SETUP = [
   "Set-Location $dir",
   "$tgz = Join-Path $env:TEMP \"ppc-agent.tgz\"",
   "curl.exe -fsSL \"$Server/agent-bundle.tgz?token=$Token\" -o $tgz",
-  "if ($LASTEXITCODE -ne 0) { Write-Host \"[X] Tai that bai - kiem tra SERVER_URL va TOKEN\" -ForegroundColor Red; exit 1 }",
+  "if ($LASTEXITCODE -ne 0) { Write-Host \"[X] Tai that bai - kiem tra SERVER_URL va TOKEN\" -ForegroundColor Red; return }",
   "tar.exe -xzf $tgz",
-  "if ($LASTEXITCODE -ne 0) { Write-Host \"[X] Giai nen that bai - can Windows 10 1803+ (co san tar.exe)\" -ForegroundColor Red; exit 1 }",
+  "if ($LASTEXITCODE -ne 0) { Write-Host \"[X] Giai nen that bai - can Windows 10 1803+ (co san tar.exe)\" -ForegroundColor Red; return }",
   "Remove-Item $tgz -Force",
   "# Kiem tra that su co file, dung tin vao ma thoat cua tar",
-  "if (-not (Test-Path (Join-Path $dir \"agent.js\"))) { Write-Host \"[X] Thieu agent.js sau khi giai nen - thu mục co the bi khoa boi phan mem diet virus\" -ForegroundColor Red; exit 1 }",
+  "if (-not (Test-Path (Join-Path $dir \"agent.js\"))) { Write-Host \"[X] Thieu agent.js sau khi giai nen - thu mục co the bi khoa boi phan mem diet virus\" -ForegroundColor Red; return }",
   "",
   "Write-Host \"[2/3] Cai thu vien (1-2 phut)...\"",
   "npm.cmd install --omit=dev --silent",
-  "if (-not (Test-Path (Join-Path $dir \"node_modules\\puppeteer\"))) { Write-Host \"[X] npm install chua xong - thieu node_modules\\puppeteer. Chay lai: npm.cmd install --omit=dev\" -ForegroundColor Red; exit 1 }",
+  "if (-not (Test-Path (Join-Path $dir \"node_modules\\puppeteer\"))) { Write-Host \"[X] npm install chua xong - thieu node_modules\\puppeteer. Chay lai: npm.cmd install --omit=dev\" -ForegroundColor Red; return }",
   "",
   "Write-Host \"[3/3] Ghi .env ...\"",
   "$envPath = Join-Path $dir \".env\"",
