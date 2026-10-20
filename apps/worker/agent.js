@@ -10,7 +10,7 @@
 
 import dotenv from "dotenv";
 import os from "os";
-import { launchBrowser, loadCookies, newCleanPage, verifySession } from "./src/scraper/browser.js";
+import { launchBrowser, loadCookies, newCleanPage, verifySession, connectBrowser } from "./src/scraper/browser.js";
 import { ensureZipLocation } from "./src/scraper/set-location.js";
 import { runBatch } from "./src/jobs/run-batch.js";
 import * as store from "./src/db/file-store.js";
@@ -55,6 +55,10 @@ const headers = {
    KHÔNG gộp nhiều ASIN vào 1 job: làm vậy phải đổi giao thức và agent bản cũ trong team sẽ
    chỉ quét ASIN đầu rồi báo xong ⇒ mất dữ liệu. Cách này đạt cùng lợi ích mà không phá gì.
    Tự đóng khi rảnh IDLE_CLOSE_MS để không để Chrome nằm mở cả ngày. */
+/* Chrome RIÊNG cho Helium 10 mà người dùng mở sẵn và đã đăng nhập. Mặc định cổng 9222.
+   Đặt H10_BROWSER_URL= (rỗng) trong .env để tắt hẳn, quay về cách nạp cookie/localStorage. */
+const H10_BROWSER_URL = process.env.H10_BROWSER_URL === undefined ? "http://127.0.0.1:9222" : process.env.H10_BROWSER_URL;
+
 const RECYCLE_PAGES = Math.max(50, Number(process.env.RECYCLE_PAGES) || 400);
 const IDLE_CLOSE_MS = 60000;
 let hold = null; // { browser, verified, lastUsed }
@@ -212,18 +216,26 @@ async function runJob(job) {
 async function runH10CheckJob(job, logger) {
   const send = logger.send;
   const report = { jobId: job.id, agent: NAME };
-  let page = null;
+  let page = null, shared = null;
   try {
-    send("🔑 Lấy cookie H10 từ server...");
-    const { cookies, storage } = await api("/api/agent/h10-cookie", {});
-    const stKeys = Object.keys(storage || {});
-    send(`   ${cookies.length} cookie · domain ${[...new Set(cookies.map((c) => c.domain))].join(", ")}`);
-    send(`   ${stKeys.length} khoá localStorage${storage?.CORE_BEARER_TOKEN ? " · có CORE_BEARER_TOKEN" : " · KHÔNG có CORE_BEARER_TOKEN"}`);
+    /* CÁCH 1 (ưu tiên): mượn Chrome người dùng đang mở và đã đăng nhập H10.
+       Không phải xuất cookie/token, không lo hết hạn, và họ nhìn thấy tool đang làm gì. */
+    shared = await connectBrowser(H10_BROWSER_URL, send);
+    report.mode = shared ? "chrome-co-san" : "trinh-duyet-rieng";
+
+    let cookies = [], storage = {}, stKeys = [];
+    if (!shared) {
+      send("🔑 Không có Chrome sẵn — quay về cách nạp cookie/localStorage từ server...");
+      ({ cookies, storage } = await api("/api/agent/h10-cookie", {}));
+      stKeys = Object.keys(storage || {});
+      send(`   ${cookies.length} cookie · domain ${[...new Set(cookies.map((c) => c.domain))].join(", ")}`);
+      send(`   ${stKeys.length} khoá localStorage${storage?.CORE_BEARER_TOKEN ? " · có CORE_BEARER_TOKEN" : " · KHÔNG có CORE_BEARER_TOKEN"}`);
+    }
 
     /* KHÔNG dùng newReadyPage: nó kiểm tra session AMAZON và đặt zip — vô nghĩa với H10, mà
        lại ném lỗi nếu cookie Amazon hỏng, làm job H10 chết oan. Mở page trần rồi tự nạp cookie. */
-    const browser = await getBrowser(null, send);
-    page = await newCleanPage(browser, null);
+    const browser = shared || await getBrowser(null, send);
+    page = shared ? await shared.newPage() : await newCleanPage(browser, null);
 
     /* Nạp ở CẤP TRÌNH DUYỆT chứ không phải cấp page: cookie áp cho mọi tab và mọi domain con
        (.helium10.com, members.helium10.com) mà không phụ thuộc trang hiện tại đang ở đâu. */
@@ -235,7 +247,9 @@ async function runH10CheckJob(job, logger) {
       return o;
     });
     let setErr = 0;
-    if (typeof browser.setCookie === "function") {
+    if (shared) {
+      send("   (bỏ qua nạp cookie — Chrome này đã đăng nhập sẵn)");
+    } else if (typeof browser.setCookie === "function") {
       for (const c of toSet) { try { await browser.setCookie(c); } catch { setErr++; } }
     } else {
       for (const c of toSet) { try { await page.setCookie(c); } catch { setErr++; } }
@@ -248,7 +262,7 @@ async function runH10CheckJob(job, logger) {
        cookie chỉ là phần phụ (đo thật 20/10: 30 cookie vào trình duyệt trắng vẫn bị đá ra
        signin). localStorage gắn với ORIGIN nên phải ở đúng origin mới ghi được → mở một
        trang nhẹ của members.helium10.com trước, ghi, rồi mới vào Cerebro. */
-    if (stKeys.length) {
+    if (!shared && stKeys.length) {
       send("🗝 Nạp localStorage vào origin members.helium10.com...");
       await page.goto("https://members.helium10.com/user/signin", { waitUntil: "domcontentloaded", timeout: 60000 });
       const wrote = await page.evaluate((st) => {
@@ -327,7 +341,10 @@ async function runH10CheckJob(job, logger) {
     await logger.flush();
     try { await api("/api/agent/h10-report", report); } catch (e) { console.error("  gửi báo cáo lỗi:", e.message); }
     if (page) { try { await page.close(); } catch {} }
-    if (hold) hold.lastUsed = Date.now();
+    /* NGẮT chứ không ĐÓNG: close() sẽ tắt luôn cửa sổ Chrome của người dùng, mất cả phiên
+       H10 họ đang giữ — đúng thứ ta vừa cất công mượn. */
+    if (shared) { try { shared.disconnect(); } catch {} }
+    else if (hold) hold.lastUsed = Date.now();
   }
 }
 

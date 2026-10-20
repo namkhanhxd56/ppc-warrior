@@ -58,7 +58,24 @@
 
 <main>
   <div class="card">
-    <h2>🔑 Cookie Helium 10</h2>
+    <h2>🖥 Cách 1 (khuyên dùng) — mượn Chrome bạn đang mở</h2>
+    <p class="sub">
+      Mở một cửa sổ Chrome <b>riêng</b> có cổng điều khiển, đăng nhập H10 một lần rồi để đó. Agent mượn chính cửa sổ đó —
+      không phải xuất cookie, không lo token hết hạn, và bạn <b>nhìn thấy</b> tool đang thao tác.<br>
+      Phải dùng <span class="mono">--user-data-dir</span> riêng: Chrome không mở cổng điều khiển nếu đã có cửa sổ chạy bằng profile mặc định.</p>
+    <div style="background:#0b1020;color:#7ef0a8;font:11.5px/1.6 ui-monospace,Menlo,monospace;padding:12px;border-radius:8px;white-space:pre-wrap" id="chromeCmd">"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
+  --remote-debugging-port=9222 \
+  --user-data-dir="$HOME/h10-chrome" \
+  https://members.helium10.com/cerebro</div>
+    <div class="row" style="margin-top:10px">
+      <button class="btn-sm" id="copyCmd">📋 Copy lệnh</button>
+      <span class="hint">Chạy trong Terminal. Đăng nhập H10 trong cửa sổ vừa mở, rồi cứ để nguyên đó.
+        Agent tự tìm ở <span class="mono">127.0.0.1:9222</span>; đổi cổng thì sửa <span class="mono">H10_BROWSER_URL</span> trong <span class="mono">~/ppc-warrior-agent/.env</span>.</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>🔑 Cách 2 (dự phòng) — dán cookie + localStorage</h2>
     <p class="sub">
       <b>Chỉ cookie là KHÔNG đủ.</b> Helium 10 xác thực bằng <span class="mono">CORE_BEARER_TOKEN</span> nằm trong localStorage —
       trình duyệt của bạn vào được vì đã sẵn localStorage từ lần đăng nhập trước, còn trình duyệt của agent thì trắng tinh.
@@ -161,7 +178,7 @@
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
 
-const UI_VERSION = '0.38.0';
+const UI_VERSION = '0.39.0';
 (async () => {
   try { const v = (await (await fetch('/api/version')).json()).version; if (v !== UI_VERSION) throw new Error(v); }
   catch (e) { $('verWarn').style.display = 'block'; $('verWarn').textContent = `⚠️ Server phiên bản cũ (${e.message}) — hãy restart (npm start).`; }
@@ -253,6 +270,11 @@ async function loadCookie() {
       + `${esc(s.domains.join(', '))} · cập nhật ${new Date(s.updatedAt).toLocaleString('vi-VN')}${s.note ? ' · ' + esc(s.note) : ''}`
     : '<span class="pill off">chưa có gì</span> agent sẽ không mở được Cerebro';
 }
+$('copyCmd').onclick = () => {
+  navigator.clipboard.writeText($('chromeCmd').textContent.trim());
+  $('ckMsg').className = 'msg ok'; $('ckMsg').textContent = '✓ đã copy lệnh mở Chrome';
+  setTimeout(() => $('ckMsg').textContent = '', 2500);
+};
 $('copySnippet').onclick = () => {
   navigator.clipboard.writeText($('snippet').textContent.trim());
   $('ckMsg').className = 'msg ok'; $('ckMsg').textContent = '✓ đã copy đoạn lệnh';
@@ -288,7 +310,7 @@ $('btnCheck').onclick = async () => {
   out.textContent += '\n\n═══ BÁO CÁO ═══\n' + JSON.stringify({
     ok: rep.ok, url: rep.url, title: rep.title, hasLogin: rep.hasLogin,
     hasCloudflare: rep.hasCloudflare, error: rep.error, screenshot: rep.screenshot,
-    cookieGui: rep.cookiesSent, cookieNapLoi: rep.cookieSetErrors,
+    cheDo: rep.mode, cookieGui: rep.cookiesSent, cookieNapLoi: rep.cookieSetErrors,
     khoaLocalStorageDaGhi: rep.storageWritten, tokenTrenTrang: rep.tokenLive,
     cookieTrinhDuyetGiu: rep.cookiesInBrowser, tenCookie: rep.cookieNames,
     localStorage: rep.localStorageKeys, sessionStorage: rep.sessionStorageKeys,

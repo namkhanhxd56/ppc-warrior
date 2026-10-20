@@ -125,6 +125,26 @@ export function clearStaleProfileLock(profileDir) {
   return true;
 }
 
+/** Nối vào một Chrome NGƯỜI DÙNG đang mở sẵn (có cổng gỡ lỗi), thay vì tự mở trình duyệt mới.
+ *  Dùng cho Helium 10: phiên H10 nằm ở bearer token trong localStorage, nên trình duyệt trắng
+ *  dù nạp đủ cookie vẫn bị đá ra đăng nhập. Mượn luôn cửa sổ người dùng đang đăng nhập thì
+ *  không phải xuất token, không lo hết hạn, và họ nhìn thấy tool đang làm gì.
+ *  Trả null nếu không nối được — bên gọi tự quyết định có fallback hay không.
+ *  ⚠️ Người gọi PHẢI dùng disconnect() chứ KHÔNG close(): close() tắt luôn Chrome của họ. */
+export async function connectBrowser(browserURL, log = () => {}) {
+  const url = String(browserURL || "").trim();
+  if (!url) return null;
+  try {
+    const b = await puppeteerExtra.connect({ browserURL: url, defaultViewport: null });
+    const v = await b.version().catch(() => "?");
+    log(`🔗 Nối vào Chrome có sẵn tại ${url} (${v})`);
+    return b;
+  } catch (e) {
+    log(`⚠️ Không nối được Chrome tại ${url}: ${e.message.slice(0, 80)}`);
+    return null;
+  }
+}
+
 export function loadCookies() {
   const p = path.resolve(COOKIES_PATH);
   if (!fs.existsSync(p)) return null;
