@@ -2,7 +2,7 @@
 <html lang="vi">
 <head>
 <meta charset="UTF-8">
-<title>PPC Warrior — Adjust</title>
+<title>PPC Warrior — Điều chỉnh Campaign</title>
 <style>
   :root { --b:#2455e6; --ok:#1a9e50; --bad:#e04545; --mut:#667; }
   * { box-sizing:border-box; }
@@ -89,7 +89,7 @@
     <a href="/">📊 Check Ranking</a>
     <a href="/catalog.html">📋 Danh mục</a>
     <a href="/launching.html">🚀 Tạo Campaign</a>
-    <a href="/adjust.html" class="active">⚙️ Adjust</a>
+    <a href="/adjust.html" class="active">⚙️ Điều chỉnh Campaign</a>
     <a href="/data.html">📈 Data</a>
   </nav>
 </header>
@@ -97,7 +97,7 @@
 
   <!-- ===== 1. Import ===== -->
   <div class="card">
-    <h2>1️⃣ Import file bulk (Adjust snapshot)</h2>
+    <h2>1️⃣ Import file bulk (ảnh chụp tài khoản)</h2>
     <p class="sub">Tải file bulk từ Amazon Ads (nên chọn giai đoạn 14–60 ngày + tick Search Term Report khi tải). File lớn (30-40MB) xử lý mất ~10-30 giây. Số liệu 1 ngày quá nhiễu để quyết định bid/budget — dùng file tổng giai đoạn.</p>
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
       <input type="file" id="bulkFile" accept=".xlsx" style="flex:0 0 auto">
@@ -297,7 +297,7 @@ function makeResizable(tableId) {
   });
 }
 
-const UI_VERSION = '0.35.2';
+const UI_VERSION = '0.35.3';
 /* ===== THANH TIẾN ĐỘ QUÉT RANKING (dùng chung mọi trang) =====
    Lượt quét sống ở HÀNG ĐỢI trên server, không phải ở tab nào. Trước đây chuyển sang trang
    này là mất dấu — tệ hơn, bản cũ còn làm CHẾT luôn lượt quét vì vòng lặp điều phối nằm ở

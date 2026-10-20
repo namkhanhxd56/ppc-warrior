@@ -47,7 +47,7 @@
     <a href="/">📊 Check Ranking</a>
     <a href="/catalog.html" class="active">📋 Danh mục</a>
     <a href="/launching.html">🚀 Tạo Campaign</a>
-    <a href="/adjust.html">⚙️ Adjust</a>
+    <a href="/adjust.html">⚙️ Điều chỉnh Campaign</a>
     <a href="/data.html">📈 Data</a>
   </nav>
 </header>
@@ -104,7 +104,7 @@
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
 
-const UI_VERSION = '0.35.2';
+const UI_VERSION = '0.35.3';
 (async () => {
   try { const v = (await (await fetch('/api/version')).json()).version; if (v !== UI_VERSION) throw new Error(v); }
   catch (e) { $('verWarn').style.display = 'block'; $('verWarn').textContent = `⚠️ Server phiên bản cũ (${e.message}) — hãy restart (npm start).`; }

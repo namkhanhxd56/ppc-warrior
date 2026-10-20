@@ -56,7 +56,7 @@
     <a href="/">📊 Check Ranking</a>
     <a href="/catalog.html">📋 Danh mục</a>
     <a href="/launching.html">🚀 Tạo Campaign</a>
-    <a href="/adjust.html">⚙️ Adjust</a>
+    <a href="/adjust.html">⚙️ Điều chỉnh Campaign</a>
     <a href="/data.html" class="active">📈 Data</a>
   </nav>
 </header>
@@ -135,7 +135,7 @@
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const money = (v) => '$' + Number(v || 0).toFixed(2);
-const UI_VERSION = '0.35.2';
+const UI_VERSION = '0.35.3';
 /* ===== THANH TIẾN ĐỘ QUÉT RANKING (dùng chung mọi trang) =====
    Lượt quét sống ở HÀNG ĐỢI trên server, không phải ở tab nào. Trước đây chuyển sang trang
    này là mất dấu — tệ hơn, bản cũ còn làm CHẾT luôn lượt quét vì vòng lặp điều phối nằm ở
