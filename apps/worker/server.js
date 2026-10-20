@@ -872,8 +872,17 @@ app.post("/api/h10/cookie", (req, res) => {
 /** Nhận 2 dạng dán: JSON mảng cookie (EditThisCookie/Cookie-Editor) hoặc chuỗi "a=1; b=2".
  *  Chuỗi thô không mang domain nên mặc định .helium10.com. */
 function parseCookieInput(raw) {
-  const s = String(raw || "").trim();
+  let s = String(raw || "").trim();
   if (!s) return [];
+  /* Dán thẳng từ Google Doc: trình soạn thảo escape dấu gạch dưới và ngoặc vuông
+     (\_BEAMER\_USER\_ID, \[ ) và hay chèn dấu nháy cong — JSON.parse sẽ hỏng.
+     Gỡ escape và nắn nháy về nháy thẳng trước khi phân tích. */
+  s = s.replace(/\\([_[\]{}*`~])/g, "$1")
+       .replace(/[\u201C\u201D]/g, '"').replace(/[\u2018\u2019]/g, "'")
+       .replace(/\u00A0/g, " ")
+       .trim();
+  const i0 = s.indexOf("["), i1 = s.lastIndexOf("]");
+  if (i0 !== -1 && i1 > i0) s = s.slice(i0, i1 + 1); // bỏ chữ thừa quanh khối JSON trong Doc
   if (s.startsWith("[") || s.startsWith("{")) {
     const j = JSON.parse(s);
     const arr = Array.isArray(j) ? j : [j];

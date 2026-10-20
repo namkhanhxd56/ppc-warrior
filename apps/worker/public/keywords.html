@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<title>PPC Warrior — Phân tích Keyword</title>
+<style>
+  :root { --b:#2455e6; --ok:#1a9e50; --bad:#e04545; --warn:#d98a00; --mut:#667; }
+  * { box-sizing:border-box; }
+  body { font-family:-apple-system,Segoe UI,Arial,sans-serif; margin:0; background:#f4f6fa; color:#1b2330; }
+  header { background:#101828; color:#fff; padding:14px 24px; display:flex; align-items:center; gap:14px; }
+  header h1 { font-size:17px; margin:0; }
+  header nav { display:flex; gap:4px; margin-left:10px; }
+  header nav a { color:#9fb0c8; text-decoration:none; font-size:13px; padding:6px 14px; border-radius:8px; }
+  header nav a.active { background:var(--b); color:#fff; font-weight:600; }
+  header nav a:hover:not(.active) { background:#1d2739; }
+  main { max-width:1320px; margin:20px auto; padding:0 16px; }
+  .card { background:#fff; border:1px solid #e3e8f0; border-radius:12px; padding:18px 20px; margin-bottom:16px; }
+  .card > h2 { font-size:14px; margin:0 0 4px; }
+  .card .sub { font-size:12px; color:var(--mut); margin:0 0 12px; line-height:1.6; }
+  label { font-size:11.5px; color:var(--mut); display:block; margin:0 0 4px; font-weight:600; }
+  input, select, textarea { width:100%; padding:7px 9px; border:1px solid #ccd3e0; border-radius:7px; font-size:13px; font-family:inherit; background:#fff; }
+  input:focus, select:focus, textarea:focus { outline:2px solid #c7d5ff; border-color:var(--b); }
+  button { padding:8px 16px; border:none; border-radius:7px; cursor:pointer; font-size:13px; font-weight:600; }
+  button:disabled { opacity:.45; cursor:not-allowed; }
+  .btn-primary { background:var(--b); color:#fff; }
+  .btn-ok { background:var(--ok); color:#fff; }
+  .btn-sm { padding:5px 12px; font-size:12px; background:#eef1f7; }
+  .row { display:flex; gap:12px; align-items:flex-end; flex-wrap:wrap; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(224px,1fr)); gap:12px 14px; }
+  .pair { display:flex; gap:6px; }
+  .msg { font-size:12.5px; } .msg.ok { color:var(--ok); } .msg.err { color:var(--bad); }
+  .hint { font-size:11.5px; color:var(--mut); }
+  .mono { font-family:ui-monospace,Menlo,monospace; }
+  .chk { display:flex; align-items:center; gap:7px; font-size:12.5px; font-weight:600; color:#1b2330; }
+  .chk input { width:auto; }
+  .pill { display:inline-block; background:#eef2fb; color:#3a5bbf; border-radius:20px; padding:2px 10px; font-size:11.5px; font-weight:600; }
+  .pill.off { background:#f1f2f5; color:#8a94a8; }
+  table { border-collapse:collapse; width:100%; font-size:12.5px; }
+  th, td { border-bottom:1px solid #eef1f6; padding:7px 8px; text-align:left; }
+  th { background:#f6f8fc; font-size:11.5px; color:var(--mut); }
+  .sec { border-top:1px solid #eef1f6; margin-top:14px; padding-top:12px; }
+  #verWarn { display:none; background:#b45309; color:#fff; padding:8px 16px; font-size:13px; text-align:center; }
+</style>
+</head>
+<body>
+<div id="verWarn"></div>
+<header>
+  <h1>⚔️ PPC Warrior</h1>
+  <nav>
+    <a href="/">📊 Check Ranking</a>
+    <a href="/catalog.html">📋 Danh mục</a>
+    <a href="/keywords.html" class="active">🔑 Phân tích Keyword</a>
+    <a href="/launching.html">🚀 Tạo Campaign</a>
+    <a href="/adjust.html">⚙️ Điều chỉnh Campaign</a>
+    <a href="/data.html">📈 Data</a>
+  </nav>
+</header>
+
+<main>
+  <div class="card">
+    <h2>🔑 Cookie Helium 10</h2>
+    <p class="sub">Agent dùng cookie này để mở Cerebro trên máy bạn. Dán cả đoạn copy từ Google Doc cũng được — công cụ tự gỡ ký tự thừa và bỏ chữ quanh khối JSON.<br>
+      <b>Giá trị cookie không bao giờ được đọc ngược về trình duyệt</b>, chỉ hiện số lượng và thời điểm cập nhật.</p>
+    <div class="row">
+      <div style="flex:1;min-width:320px"><label>Dán cookie (JSON từ EditThisCookie / Cookie-Editor, hoặc chuỗi <span class="mono">a=1; b=2</span>)</label>
+        <textarea id="ckRaw" rows="4" placeholder='[{"domain":".helium10.com","name":"...","value":"..."}]'></textarea></div>
+      <div style="max-width:200px"><label>Ghi chú</label><input type="text" id="ckNote" placeholder="VD: lấy từ Doc 20/10"></div>
+      <button class="btn-primary" id="ckSave">💾 Lưu cookie</button>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <span id="ckStatus" class="hint">đang đọc…</span><span class="msg" id="ckMsg"></span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>🎛 Bộ quy tắc</h2>
+    <p class="sub">Đúng các ô lọc của Cerebro. Lưu lại để lần sau khỏi điền tay. Bỏ trống = không giới hạn.</p>
+    <div class="row" style="margin-bottom:12px">
+      <div style="max-width:280px"><label>Bộ quy tắc</label><select id="ruleSel"></select></div>
+      <div style="max-width:230px"><label>Tên bộ</label><input type="text" id="ruleName" placeholder="VD: Ornament chuẩn"></div>
+      <button class="btn-sm" id="ruleNew">➕ Bộ mới</button>
+      <button class="btn-primary" id="ruleSave">💾 Lưu bộ</button>
+      <button class="btn-sm" id="ruleDel">🗑 Xoá</button>
+      <span class="msg" id="ruleMsg"></span>
+    </div>
+
+    <div class="row" style="margin-bottom:10px">
+      <div style="max-width:260px"><label>Cách quét</label>
+        <select id="scanMode">
+          <option value="each">Từng ASIN rồi tổng hợp lại</option>
+          <option value="all">Gộp tất cả ASIN vào 1 lần quét</option>
+        </select></div>
+      <div style="max-width:200px"><label>Kỳ dữ liệu</label>
+        <select id="period"><option value="current">Single Month (hiện tại)</option><option value="compare">Monthly Comparison</option></select></div>
+      <label class="chk" style="margin-bottom:8px"><input type="checkbox" id="excludeVariations" checked> Exclude Variations</label>
+      <label class="chk" style="margin-bottom:8px"><input type="checkbox" id="pBrand" checked> Brand Name Removal</label>
+      <label class="chk" style="margin-bottom:8px"><input type="checkbox" id="pSpecial" checked> Exclude Special Characters</label>
+    </div>
+
+    <div class="sec">
+      <div class="grid" id="filterGrid"></div>
+    </div>
+
+    <div class="sec">
+      <div class="row">
+        <div style="flex:1;min-width:280px"><label>Phrases Containing</label>
+          <div class="pair"><input type="text" id="fPhrases" placeholder="Ex: red dress">
+            <select id="fPhrasesMode" style="max-width:88px"><option value="any">Any</option><option value="all">All</option></select></div></div>
+        <div style="flex:1;min-width:280px"><label>Exclude Keywords</label><input type="text" id="fExclude" placeholder="Ex: red dress"></div>
+        <div style="max-width:200px"><label>Match Type</label>
+          <select id="fMatchType"><option value="">None selected</option><option>Organic</option><option>Sponsored</option><option>Amazon Recommended</option></select></div>
+        <div style="max-width:200px"><label>Amazon Choice</label>
+          <select id="fAmazonChoice"><option value="">None selected</option><option>Yes</option><option>No</option></select></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>▶ Chạy phân tích</h2>
+    <p class="sub">ASIN lấy từ <a href="/catalog.html">📋 Danh mục</a> hoặc dán tay. Job vào hàng đợi, agent trên máy bạn mở Cerebro và tải file Export về — máy nào đang bật agent thì máy đó chạy.</p>
+    <div class="row">
+      <div style="flex:1;min-width:300px"><label>ASIN (mỗi dòng 1, hoặc cách nhau bằng dấu phẩy)</label>
+        <textarea id="runAsins" rows="3" placeholder="B0991NYY1P&#10;B0FLJY181J"></textarea></div>
+      <div style="max-width:260px"><label>Nạp nhanh từ Danh mục</label><select id="catPick"></select></div>
+      <div style="max-width:220px"><label>Tên bộ keyword sẽ lưu</label><input type="text" id="setName" placeholder="VD: Ornament T10"></div>
+      <button class="btn-ok" id="btnRun">▶ Chạy phân tích</button>
+      <span class="msg" id="runMsg"></span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>📦 Bộ keyword đã lưu</h2>
+    <p class="sub">Nạp được vào mục 2️⃣ của trang Tạo Campaign, thay cho việc import file Cerebro thủ công.</p>
+    <table><thead><tr><th>Tên bộ</th><th>ASIN</th><th>Bộ quy tắc</th><th style="text-align:right">Keyword</th><th>Lưu lúc</th><th style="width:150px"></th></tr></thead>
+      <tbody id="setBody"><tr><td colspan="6" class="hint">chưa có bộ nào</td></tr></tbody></table>
+  </div>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+
+const UI_VERSION = '0.36.0';
+(async () => {
+  try { const v = (await (await fetch('/api/version')).json()).version; if (v !== UI_VERSION) throw new Error(v); }
+  catch (e) { $('verWarn').style.display = 'block'; $('verWarn').textContent = `⚠️ Server phiên bản cũ (${e.message}) — hãy restart (npm start).`; }
+})();
+
+/* Các ô lọc khoảng Min–Max, đặt đúng thứ tự và đúng tên như trên Cerebro để đối chiếu
+   một-một với màn hình H10 — người dùng không phải dịch tên trong đầu. */
+const RANGE_FILTERS = [
+  ['wordCount', 'Word Count'], ['searchVolume', 'Search Volume'], ['organicRank', 'Organic Rank'],
+  ['keywordSales', 'Keyword Sales'], ['cerebroIq', 'Cerebro IQ Score'], ['titleDensity', 'Title Density'],
+  ['competingProducts', 'Competing Products'], ['svTrend', 'Search Volume Trend (%)'],
+  ['sponsoredRank', 'Sponsored Rank'], ['amazonRecRank', 'Amazon Rec. Rank'],
+  ['abaClickShare', 'ABA Top 3 Click Share (%)'], ['abaConvShare', 'ABA Top 3 Conv. Share (%)'],
+  ['suggestedBid', 'Suggested PPC Bid (US$)']
+];
+$('filterGrid').innerHTML = RANGE_FILTERS.map(([k, label]) => `
+  <div><label>${label}</label>
+    <div class="pair"><input type="number" id="f_${k}_min" placeholder="Min"><input type="number" id="f_${k}_max" placeholder="Max"></div></div>`).join('');
+
+const numOrNull = (v) => (String(v).trim() === '' ? null : Number(v));
+function readRule() {
+  const filters = {};
+  for (const [k] of RANGE_FILTERS) filters[k] = [numOrNull($(`f_${k}_min`).value), numOrNull($(`f_${k}_max`).value)];
+  return {
+    id: $('ruleSel').value || undefined,
+    name: $('ruleName').value.trim() || 'Bộ quy tắc',
+    scanMode: $('scanMode').value, period: $('period').value,
+    excludeVariations: $('excludeVariations').checked,
+    presets: [$('pBrand').checked ? 'Brand Name Removal' : null, $('pSpecial').checked ? 'Exclude Special Characters' : null].filter(Boolean),
+    filters,
+    phrasesContaining: { text: $('fPhrases').value.trim(), mode: $('fPhrasesMode').value },
+    excludeKeywords: $('fExclude').value.trim(),
+    matchType: $('fMatchType').value, amazonChoice: $('fAmazonChoice').value
+  };
+}
+function writeRule(r = {}) {
+  $('ruleName').value = r.name || '';
+  $('scanMode').value = r.scanMode || 'each';
+  $('period').value = r.period || 'current';
+  $('excludeVariations').checked = r.excludeVariations !== false;
+  const pre = r.presets || ['Brand Name Removal', 'Exclude Special Characters'];
+  $('pBrand').checked = pre.includes('Brand Name Removal');
+  $('pSpecial').checked = pre.includes('Exclude Special Characters');
+  for (const [k] of RANGE_FILTERS) {
+    const v = (r.filters || {})[k] || [null, null];
+    $(`f_${k}_min`).value = v[0] ?? ''; $(`f_${k}_max`).value = v[1] ?? '';
+  }
+  $('fPhrases').value = r.phrasesContaining?.text || '';
+  $('fPhrasesMode').value = r.phrasesContaining?.mode || 'any';
+  $('fExclude').value = r.excludeKeywords || '';
+  $('fMatchType').value = r.matchType || '';
+  $('fAmazonChoice').value = r.amazonChoice || '';
+}
+
+let rules = [];
+function renderRuleSel(keepId) {
+  $('ruleSel').innerHTML = '<option value="">— bộ mới —</option>'
+    + rules.map((r) => `<option value="${esc(r.id)}">${esc(r.name)}</option>`).join('');
+  if (keepId) $('ruleSel').value = keepId;
+}
+$('ruleSel').onchange = () => {
+  const r = rules.find((x) => x.id === $('ruleSel').value);
+  writeRule(r || {});
+};
+$('ruleNew').onclick = () => { $('ruleSel').value = ''; writeRule({}); $('ruleName').focus(); };
+$('ruleSave').onclick = async () => {
+  const cur = readRule();
+  const next = cur.id ? rules.map((r) => (r.id === cur.id ? { ...r, ...cur } : r)) : [...rules, cur];
+  const r = await (await fetch('/api/h10/rules', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ rules: next }) })).json();
+  rules = r.rules || [];
+  const saved = rules.find((x) => x.name === cur.name);
+  renderRuleSel(saved?.id);
+  $('ruleMsg').className = 'msg ok'; $('ruleMsg').textContent = `✓ đã lưu "${cur.name}"`;
+  setTimeout(() => $('ruleMsg').textContent = '', 3000);
+};
+$('ruleDel').onclick = async () => {
+  const id = $('ruleSel').value;
+  if (!id || !confirm('Xoá bộ quy tắc này?')) return;
+  const r = await (await fetch('/api/h10/rules', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ rules: rules.filter((x) => x.id !== id) }) })).json();
+  rules = r.rules || []; renderRuleSel(); writeRule({});
+};
+
+/* ===== Cookie ===== */
+async function loadCookie() {
+  const s = await (await fetch('/api/h10/cookie')).json();
+  $('ckStatus').innerHTML = s.count
+    ? `<span class="pill">${s.count} cookie</span> ${esc(s.domains.join(', '))} · cập nhật ${new Date(s.updatedAt).toLocaleString('vi-VN')}${s.note ? ' · ' + esc(s.note) : ''}`
+    : '<span class="pill off">chưa có cookie</span> agent sẽ không mở được Cerebro';
+}
+$('ckSave').onclick = async () => {
+  const r = await (await fetch('/api/h10/cookie', { method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ raw: $('ckRaw').value, note: $('ckNote').value }) })).json();
+  $('ckMsg').className = r.ok ? 'msg ok' : 'msg err';
+  $('ckMsg').textContent = r.ok ? `✓ đã lưu ${r.count} cookie` : '✕ ' + (r.message || 'Lỗi');
+  if (r.ok) { $('ckRaw').value = ''; loadCookie(); }
+};
+
+/* ===== Bộ keyword đã lưu ===== */
+async function loadSets() {
+  const { sets } = await (await fetch('/api/h10/sets')).json();
+  $('setBody').innerHTML = sets.length ? sets.map((s) => `<tr>
+    <td><b>${esc(s.name)}</b></td>
+    <td class="mono" style="font-size:11.5px">${esc((s.asins || []).join(', ')) || '—'}</td>
+    <td>${esc(s.ruleName) || '—'}</td>
+    <td style="text-align:right">${s.count}</td>
+    <td class="hint">${new Date(s.savedAt).toLocaleString('vi-VN')}</td>
+    <td><button class="btn-sm" onclick="viewSet('${s.id}')">👁 Xem</button>
+        <button class="btn-sm" onclick="delSet('${s.id}')">🗑</button></td></tr>`).join('')
+    : '<tr><td colspan="6" class="hint">chưa có bộ nào</td></tr>';
+}
+window.viewSet = async (id) => {
+  const s = await (await fetch('/api/h10/sets/' + id)).json();
+  const top = (s.keywords || []).slice(0, 40).map((k) => `${k.text}${k.searchVolume ? ' · SV ' + k.searchVolume : ''}${k.suggBid ? ' · bid ' + k.suggBid : ''}`).join('\n');
+  alert(`${s.name} — ${(s.keywords || []).length} keyword\n\n${top}${(s.keywords || []).length > 40 ? '\n…' : ''}`);
+};
+window.delSet = async (id) => {
+  if (!confirm('Xoá bộ keyword này?')) return;
+  await fetch('/api/h10/sets/' + id, { method: 'DELETE' });
+  loadSets();
+};
+
+/* ===== Chạy ===== */
+$('catPick').onchange = () => {
+  const v = $('catPick').value;
+  if (!v) return;
+  const cur = $('runAsins').value.split(/[\s,]+/).filter(Boolean);
+  if (!cur.includes(v)) $('runAsins').value = [...cur, v].join('\n');
+  $('catPick').value = '';
+};
+$('btnRun').onclick = async () => {
+  const asins = $('runAsins').value.split(/[\s,]+/).map((x) => x.trim().toUpperCase()).filter((x) => /^[A-Z0-9]{10}$/.test(x));
+  if (!asins.length) { $('runMsg').className = 'msg err'; $('runMsg').textContent = '✕ Chưa có ASIN hợp lệ'; return; }
+  $('runMsg').className = 'msg';
+  $('runMsg').textContent = `⏳ ${asins.length} ASIN · bộ "${$('ruleName').value || '(chưa đặt tên)'}" — phần agent quét Cerebro đang làm, chưa chạy được`;
+};
+
+(async () => {
+  loadCookie(); loadSets();
+  const r = await (await fetch('/api/h10/rules')).json();
+  rules = r.rules || [];
+  renderRuleSel();
+  if (rules.length) { $('ruleSel').value = rules[0].id; writeRule(rules[0]); } else writeRule({});
+  try {
+    const c = await (await fetch('/api/catalog')).json();
+    $('catPick').innerHTML = '<option value="">— chọn để thêm —</option>'
+      + (c.products || []).map((p) => `<option value="${p.asin}">${p.list ? p.list + ' · ' : ''}${p.asin}</option>`).join('');
+  } catch {}
+})();
+</script>
+</body>
+</html>
