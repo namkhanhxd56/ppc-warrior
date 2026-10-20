@@ -135,6 +135,24 @@ async function runJob(job) {
   const send = logger.send;
   if (job.payload?.kind === "libscan") return runLibScanJob(job, logger);
   if (job.payload?.kind === "h10check") return runH10CheckJob(job, logger);
+
+  /* Loại job lạ = agent đang chạy BẢN CŨ (đã cập nhật file nhưng chưa khởi động lại tiến
+     trình — Node nạp code lúc khởi động). Bản cũ rơi thẳng xuống nhánh quét rank rồi đọc
+     p.keywords.length của payload không có keywords, ném "Cannot read properties of
+     undefined" — nhìn như lỗi cookie/mạng, mất công truy sai hướng. Nói thẳng ra. */
+  if (job.payload?.kind) {
+    send(`🚨 Agent không hiểu loại job "${job.payload.kind}" — gần như chắc đang chạy BẢN CŨ.`);
+    send('   Dừng agent (Ctrl+C) rồi chạy lại "npm run agent". Cập nhật file thôi chưa đủ.');
+    await logger.flush();
+    await api("/api/agent/fail", { jobId: job.id, error: `Agent bản cũ: không hỗ trợ loại job "${job.payload.kind}"` }).catch(() => {});
+    return;
+  }
+  if (!Array.isArray(job.payload?.keywords)) {
+    send("🚨 Job thiếu danh sách keyword — payload không hợp lệ.");
+    await logger.flush();
+    await api("/api/agent/fail", { jobId: job.id, error: "Payload thiếu keywords" }).catch(() => {});
+    return;
+  }
   let page = null;
   try {
     const p = job.payload;
