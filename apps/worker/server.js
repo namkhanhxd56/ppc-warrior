@@ -21,7 +21,7 @@ import * as auth from "./src/auth.js";
 import { als, runAsUser, userDataDir } from "./src/db/user-context.js";
 
 dotenv.config();
-export const APP_VERSION = "0.36.0"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
+export const APP_VERSION = "0.37.0"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
 
 // RUN_MODE:
 // - "local" (mặc định): bấm Kiểm tra là scrape NGAY trên máy này (dùng 1 người, chạy local)
@@ -900,6 +900,41 @@ function parseCookieInput(raw) {
       domain: ".helium10.com", path: "/", secure: true, httpOnly: false };
   }).filter(Boolean);
 }
+
+/* Agent lấy cookie H10 qua ĐÂY, không nhét vào payload của job: jobs.json giữ 200 job và
+   trả nguyên về trình duyệt qua /api/jobs — nhét cookie vào đó là rải bản sao khắp nơi. */
+app.post("/api/agent/h10-cookie", (req, res) => {
+  const c = store.getH10Cookie();
+  if (!c.cookies?.length) return res.status(404).json({ error: "Chưa nạp cookie H10 ở trang Phân tích Keyword" });
+  res.json({ cookies: c.cookies, updatedAt: c.updatedAt });
+});
+
+/* Báo cáo chẩn đoán: agent mở Cerebro rồi kể lại nó thấy gì. Có nó mới viết được selector
+   đúng — đoán mò DOM của H10 là gần như chắc sai. */
+const H10_REPORT = () => `${userDataDir()}/h10-report.json`;
+app.post("/api/agent/h10-report", (req, res) => {
+  try {
+    fs.mkdirSync(userDataDir(), { recursive: true });
+    fs.writeFileSync(H10_REPORT(), JSON.stringify({ ...(req.body || {}), at: new Date().toISOString() }, null, 1));
+    if (req.body?.jobId) store.completeJob(req.body.jobId, null);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ ok: false, message: e.message }); }
+});
+app.get("/api/h10/report", (req, res) => {
+  try { res.json(JSON.parse(fs.readFileSync(H10_REPORT(), "utf8"))); }
+  catch { res.json({ at: null }); }
+});
+
+// Xếp job cho agent mở Cerebro và kể lại hiện trạng (đăng nhập được không, có bị chặn không)
+app.post("/api/h10/check", (req, res) => {
+  if (RUN_MODE !== "queue") return res.status(409).json({ ok: false, message: "Chỉ chạy ở chế độ queue (agent)" });
+  const c = store.getH10Cookie();
+  if (!c.cookies?.length) return res.status(400).json({ ok: false, message: "Chưa nạp cookie H10" });
+  const asin = String(req.body?.asin || "").trim().toUpperCase();
+  const job = store.enqueueJob({ kind: "h10check", asin: /^[A-Z0-9]{10}$/.test(asin) ? asin : null,
+    runId: "h10-" + Date.now().toString(36) });
+  res.json({ ok: true, jobId: job.id });
+});
 
 // Bộ quy tắc = đúng các ô lọc của Cerebro + cách quét
 app.get("/api/h10/rules", (req, res) => res.json({ rules: store.listH10Rules() }));

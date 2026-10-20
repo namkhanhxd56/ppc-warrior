@@ -134,6 +134,7 @@ async function runJob(job) {
   const logger = makeLogger(job.id, markStop);
   const send = logger.send;
   if (job.payload?.kind === "libscan") return runLibScanJob(job, logger);
+  if (job.payload?.kind === "h10check") return runH10CheckJob(job, logger);
   let page = null;
   try {
     const p = job.payload;
@@ -181,6 +182,78 @@ async function runJob(job) {
   } finally {
     await logger.flush(); // đừng để mất mấy dòng còn trong đệm
     // Chỉ đóng PAGE — browser giữ lại cho job kế tiếp (tự đóng khi rảnh, xem vòng poll)
+    if (page) { try { await page.close(); } catch {} }
+    if (hold) hold.lastUsed = Date.now();
+  }
+}
+
+/* ===== CHẨN ĐOÁN HELIUM 10 =====
+   Chạy MỘT LẦN trước khi viết phần quét Cerebro thật. Nạp cookie, mở Cerebro, rồi kể lại:
+   vào được hay bị đá ra trang đăng nhập, có dính Cloudflare không, và các ô nhập/nút bấm
+   trên trang tên là gì. Không có báo cáo này thì selector chỉ là đoán mò. */
+async function runH10CheckJob(job, logger) {
+  const send = logger.send;
+  const report = { jobId: job.id, agent: NAME };
+  let page = null;
+  try {
+    send("🔑 Lấy cookie H10 từ server...");
+    const { cookies } = await api("/api/agent/h10-cookie", {});
+    send(`   ${cookies.length} cookie · domain ${[...new Set(cookies.map((c) => c.domain))].join(", ")}`);
+
+    /* KHÔNG dùng newReadyPage: nó kiểm tra session AMAZON và đặt zip — vô nghĩa với H10, mà
+       lại ném lỗi nếu cookie Amazon hỏng, làm job H10 chết oan. Mở page trần rồi tự nạp cookie. */
+    const browser = await getBrowser(null, send);
+    page = await newCleanPage(browser, null);
+    await page.setCookie(...cookies.map((c) => ({
+      name: c.name, value: String(c.value ?? ""), domain: c.domain || ".helium10.com",
+      path: c.path || "/", secure: c.secure !== false, httpOnly: !!c.httpOnly,
+      ...(c.expires ? { expires: Number(c.expires) } : {})
+    })));
+    send("🌐 Mở Cerebro...");
+    await page.goto("https://members.helium10.com/cerebro", { waitUntil: "domcontentloaded", timeout: 60000 });
+    await new Promise((r) => setTimeout(r, 6000)); // Cerebro là SPA — chờ dựng xong
+
+    report.url = page.url();
+    report.title = await page.title();
+    const probe = await page.evaluate(() => {
+      const txt = document.body.innerText.slice(0, 1500);
+      const sel = (q) => [...document.querySelectorAll(q)].slice(0, 25).map((e) => ({
+        tag: e.tagName.toLowerCase(), id: e.id || undefined,
+        name: e.getAttribute("name") || undefined, ph: e.getAttribute("placeholder") || undefined,
+        aria: e.getAttribute("aria-label") || undefined,
+        test: e.getAttribute("data-testid") || e.getAttribute("data-test") || undefined,
+        cls: (typeof e.className === "string") ? e.className.slice(0, 60) : undefined,
+        text: (e.innerText || "").trim().slice(0, 40) || undefined
+      }));
+      return {
+        text: txt, inputs: sel("input, textarea"), buttons: sel("button, a[role=button]"),
+        hasLogin: /sign in|log in|đăng nhập|password/i.test(txt),
+        hasCloudflare: /cloudflare|checking your browser|just a moment/i.test(txt + document.title),
+        exportish: [...document.querySelectorAll("button, a")]
+          .filter((e) => /export/i.test(e.innerText || ""))
+          .slice(0, 6).map((e) => ({ text: (e.innerText || "").trim().slice(0, 40), cls: String(e.className).slice(0, 80), id: e.id || undefined }))
+      };
+    });
+    Object.assign(report, probe);
+    send(`   URL sau khi mở: ${report.url}`);
+    send(`   Tiêu đề: ${report.title}`);
+    send(report.hasCloudflare ? "   🚨 Dính Cloudflare" : "   ✓ Không thấy Cloudflare");
+    send(report.hasLogin ? "   🚨 Bị đá ra trang đăng nhập — cookie hết hạn hoặc thiếu" : "   ✓ Có vẻ đã đăng nhập");
+    send(`   Thấy ${probe.inputs.length} ô nhập · ${probe.buttons.length} nút · ${probe.exportish.length} nút có chữ Export`);
+
+    try {
+      const shot = `${process.cwd()}/data/h10-check.png`;
+      await page.screenshot({ path: shot });
+      report.screenshot = shot;
+      send(`   📸 Ảnh màn hình: ${shot}`);
+    } catch {}
+    report.ok = !report.hasLogin && !report.hasCloudflare;
+  } catch (e) {
+    report.error = e.message;
+    send(`🚨 ${e.message}`);
+  } finally {
+    await logger.flush();
+    try { await api("/api/agent/h10-report", report); } catch (e) { console.error("  gửi báo cáo lỗi:", e.message); }
     if (page) { try { await page.close(); } catch {} }
     if (hold) hold.lastUsed = Date.now();
   }
