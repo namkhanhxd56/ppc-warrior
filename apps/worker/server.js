@@ -21,7 +21,7 @@ import * as auth from "./src/auth.js";
 import { als, runAsUser, userDataDir } from "./src/db/user-context.js";
 
 dotenv.config();
-export const APP_VERSION = "0.41.0"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
+export const APP_VERSION = "0.41.1"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
 
 // RUN_MODE:
 // - "local" (mặc định): bấm Kiểm tra là scrape NGAY trên máy này (dùng 1 người, chạy local)
@@ -184,6 +184,12 @@ app.get("/api/agent-tokens", (req, res) => {
   const u = auth.getSession(auth.parseCookie(req));
   if (!u) return res.status(401).json({ error: "Chưa đăng nhập" });
   res.json({ tokens: auth.listAgentTokens(u.name, u.role === "admin") });
+});
+app.post("/api/agent-tokens/rename", (req, res) => {
+  const u = auth.getSession(auth.parseCookie(req));
+  if (!u) return res.status(401).json({ error: "Chưa đăng nhập" });
+  try { res.json({ ok: true, label: auth.renameAgentToken(String(req.body?.id || ""), req.body?.label, u.name, u.role === "admin") }); }
+  catch (e) { res.status(400).json({ ok: false, message: e.message }); }
 });
 app.post("/api/agent-tokens/revoke", (req, res) => {
   const u = auth.getSession(auth.parseCookie(req));

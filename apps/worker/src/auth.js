@@ -267,6 +267,20 @@ export function listAgentTokens(userName, isAdmin) {
     }));
 }
 
+/** Đổi tên máy đã cấp token. Cùng quy tắc quyền như thu hồi: chủ token hoặc admin. */
+export function renameAgentToken(idSuffix, label, userName, isAdmin) {
+  const suffix = String(idSuffix || "");
+  if (suffix.length < 8) throw new Error("Mã token không hợp lệ");
+  const name = String(label || "").trim().slice(0, 40);
+  if (!name) throw new Error("Tên máy không được để trống");
+  const tokens = readTokens();
+  const entry = Object.entries(tokens).find(([token, t]) => token.endsWith(suffix) && (isAdmin || t.user === userName));
+  if (!entry) throw new Error("Không tìm thấy token (hoặc không có quyền)");
+  entry[1].label = name;
+  writeTokens(tokens);
+  return name;
+}
+
 export function revokeAgentToken(idSuffix, userName, isAdmin) {
   // Phải đủ dài: endsWith("") khớp MỌI token → gọi với id rỗng là thu hồi nhầm token bất kỳ
   // (với admin là token của người khác). listAgentTokens luôn trả id 8 ký tự cuối.

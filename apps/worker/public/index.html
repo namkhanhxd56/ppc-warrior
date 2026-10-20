@@ -228,7 +228,7 @@
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;');
 
-const UI_VERSION = '0.41.0'; // PHẢI khớp APP_VERSION server.js
+const UI_VERSION = '0.41.1'; // PHẢI khớp APP_VERSION server.js
 (async () => {
   try {
     const v = (await (await fetch('/api/version')).json()).version;
@@ -1381,7 +1381,9 @@ window.__agentSetup = async () => {
   const r = await (await fetch('/api/agent-tokens')).json();
   const rows = (r.tokens || []).map((t) => `
     <div style="display:flex;gap:8px;align-items:center;padding:5px 0;border-bottom:1px solid #f0f2f6;font-size:12px;${t.revoked ? 'opacity:.4' : ''}">
-      <b style="flex:1">🖥 ${esc(t.label)}</b><span class="hint">${esc(t.user)}</span>
+      <b style="flex:1">🖥 ${esc(t.label)}</b>
+      <button class="btn-sm" title="Đổi tên máy" onclick="__renameAgent('${t.id}', ${JSON.stringify(t.label)})">✏️</button>
+      <span class="hint">${esc(t.user)}</span>
       <span class="hint" title="Hoạt động gần nhất">${t.lastSeen ? t.lastSeen.slice(0, 16).replace('T', ' ') : 'chưa chạy'}</span>
       ${t.revoked ? '<span style="color:#c0392b;font-size:11px">đã thu hồi</span>'
         : `<button class="btn-sm" style="color:#c0392b" onclick="if(confirm('Thu hồi? Máy này sẽ không quét được nữa.'))fetch('/api/agent-tokens/revoke',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:'${t.id}'})}).then(()=>__agentSetup())">Thu hồi</button>`}
@@ -1397,14 +1399,37 @@ window.__agentSetup = async () => {
     <div id="agCmd"></div>
     <div style="margin-top:12px"><b style="font-size:12px">Máy đã cấp</b>${rows || '<div class="hint" style="font-size:12px;color:var(--mut)">chưa có</div>'}</div>`);
 };
+window.__renameAgent = async (id, cur) => {
+  const label = prompt('Tên máy (dễ nhớ, VD "Win – H10" hoặc "Mac – ranking"):', cur || '');
+  if (label === null || !label.trim()) return;
+  const r = await (await fetch('/api/agent-tokens/rename', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id, label }) })).json();
+  if (!r.ok) return alert('🚨 ' + (r.message || 'Lỗi'));
+  __agentSetup();
+};
 window.__newAgentToken = async () => {
   const r = await (await fetch('/api/agent-tokens', { method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ label: document.getElementById('agLabel').value }) })).json();
+  // Lệnh cài khác nhau theo hệ điều hành — máy chạy H10 thường là Windows
+  const base = location.origin;
+  const winCmd = `iwr -useb "${base}/setup-agent.ps1" -OutFile "$env:TEMP\\setup-agent.ps1"\n`
+    + `powershell -ExecutionPolicy Bypass -File "$env:TEMP\\setup-agent.ps1" -Server "${base}" -Token "${r.token}"`;
+  const box = (t) => `<div style="background:#0b1020;color:#7ef0a8;border-radius:8px;padding:10px 12px;font:11.5px/1.6 ui-monospace,Menlo,monospace;word-break:break-all;white-space:pre-wrap">${esc(t)}</div>`;
   document.getElementById('agCmd').innerHTML = `
-    <div style="background:#0b1020;color:#7ef0a8;border-radius:8px;padding:10px 12px;font:11.5px ui-monospace,Menlo,monospace;word-break:break-all">${esc(r.command)}</div>
+    <div style="font-size:11.5px;font-weight:700;margin:4px 0 4px">🍎 macOS / Linux — dán vào Terminal</div>
+    ${box(r.command)}
     <div style="display:flex;gap:8px;margin-top:6px;align-items:center">
-      <button class="btn-sm" onclick="navigator.clipboard.writeText(${JSON.stringify('')} + this.dataset.c).then(()=>alert('✅ Đã copy'))" data-c="${esc(r.command)}">📋 Copy lệnh</button>
-      <span class="hint" style="font-size:11px;color:var(--mut)">dán vào Terminal của máy cần cài → xong chạy: <b>cd ~/ppc-warrior-agent && npm run agent</b></span>
+      <button class="btn-sm" onclick="navigator.clipboard.writeText(this.dataset.c).then(()=>alert('✅ Đã copy'))" data-c="${esc(r.command)}">📋 Copy lệnh macOS</button>
+      <span class="hint" style="font-size:11px;color:var(--mut)">xong chạy: <b>cd ~/ppc-warrior-agent && npm run agent</b></span>
+    </div>
+    <div style="font-size:11.5px;font-weight:700;margin:12px 0 4px">🪟 Windows — dán vào PowerShell</div>
+    ${box(winCmd)}
+    <div style="display:flex;gap:8px;margin-top:6px;align-items:center">
+      <button class="btn-sm" onclick="navigator.clipboard.writeText(this.dataset.c).then(()=>alert('✅ Đã copy'))" data-c="${esc(winCmd)}">📋 Copy lệnh Windows</button>
+      <span class="hint" style="font-size:11px;color:var(--mut)">xong chạy: <b>cd "$env:USERPROFILE\\ppc-warrior-agent"; npm run agent</b></span>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:8px;align-items:center">
+      <span class="hint" style="font-size:11px;color:var(--mut)">Token (dùng riêng nếu cần): <b class="mono">${esc(r.token)}</b></span>
     </div>`;
 };
 
