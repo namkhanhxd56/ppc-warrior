@@ -213,6 +213,76 @@ async function runJob(job) {
    Chạy MỘT LẦN trước khi viết phần quét Cerebro thật. Nạp cookie, mở Cerebro, rồi kể lại:
    vào được hay bị đá ra trang đăng nhập, có dính Cloudflare không, và các ô nhập/nút bấm
    trên trang tên là gì. Không có báo cáo này thì selector chỉ là đoán mò. */
+/** Nạp cookie + localStorage vào trình duyệt đang có. Dùng cho cả trình duyệt riêng của
+ *  agent LẪN Chrome người dùng (khi phiên H10 ở đó đã chết và cần hồi lại).
+ *  Trả {cookieOk, cookieTotal, storageWritten}. */
+async function injectH10Session(browser, page, cookies, storage, send) {
+  const toSet = (cookies || []).map((c) => {
+    const o = { name: c.name, value: String(c.value ?? ""), domain: c.domain || ".helium10.com",
+      path: c.path || "/", secure: c.secure !== false, httpOnly: !!c.httpOnly };
+    if (c.sameSite) o.sameSite = c.sameSite;
+    if (c.expires) o.expires = Number(c.expires);
+    return o;
+  });
+  let err = 0;
+  for (const c of toSet) {
+    try {
+      if (typeof browser.setCookie === "function") await browser.setCookie(c);
+      else await page.setCookie(c);
+    } catch { err++; }
+  }
+  let wrote = 0;
+  const st = storage || {};
+  if (Object.keys(st).length) {
+    // localStorage gắn với ORIGIN — phải đứng ở đúng origin mới ghi được
+    if (!/members\.helium10\.com/.test(page.url())) {
+      await page.goto("https://members.helium10.com/user/signin", { waitUntil: "domcontentloaded", timeout: 60000 });
+    }
+    wrote = await page.evaluate((s) => {
+      let n = 0;
+      for (const [k, v] of Object.entries(s)) { try { localStorage.setItem(k, v); n++; } catch {} }
+      return n;
+    }, st).catch(() => 0);
+  }
+  send(`   nạp ${toSet.length - err}/${toSet.length} cookie · ghi ${wrote}/${Object.keys(st).length} khoá localStorage`);
+  return { cookieOk: toSet.length - err, cookieTotal: toSet.length, storageWritten: wrote };
+}
+
+/** Mở Cerebro rồi đọc hiện trạng. Tách riêng để gọi được LẦN HAI sau khi hồi phiên. */
+async function probeCerebro(page) {
+  await page.goto("https://members.helium10.com/cerebro", { waitUntil: "domcontentloaded", timeout: 60000 });
+  await new Promise((r) => setTimeout(r, 6000)); // Cerebro là SPA — chờ dựng xong
+  const live = await page.cookies().catch(() => []);
+  const out = await page.evaluate(() => {
+    const txt = document.body.innerText.slice(0, 1500);
+    const keys = (s) => { try { return Object.keys(s).slice(0, 30); } catch { return []; } };
+    const t = localStorage.getItem("CORE_BEARER_TOKEN");
+    const sel = (q) => [...document.querySelectorAll(q)].slice(0, 25).map((e) => ({
+      tag: e.tagName.toLowerCase(), id: e.id || undefined,
+      name: e.getAttribute("name") || undefined, ph: e.getAttribute("placeholder") || undefined,
+      aria: e.getAttribute("aria-label") || undefined,
+      test: e.getAttribute("data-testid") || e.getAttribute("data-test") || undefined,
+      cls: (typeof e.className === "string") ? e.className.slice(0, 60) : undefined,
+      text: (e.innerText || "").trim().slice(0, 40) || undefined
+    }));
+    return {
+      text: txt, inputs: sel("input, textarea"), buttons: sel("button, a[role=button]"),
+      localStorageKeys: keys(localStorage), sessionStorageKeys: keys(sessionStorage),
+      tokenLive: t ? `có (${String(t).length} ký tự)` : "không có", // không bao giờ trả giá trị token
+      hasLogin: /sign in|log in|đăng nhập|password/i.test(txt),
+      hasCloudflare: /cloudflare|checking your browser|just a moment/i.test(txt + document.title),
+      exportish: [...document.querySelectorAll("button, a")]
+        .filter((e) => /export/i.test(e.innerText || ""))
+        .slice(0, 6).map((e) => ({ text: (e.innerText || "").trim().slice(0, 40), cls: String(e.className).slice(0, 80), id: e.id || undefined }))
+    };
+  });
+  out.url = page.url();
+  out.title = await page.title();
+  out.cookiesInBrowser = live.length;
+  out.cookieNames = live.map((c) => c.name).slice(0, 40);
+  return out;
+}
+
 async function runH10CheckJob(job, logger) {
   const send = logger.send;
   const report = { jobId: job.id, agent: NAME };
@@ -222,109 +292,46 @@ async function runH10CheckJob(job, logger) {
        Không phải xuất cookie/token, không lo hết hạn, và họ nhìn thấy tool đang làm gì. */
     shared = await connectBrowser(H10_BROWSER_URL, send);
     report.mode = shared ? "chrome-co-san" : "trinh-duyet-rieng";
-
-    let cookies = [], storage = {}, stKeys = [];
-    if (!shared) {
-      send("🔑 Không có Chrome sẵn — quay về cách nạp cookie/localStorage từ server...");
-      ({ cookies, storage } = await api("/api/agent/h10-cookie", {}));
-      stKeys = Object.keys(storage || {});
-      send(`   ${cookies.length} cookie · domain ${[...new Set(cookies.map((c) => c.domain))].join(", ")}`);
-      send(`   ${stKeys.length} khoá localStorage${storage?.CORE_BEARER_TOKEN ? " · có CORE_BEARER_TOKEN" : " · KHÔNG có CORE_BEARER_TOKEN"}`);
-    }
-
-    /* KHÔNG dùng newReadyPage: nó kiểm tra session AMAZON và đặt zip — vô nghĩa với H10, mà
-       lại ném lỗi nếu cookie Amazon hỏng, làm job H10 chết oan. Mở page trần rồi tự nạp cookie. */
     const browser = shared || await getBrowser(null, send);
     page = shared ? await shared.newPage() : await newCleanPage(browser, null);
 
-    /* Nạp ở CẤP TRÌNH DUYỆT chứ không phải cấp page: cookie áp cho mọi tab và mọi domain con
-       (.helium10.com, members.helium10.com) mà không phụ thuộc trang hiện tại đang ở đâu. */
-    const toSet = cookies.map((c) => {
-      const o = { name: c.name, value: String(c.value ?? ""), domain: c.domain || ".helium10.com",
-        path: c.path || "/", secure: c.secure !== false, httpOnly: !!c.httpOnly };
-      if (c.sameSite) o.sameSite = c.sameSite;
-      if (c.expires) o.expires = Number(c.expires);
-      return o;
-    });
-    let setErr = 0;
-    if (shared) {
-      send("   (bỏ qua nạp cookie — Chrome này đã đăng nhập sẵn)");
-    } else if (typeof browser.setCookie === "function") {
-      for (const c of toSet) { try { await browser.setCookie(c); } catch { setErr++; } }
-    } else {
-      for (const c of toSet) { try { await page.setCookie(c); } catch { setErr++; } }
-    }
-    report.cookiesSent = toSet.length;
-    report.cookieSetErrors = setErr;
-    send(`   Đã nạp ${toSet.length - setErr}/${toSet.length} cookie vào trình duyệt`);
-
-    /* NẠP localStorage — bắt buộc. H10 xác thực bằng CORE_BEARER_TOKEN trong localStorage,
-       cookie chỉ là phần phụ (đo thật 20/10: 30 cookie vào trình duyệt trắng vẫn bị đá ra
-       signin). localStorage gắn với ORIGIN nên phải ở đúng origin mới ghi được → mở một
-       trang nhẹ của members.helium10.com trước, ghi, rồi mới vào Cerebro. */
-    if (!shared && stKeys.length) {
-      send("🗝 Nạp localStorage vào origin members.helium10.com...");
-      await page.goto("https://members.helium10.com/user/signin", { waitUntil: "domcontentloaded", timeout: 60000 });
-      const wrote = await page.evaluate((st) => {
-        let n = 0;
-        for (const [k, v] of Object.entries(st)) { try { localStorage.setItem(k, v); n++; } catch {} }
-        return n;
-      }, storage);
-      report.storageWritten = wrote;
-      send(`   ghi được ${wrote}/${stKeys.length} khoá`);
+    // Trình duyệt riêng thì trắng tinh — phải nạp phiên TRƯỚC khi mở Cerebro
+    if (!shared) {
+      send("🔑 Không có Chrome sẵn — nạp cookie/localStorage từ server...");
+      const s = await api("/api/agent/h10-cookie", {});
+      const r = await injectH10Session(browser, page, s.cookies, s.storage, send);
+      Object.assign(report, { cookiesSent: r.cookieTotal, cookieSetErrors: r.cookieTotal - r.cookieOk, storageWritten: r.storageWritten });
     }
 
     send("🌐 Mở Cerebro...");
-    await page.goto("https://members.helium10.com/cerebro", { waitUntil: "domcontentloaded", timeout: 60000 });
-    await new Promise((r) => setTimeout(r, 6000)); // Cerebro là SPA — chờ dựng xong
+    let probe = await probeCerebro(page);
 
-    /* Phân biệt hai nguyên nhân rất khác nhau:
-         - trình duyệt KHÔNG giữ được cookie  → lỗi ở khâu nạp
-         - giữ đủ cookie mà vẫn bị đá ra signin → phiên H10 không nằm ở cookie (nhiều SPA để
-           token trong localStorage), hoặc phiên đã bị huỷ phía máy chủ */
-    const live = await page.cookies();
-    report.cookiesInBrowser = live.length;
-    report.cookieNames = live.map((c) => c.name).slice(0, 40);
-    const stor = await page.evaluate(() => {
-      const keys = (s) => { try { return Object.keys(s).slice(0, 30); } catch { return []; } };
-      return { local: keys(localStorage), session: keys(sessionStorage) };
-    }).catch(() => ({ local: [], session: [] }));
-    report.localStorageKeys = stor.local;
-    report.tokenLive = await page.evaluate(() => {
-      const t = localStorage.getItem("CORE_BEARER_TOKEN");
-      return t ? `có (${String(t).length} ký tự)` : "không có"; // không bao giờ trả giá trị token
-    }).catch(() => "?");
-    send(`   CORE_BEARER_TOKEN trên trang: ${report.tokenLive}`);
-    report.sessionStorageKeys = stor.session;
-    send(`   Trình duyệt đang giữ ${live.length} cookie cho trang này`);
-    send(`   localStorage có ${stor.local.length} khoá · sessionStorage ${stor.session.length} khoá`);
+    /* TỰ HỒI PHIÊN: Chrome người dùng bị H10 đá ra đăng nhập thì agent làm đúng thao tác tay
+       của họ — nạp cookie đã lưu rồi tải lại. Chỉ chạy KHI ĐÃ HỎNG, không đụng vào phiên
+       đang chạy tốt. Cookie đã lưu mà cũng hết hạn thì không ai cứu được, phải lấy cookie mới. */
+    if (probe.hasLogin && shared) {
+      send("⚠️ Chrome này đã mất đăng nhập H10 — thử hồi phiên bằng cookie đã lưu...");
+      try {
+        const s = await api("/api/agent/h10-cookie", {});
+        const r = await injectH10Session(browser, page, s.cookies, s.storage, send);
+        Object.assign(report, { recoveryTried: true, cookiesSent: r.cookieTotal, storageWritten: r.storageWritten });
+        probe = await probeCerebro(page);
+        report.recovered = !probe.hasLogin;
+        send(probe.hasLogin
+          ? "   🚨 Vẫn bị đá ra — cookie đã lưu cũng hết hạn. Đăng nhập lại H10 trong cửa sổ Chrome đó, hoặc nạp cookie mới."
+          : "   ✅ Hồi phiên thành công");
+      } catch (e) {
+        report.recoveryError = e.message;
+        send(`   ⚠️ Không hồi được: ${e.message}`);
+      }
+    }
 
-    report.url = page.url();
-    report.title = await page.title();
-    const probe = await page.evaluate(() => {
-      const txt = document.body.innerText.slice(0, 1500);
-      const sel = (q) => [...document.querySelectorAll(q)].slice(0, 25).map((e) => ({
-        tag: e.tagName.toLowerCase(), id: e.id || undefined,
-        name: e.getAttribute("name") || undefined, ph: e.getAttribute("placeholder") || undefined,
-        aria: e.getAttribute("aria-label") || undefined,
-        test: e.getAttribute("data-testid") || e.getAttribute("data-test") || undefined,
-        cls: (typeof e.className === "string") ? e.className.slice(0, 60) : undefined,
-        text: (e.innerText || "").trim().slice(0, 40) || undefined
-      }));
-      return {
-        text: txt, inputs: sel("input, textarea"), buttons: sel("button, a[role=button]"),
-        hasLogin: /sign in|log in|đăng nhập|password/i.test(txt),
-        hasCloudflare: /cloudflare|checking your browser|just a moment/i.test(txt + document.title),
-        exportish: [...document.querySelectorAll("button, a")]
-          .filter((e) => /export/i.test(e.innerText || ""))
-          .slice(0, 6).map((e) => ({ text: (e.innerText || "").trim().slice(0, 40), cls: String(e.className).slice(0, 80), id: e.id || undefined }))
-      };
-    });
     Object.assign(report, probe);
-    send(`   URL sau khi mở: ${report.url}`);
-    send(`   Tiêu đề: ${report.title}`);
-    send(report.hasCloudflare ? "   🚨 Dính Cloudflare" : "   ✓ Không thấy Cloudflare");
-    send(report.hasLogin ? "   🚨 Bị đá ra trang đăng nhập — cookie hết hạn hoặc thiếu" : "   ✓ Có vẻ đã đăng nhập");
+    send(`   URL: ${probe.url}`);
+    send(`   Tiêu đề: ${probe.title}`);
+    send(probe.hasCloudflare ? "   🚨 Dính Cloudflare" : "   ✓ Không thấy Cloudflare");
+    send(probe.hasLogin ? "   🚨 Đang ở trang đăng nhập" : "   ✓ Đã đăng nhập");
+    send(`   CORE_BEARER_TOKEN: ${probe.tokenLive} · ${probe.cookiesInBrowser} cookie · ${probe.localStorageKeys.length} khoá localStorage`);
     send(`   Thấy ${probe.inputs.length} ô nhập · ${probe.buttons.length} nút · ${probe.exportish.length} nút có chữ Export`);
 
     try {
@@ -333,7 +340,7 @@ async function runH10CheckJob(job, logger) {
       report.screenshot = shot;
       send(`   📸 Ảnh màn hình: ${shot}`);
     } catch {}
-    report.ok = !report.hasLogin && !report.hasCloudflare;
+    report.ok = !probe.hasLogin && !probe.hasCloudflare;
   } catch (e) {
     report.error = e.message;
     send(`🚨 ${e.message}`);

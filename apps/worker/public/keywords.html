@@ -62,7 +62,9 @@
     <p class="sub">
       Mở một cửa sổ Chrome <b>riêng</b> có cổng điều khiển, đăng nhập H10 một lần rồi để đó. Agent mượn chính cửa sổ đó —
       không phải xuất cookie, không lo token hết hạn, và bạn <b>nhìn thấy</b> tool đang thao tác.<br>
-      Phải dùng <span class="mono">--user-data-dir</span> riêng: Chrome không mở cổng điều khiển nếu đã có cửa sổ chạy bằng profile mặc định.</p>
+      Phải dùng <span class="mono">--user-data-dir</span> riêng: Chrome không mở cổng điều khiển nếu đã có cửa sổ chạy bằng profile mặc định.<br>
+      <b>Mất đăng nhập thì agent tự hồi:</b> nếu H10 đá cửa sổ đó ra trang đăng nhập, agent tự nạp cookie đã lưu ở Cách 2 rồi tải lại —
+      đúng thao tác tay của bạn. Nên vẫn nên lưu sẵn một bộ cookie để làm phao. Cookie đó mà cũng hết hạn thì phải đăng nhập lại tay.</p>
     <div style="background:#0b1020;color:#7ef0a8;font:11.5px/1.6 ui-monospace,Menlo,monospace;padding:12px;border-radius:8px;white-space:pre-wrap" id="chromeCmd">"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
   --remote-debugging-port=9222 \
   --user-data-dir="$HOME/h10-chrome" \
@@ -178,7 +180,7 @@
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
 
-const UI_VERSION = '0.39.0';
+const UI_VERSION = '0.39.1';
 (async () => {
   try { const v = (await (await fetch('/api/version')).json()).version; if (v !== UI_VERSION) throw new Error(v); }
   catch (e) { $('verWarn').style.display = 'block'; $('verWarn').textContent = `⚠️ Server phiên bản cũ (${e.message}) — hãy restart (npm start).`; }
@@ -310,7 +312,8 @@ $('btnCheck').onclick = async () => {
   out.textContent += '\n\n═══ BÁO CÁO ═══\n' + JSON.stringify({
     ok: rep.ok, url: rep.url, title: rep.title, hasLogin: rep.hasLogin,
     hasCloudflare: rep.hasCloudflare, error: rep.error, screenshot: rep.screenshot,
-    cheDo: rep.mode, cookieGui: rep.cookiesSent, cookieNapLoi: rep.cookieSetErrors,
+    cheDo: rep.mode, daThuHoiPhien: rep.recoveryTried, hoiPhienThanhCong: rep.recovered,
+    cookieGui: rep.cookiesSent, cookieNapLoi: rep.cookieSetErrors,
     khoaLocalStorageDaGhi: rep.storageWritten, tokenTrenTrang: rep.tokenLive,
     cookieTrinhDuyetGiu: rep.cookiesInBrowser, tenCookie: rep.cookieNames,
     localStorage: rep.localStorageKeys, sessionStorage: rep.sessionStorageKeys,
