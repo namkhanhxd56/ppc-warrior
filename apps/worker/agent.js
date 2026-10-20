@@ -222,14 +222,45 @@ async function runH10CheckJob(job, logger) {
        lại ném lỗi nếu cookie Amazon hỏng, làm job H10 chết oan. Mở page trần rồi tự nạp cookie. */
     const browser = await getBrowser(null, send);
     page = await newCleanPage(browser, null);
-    await page.setCookie(...cookies.map((c) => ({
-      name: c.name, value: String(c.value ?? ""), domain: c.domain || ".helium10.com",
-      path: c.path || "/", secure: c.secure !== false, httpOnly: !!c.httpOnly,
-      ...(c.expires ? { expires: Number(c.expires) } : {})
-    })));
+
+    /* Nạp ở CẤP TRÌNH DUYỆT chứ không phải cấp page: cookie áp cho mọi tab và mọi domain con
+       (.helium10.com, members.helium10.com) mà không phụ thuộc trang hiện tại đang ở đâu. */
+    const toSet = cookies.map((c) => {
+      const o = { name: c.name, value: String(c.value ?? ""), domain: c.domain || ".helium10.com",
+        path: c.path || "/", secure: c.secure !== false, httpOnly: !!c.httpOnly };
+      if (c.sameSite) o.sameSite = c.sameSite;
+      if (c.expires) o.expires = Number(c.expires);
+      return o;
+    });
+    let setErr = 0;
+    if (typeof browser.setCookie === "function") {
+      for (const c of toSet) { try { await browser.setCookie(c); } catch { setErr++; } }
+    } else {
+      for (const c of toSet) { try { await page.setCookie(c); } catch { setErr++; } }
+    }
+    report.cookiesSent = toSet.length;
+    report.cookieSetErrors = setErr;
+    send(`   Đã nạp ${toSet.length - setErr}/${toSet.length} cookie vào trình duyệt`);
+
     send("🌐 Mở Cerebro...");
     await page.goto("https://members.helium10.com/cerebro", { waitUntil: "domcontentloaded", timeout: 60000 });
     await new Promise((r) => setTimeout(r, 6000)); // Cerebro là SPA — chờ dựng xong
+
+    /* Phân biệt hai nguyên nhân rất khác nhau:
+         - trình duyệt KHÔNG giữ được cookie  → lỗi ở khâu nạp
+         - giữ đủ cookie mà vẫn bị đá ra signin → phiên H10 không nằm ở cookie (nhiều SPA để
+           token trong localStorage), hoặc phiên đã bị huỷ phía máy chủ */
+    const live = await page.cookies();
+    report.cookiesInBrowser = live.length;
+    report.cookieNames = live.map((c) => c.name).slice(0, 40);
+    const stor = await page.evaluate(() => {
+      const keys = (s) => { try { return Object.keys(s).slice(0, 30); } catch { return []; } };
+      return { local: keys(localStorage), session: keys(sessionStorage) };
+    }).catch(() => ({ local: [], session: [] }));
+    report.localStorageKeys = stor.local;
+    report.sessionStorageKeys = stor.session;
+    send(`   Trình duyệt đang giữ ${live.length} cookie cho trang này`);
+    send(`   localStorage có ${stor.local.length} khoá · sessionStorage ${stor.session.length} khoá`);
 
     report.url = page.url();
     report.title = await page.title();

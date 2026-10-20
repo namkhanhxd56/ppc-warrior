@@ -21,7 +21,7 @@ import * as auth from "./src/auth.js";
 import { als, runAsUser, userDataDir } from "./src/db/user-context.js";
 
 dotenv.config();
-export const APP_VERSION = "0.37.1"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
+export const APP_VERSION = "0.37.2"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
 
 // RUN_MODE:
 // - "local" (mặc định): bấm Kiểm tra là scrape NGAY trên máy này (dùng 1 người, chạy local)
@@ -886,12 +886,23 @@ function parseCookieInput(raw) {
   if (s.startsWith("[") || s.startsWith("{")) {
     const j = JSON.parse(s);
     const arr = Array.isArray(j) ? j : [j];
-    return arr.filter((c) => c && c.name).map((c) => ({
-      name: String(c.name), value: String(c.value ?? ""),
-      domain: c.domain || ".helium10.com", path: c.path || "/",
-      secure: c.secure !== false, httpOnly: !!c.httpOnly,
-      ...(c.expirationDate ? { expires: Math.floor(c.expirationDate) } : {})
-    }));
+    /* GIỮ NGUYÊN thuộc tính gốc. Bản trước ép secure=true cho mọi cookie và VỨT BỎ sameSite
+       — EditThisCookie ghi "no_restriction" (nghĩa là None), bỏ đi thì Chrome mặc định Lax và
+       cookie có thể không được gửi trong request phụ của SPA. */
+    const SAME = { no_restriction: "None", unspecified: "Lax", lax: "Lax", strict: "Strict", none: "None" };
+    return arr.filter((c) => c && c.name).map((c) => {
+      const o = {
+        name: String(c.name), value: String(c.value ?? ""),
+        domain: c.domain || ".helium10.com", path: c.path || "/",
+        secure: c.secure === undefined ? true : !!c.secure,
+        httpOnly: !!c.httpOnly
+      };
+      const ss = SAME[String(c.sameSite || "").toLowerCase()];
+      if (ss) o.sameSite = ss;
+      if (o.sameSite === "None") o.secure = true;      // Chrome bắt buộc: SameSite=None phải Secure
+      if (c.expirationDate) o.expires = Math.floor(c.expirationDate);
+      return o;
+    });
   }
   return s.split(";").map((part) => {
     const i = part.indexOf("=");

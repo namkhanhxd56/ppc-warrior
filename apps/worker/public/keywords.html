@@ -128,7 +128,10 @@
     <div class="row">
       <div style="flex:1;min-width:300px"><label>ASIN (mỗi dòng 1, hoặc cách nhau bằng dấu phẩy)</label>
         <textarea id="runAsins" rows="3" placeholder="B0991NYY1P&#10;B0FLJY181J"></textarea></div>
-      <div style="max-width:260px"><label>Nạp nhanh từ Danh mục</label><select id="catPick"></select></div>
+      <div style="max-width:300px"><label>Nạp nhanh từ Danh mục <span class="hint">(gõ để tìm)</span></label>
+        <input type="text" id="catFind" list="catList" placeholder="Gõ ASIN / SKU / tên list rồi Enter" autocomplete="off">
+        <datalist id="catList"></datalist></div>
+      <div style="max-width:150px"><label>&nbsp;</label><button class="btn-sm" id="catAll" style="width:100%">➕ Thêm cả Danh mục</button></div>
       <div style="max-width:220px"><label>Tên bộ keyword sẽ lưu</label><input type="text" id="setName" placeholder="VD: Ornament T10"></div>
       <button class="btn-ok" id="btnRun">▶ Chạy phân tích</button>
       <span class="msg" id="runMsg"></span>
@@ -147,7 +150,7 @@
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
 
-const UI_VERSION = '0.37.1';
+const UI_VERSION = '0.37.2';
 (async () => {
   try { const v = (await (await fetch('/api/version')).json()).version; if (v !== UI_VERSION) throw new Error(v); }
   catch (e) { $('verWarn').style.display = 'block'; $('verWarn').textContent = `⚠️ Server phiên bản cũ (${e.message}) — hãy restart (npm start).`; }
@@ -203,6 +206,7 @@ function writeRule(r = {}) {
 }
 
 let rules = [];
+let catalog = [];
 function renderRuleSel(keepId) {
   $('ruleSel').innerHTML = '<option value="">— bộ mới —</option>'
     + rules.map((r) => `<option value="${esc(r.id)}">${esc(r.name)}</option>`).join('');
@@ -264,7 +268,10 @@ $('btnCheck').onclick = async () => {
   if (!rep.at) return;
   out.textContent += '\n\n═══ BÁO CÁO ═══\n' + JSON.stringify({
     ok: rep.ok, url: rep.url, title: rep.title, hasLogin: rep.hasLogin,
-    hasCloudflare: rep.hasCloudflare, screenshot: rep.screenshot, error: rep.error,
+    hasCloudflare: rep.hasCloudflare, error: rep.error, screenshot: rep.screenshot,
+    cookieGui: rep.cookiesSent, cookieNapLoi: rep.cookieSetErrors,
+    cookieTrinhDuyetGiu: rep.cookiesInBrowser, tenCookie: rep.cookieNames,
+    localStorage: rep.localStorageKeys, sessionStorage: rep.sessionStorageKeys,
     soOnhap: (rep.inputs || []).length, soNut: (rep.buttons || []).length, nutExport: rep.exportish
   }, null, 1);
   out.scrollTop = out.scrollHeight;
@@ -295,13 +302,43 @@ window.delSet = async (id) => {
 };
 
 /* ===== Chạy ===== */
-$('catPick').onchange = () => {
-  const v = $('catPick').value;
-  if (!v) return;
-  const cur = $('runAsins').value.split(/[\s,]+/).filter(Boolean);
-  if (!cur.includes(v)) $('runAsins').value = [...cur, v].join('\n');
-  $('catPick').value = '';
+/* Thêm ASIN vào ô chạy — luôn bỏ trùng, luôn viết hoa. Dán cả đoạn văn cũng nhặt được ASIN. */
+function addAsins(list) {
+  const cur = $('runAsins').value.split(/[\s,]+/).map((x) => x.trim().toUpperCase()).filter(Boolean);
+  const add = list.map((x) => String(x).trim().toUpperCase()).filter((x) => /^[A-Z0-9]{10}$/.test(x));
+  const next = [...new Set([...cur, ...add])];
+  $('runAsins').value = next.join('\n');
+  return next.length - cur.length;
+}
+// Gõ để tìm: khớp ASIN, SKU hoặc tên list — Enter là thêm vào danh sách
+$('catFind').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); pickFromCatalog(); } });
+$('catFind').addEventListener('change', pickFromCatalog);
+function pickFromCatalog() {
+  const q = $('catFind').value.trim().toLowerCase();
+  if (!q) return;
+  const hit = catalog.find((c) => c.asin.toLowerCase() === q)
+    || catalog.find((c) => `${c.list} ${c.asin} ${c.sku}`.toLowerCase().includes(q));
+  if (!hit) { $('runMsg').className = 'msg err'; $('runMsg').textContent = `✕ Không có "${q}" trong Danh mục`; return; }
+  const n = addAsins([hit.asin]);
+  $('catFind').value = '';
+  $('runMsg').className = 'msg ok';
+  $('runMsg').textContent = n ? `✓ thêm ${hit.asin}` : `${hit.asin} đã có trong danh sách`;
+}
+$('catAll').onclick = () => {
+  const n = addAsins(catalog.map((c) => c.asin));
+  $('runMsg').className = 'msg ok';
+  $('runMsg').textContent = `✓ thêm ${n} ASIN từ Danh mục`;
 };
+// Dán cả đoạn (bảng Excel, danh sách lộn xộn…) → tự nhặt mọi mã ASIN
+$('runAsins').addEventListener('paste', (e) => {
+  const txt = (e.clipboardData || window.clipboardData).getData('text') || '';
+  const found = txt.toUpperCase().match(/\bB0[A-Z0-9]{8}\b/g);
+  if (!found || found.length < 2) return; // dán 1 mã thì để trình duyệt tự xử lý
+  e.preventDefault();
+  const n = addAsins(found);
+  $('runMsg').className = 'msg ok';
+  $('runMsg').textContent = `✓ nhặt được ${found.length} mã trong đoạn vừa dán · thêm mới ${n}`;
+});
 $('btnRun').onclick = async () => {
   const asins = $('runAsins').value.split(/[\s,]+/).map((x) => x.trim().toUpperCase()).filter((x) => /^[A-Z0-9]{10}$/.test(x));
   if (!asins.length) { $('runMsg').className = 'msg err'; $('runMsg').textContent = '✕ Chưa có ASIN hợp lệ'; return; }
@@ -317,8 +354,8 @@ $('btnRun').onclick = async () => {
   if (rules.length) { $('ruleSel').value = rules[0].id; writeRule(rules[0]); } else writeRule({});
   try {
     const c = await (await fetch('/api/catalog')).json();
-    $('catPick').innerHTML = '<option value="">— chọn để thêm —</option>'
-      + (c.products || []).map((p) => `<option value="${p.asin}">${p.list ? p.list + ' · ' : ''}${p.asin}</option>`).join('');
+    catalog = c.products || [];
+    $('catList').innerHTML = catalog.map((p) => `<option value="${p.asin}">${p.list ? p.list + ' · ' : ''}${p.sku || ''}</option>`).join('');
   } catch {}
 })();
 </script>
