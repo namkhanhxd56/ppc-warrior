@@ -228,7 +228,7 @@
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;');
 
-const UI_VERSION = '0.41.1'; // PHẢI khớp APP_VERSION server.js
+const UI_VERSION = '0.41.2'; // PHẢI khớp APP_VERSION server.js
 (async () => {
   try {
     const v = (await (await fetch('/api/version')).json()).version;
@@ -1426,7 +1426,7 @@ window.__newAgentToken = async () => {
     ${box(winCmd)}
     <div style="display:flex;gap:8px;margin-top:6px;align-items:center">
       <button class="btn-sm" onclick="navigator.clipboard.writeText(this.dataset.c).then(()=>alert('✅ Đã copy'))" data-c="${esc(winCmd)}">📋 Copy lệnh Windows</button>
-      <span class="hint" style="font-size:11px;color:var(--mut)">xong chạy: <b>cd "$env:USERPROFILE\\ppc-warrior-agent"; npm run agent</b></span>
+      <span class="hint" style="font-size:11px;color:var(--mut)">xong chạy: <b>cd "$env:USERPROFILE\\ppc-warrior-agent"; npm run agent</b> — PowerShell dùng dấu <b>;</b>, KHÔNG dùng <b>&amp;&amp;</b></span>
     </div>
     <div style="display:flex;gap:8px;margin-top:8px;align-items:center">
       <span class="hint" style="font-size:11px;color:var(--mut)">Token (dùng riêng nếu cần): <b class="mono">${esc(r.token)}</b></span>

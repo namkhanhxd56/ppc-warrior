@@ -93,8 +93,12 @@
       </div>
       <div id="agCmd"></div>
       <div id="agList" style="margin-top:14px"></div>
-      <div class="hint" style="margin-top:10px">Cách dùng: bấm tạo lệnh → copy → dán vào Terminal của máy cần quét →
-        khi cài xong chạy <b>cd ~/ppc-warrior-agent && npm run agent</b>. Job bấm Run trên web sẽ do máy này quét.</div>
+      <div class="hint" style="margin-top:10px">Cách dùng: bấm tạo lệnh → copy → dán vào Terminal (macOS) hoặc PowerShell (Windows) của máy cần quét.<br>
+        Cài xong chạy agent — <b>lệnh khác nhau theo hệ điều hành</b>:<br>
+        · macOS/Linux: <b>cd ~/ppc-warrior-agent &amp;&amp; npm run agent</b><br>
+        · Windows: <b>cd "$env:USERPROFILE\ppc-warrior-agent"</b> rồi <b>npm run agent</b>
+        <span style="color:#b45309">(PowerShell bản đi kèm Windows không hiểu <b>&amp;&amp;</b> — dùng dấu <b>;</b> hoặc tách 2 dòng)</span><br>
+        Job bấm Run trên web sẽ do máy này quét.</div>
     </div>
 
     <div class="msg ok" id="pageMsg" style="padding:0 4px"></div>
