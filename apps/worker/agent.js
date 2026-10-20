@@ -265,9 +265,13 @@ async function injectH10Session(browser, page, cookies, storage, send) {
   return { cookieOk: toSet.length - err, cookieTotal: toSet.length, storageWritten: wrote };
 }
 
-/** Mở Cerebro rồi đọc hiện trạng. Tách riêng để gọi được LẦN HAI sau khi hồi phiên. */
-async function probeCerebro(page) {
-  await page.goto("https://members.helium10.com/cerebro", { waitUntil: "domcontentloaded", timeout: 60000 });
+/** Mở Cerebro rồi đọc hiện trạng. Tách riêng để gọi được LẦN HAI sau khi hồi phiên.
+ *  @param {string} tryAsin nếu truyền: thử nhập ASIN và bấm tìm, rồi dò lại trang KẾT QUẢ —
+ *         nút Export chỉ xuất hiện sau khi có kết quả, nên không làm vậy thì không bao giờ
+ *         thấy nó. */
+async function probeCerebro(page, tryAsin) {
+  // /cerebro tự chuyển sang /cerebro-new — vào thẳng để bớt một nhịp chuyển hướng
+  await page.goto("https://members.helium10.com/cerebro-new", { waitUntil: "domcontentloaded", timeout: 60000 });
   await new Promise((r) => setTimeout(r, 6000)); // Cerebro là SPA — chờ dựng xong
   const live = await page.cookies().catch(() => []);
   const out = await page.evaluate(() => {
@@ -297,6 +301,49 @@ async function probeCerebro(page) {
   out.title = await page.title();
   out.cookiesInBrowser = live.length;
   out.cookieNames = live.map((c) => c.name).slice(0, 40);
+
+  /* Thử chạy một lượt tìm thật: nhập ASIN → bấm nút tìm → chờ bảng kết quả → dò lại.
+     Không làm vậy thì nút Export không bao giờ xuất hiện để mà dò. Dùng cách tìm theo DẤU
+     HIỆU (placeholder/aria-label có chữ asin) chứ không theo class, vì class của H10 là mã
+     sinh tự động, đổi mỗi lần họ build lại. */
+  if (tryAsin && !out.hasLogin) {
+    try {
+      const typed = await page.evaluate((asin) => {
+        const cands = [...document.querySelectorAll("input, textarea")].filter((e) => {
+          const s = `${e.placeholder || ""} ${e.getAttribute("aria-label") || ""} ${e.name || ""} ${e.id || ""}`.toLowerCase();
+          return /asin|product|keyword phrase/.test(s);
+        });
+        const el = cands[0];
+        if (!el) return null;
+        const setter = Object.getOwnPropertyDescriptor(el.constructor.prototype, "value")?.set;
+        setter ? setter.call(el, asin) : (el.value = asin); // React bỏ qua gán .value thường
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+        el.dispatchEvent(new Event("change", { bubbles: true }));
+        return { tag: el.tagName.toLowerCase(), id: el.id || null, name: el.name || null,
+                 ph: el.placeholder || null, aria: el.getAttribute("aria-label") || null,
+                 cls: String(el.className).slice(0, 80) };
+      }, tryAsin);
+      out.asinInput = typed || "KHÔNG tìm thấy ô nhập ASIN";
+      if (typed) {
+        await page.keyboard.press("Enter");
+        await new Promise((r) => setTimeout(r, 12000)); // Cerebro tra cứu khá lâu
+        out.afterSearch = await page.evaluate(() => {
+          const btn = (q) => [...document.querySelectorAll(q)].map((e) => ({
+            text: (e.innerText || "").trim().slice(0, 30), id: e.id || undefined,
+            test: e.getAttribute("data-testid") || undefined,
+            cls: String(e.className).slice(0, 70)
+          })).slice(0, 30);
+          return {
+            url: location.href,
+            exportish: btn("button, a").filter((b) => /export|download/i.test(b.text)),
+            allButtons: btn("button"),
+            rowCount: document.querySelectorAll("table tbody tr, [role=row]").length,
+            text: document.body.innerText.slice(0, 600)
+          };
+        });
+      }
+    } catch (e) { out.searchError = e.message; }
+  }
   return out;
 }
 
@@ -321,7 +368,8 @@ async function runH10CheckJob(job, logger) {
     }
 
     send("🌐 Mở Cerebro...");
-    let probe = await probeCerebro(page);
+    const tryAsin = job.payload?.asin || "B0991NYY1P"; // ASIN mẫu để kích hoạt bảng kết quả
+    let probe = await probeCerebro(page, tryAsin);
 
     /* TỰ HỒI PHIÊN: Chrome người dùng bị H10 đá ra đăng nhập thì agent làm đúng thao tác tay
        của họ — nạp cookie đã lưu rồi tải lại. Chỉ chạy KHI ĐÃ HỎNG, không đụng vào phiên
@@ -332,7 +380,7 @@ async function runH10CheckJob(job, logger) {
         const s = await api("/api/agent/h10-cookie", {});
         const r = await injectH10Session(browser, page, s.cookies, s.storage, send);
         Object.assign(report, { recoveryTried: true, cookiesSent: r.cookieTotal, storageWritten: r.storageWritten });
-        probe = await probeCerebro(page);
+        probe = await probeCerebro(page, tryAsin);
         report.recovered = !probe.hasLogin;
         send(probe.hasLogin
           ? "   🚨 Vẫn bị đá ra — cookie đã lưu cũng hết hạn. Đăng nhập lại H10 trong cửa sổ Chrome đó, hoặc nạp cookie mới."
@@ -350,6 +398,9 @@ async function runH10CheckJob(job, logger) {
     send(probe.hasLogin ? "   🚨 Đang ở trang đăng nhập" : "   ✓ Đã đăng nhập");
     send(`   CORE_BEARER_TOKEN: ${probe.tokenLive} · ${probe.cookiesInBrowser} cookie · ${probe.localStorageKeys.length} khoá localStorage`);
     send(`   Thấy ${probe.inputs.length} ô nhập · ${probe.buttons.length} nút · ${probe.exportish.length} nút có chữ Export`);
+    if (probe.asinInput) send(`   Ô nhập ASIN: ${typeof probe.asinInput === "string" ? probe.asinInput : JSON.stringify(probe.asinInput)}`);
+    if (probe.afterSearch) send(`   Sau khi tìm: ${probe.afterSearch.rowCount} dòng · ${probe.afterSearch.exportish.length} nút Export`);
+    if (probe.searchError) send(`   ⚠️ Thử tìm lỗi: ${probe.searchError}`);
 
     try {
       const shot = `${process.cwd()}/data/h10-check.png`;

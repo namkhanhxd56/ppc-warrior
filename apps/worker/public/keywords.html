@@ -104,6 +104,8 @@
       </div>
       <div class="row">
         <button class="btn-sm" id="btnCheck">🔌 Kiểm tra kết nối H10</button>
+        <button class="btn-sm" id="btnLastReport">📄 Xem báo cáo lần trước</button>
+        <button class="btn-sm" id="btnCopyReport" style="display:none">📋 Copy báo cáo</button>
         <span class="hint">Agent mở Cerebro bằng cookie này rồi báo về: vào được chưa, có bị Cloudflare chặn không, trang có những ô nào. Cần agent đang chạy.</span>
       </div>
       <pre id="checkOut" style="display:none;margin:10px 0 0;background:#0b1020;color:#7ef0a8;font:11.5px/1.5 ui-monospace,Menlo,monospace;padding:12px;border-radius:8px;max-height:320px;overflow:auto;white-space:pre-wrap"></pre>
@@ -181,7 +183,7 @@
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
 
-const UI_VERSION = '0.42.0';
+const UI_VERSION = '0.43.0';
 (async () => {
   try { const v = (await (await fetch('/api/version')).json()).version; if (v !== UI_VERSION) throw new Error(v); }
   catch (e) { $('verWarn').style.display = 'block'; $('verWarn').textContent = `⚠️ Server phiên bản cũ (${e.message}) — hãy restart (npm start).`; }
@@ -323,19 +325,30 @@ $('btnCheck').onclick = async () => {
     out.scrollTop = out.scrollHeight;
     if (['done', 'error', 'cancelled'].includes(j.status)) break;
   }
+  await showReport();
+};
+
+/* Hiện NGUYÊN báo cáo, không rút gọn. Bản trước chỉ in SỐ LƯỢNG ô nhập và nút — đúng cái
+   cần để viết selector thì lại bị cắt mất, phải chạy lại job chỉ để lấy thông tin đã có. */
+async function showReport() {
+  const out = $('checkOut');
   const rep = await (await fetch('/api/h10/report')).json();
-  if (!rep.at) return;
-  out.textContent += '\n\n═══ BÁO CÁO ═══\n' + JSON.stringify({
-    ok: rep.ok, url: rep.url, title: rep.title, hasLogin: rep.hasLogin,
-    hasCloudflare: rep.hasCloudflare, error: rep.error, screenshot: rep.screenshot,
-    cheDo: rep.mode, daThuHoiPhien: rep.recoveryTried, hoiPhienThanhCong: rep.recovered,
-    cookieGui: rep.cookiesSent, cookieNapLoi: rep.cookieSetErrors,
-    khoaLocalStorageDaGhi: rep.storageWritten, tokenTrenTrang: rep.tokenLive,
-    cookieTrinhDuyetGiu: rep.cookiesInBrowser, tenCookie: rep.cookieNames,
-    localStorage: rep.localStorageKeys, sessionStorage: rep.sessionStorageKeys,
-    soOnhap: (rep.inputs || []).length, soNut: (rep.buttons || []).length, nutExport: rep.exportish
-  }, null, 1);
+  if (!rep.at) { out.textContent += '\n(chưa có báo cáo nào)'; return; }
+  out.style.display = 'block';
+  out.textContent += '\n\n═══ BÁO CÁO ĐẦY ĐỦ ═══\n' + JSON.stringify(rep, null, 1);
   out.scrollTop = out.scrollHeight;
+  $('btnCopyReport').style.display = '';
+  $('btnCopyReport').onclick = () => {
+    navigator.clipboard.writeText(JSON.stringify(rep, null, 1));
+    $('btnCopyReport').textContent = '✓ đã copy';
+    setTimeout(() => { $('btnCopyReport').textContent = '📋 Copy báo cáo'; }, 2500);
+  };
+}
+
+$('btnLastReport').onclick = async () => {
+  $('checkOut').style.display = 'block';
+  $('checkOut').textContent = 'Báo cáo đã lưu từ lần chạy gần nhất:';
+  await showReport();
 };
 
 /* ===== Bộ keyword đã lưu ===== */
