@@ -949,19 +949,36 @@ const H10_INDEX = () => path.join(H10_DIR(), "index.json");
 
 /** Cookie H10. Trả {cookies, note, updatedAt} — KHÔNG log ra ngoài. */
 export function getH10Cookie() {
-  return readJson(H10_COOKIE_FILE(), { cookies: [], note: "", updatedAt: null });
+  return readJson(H10_COOKIE_FILE(), { cookies: [], storage: {}, note: "", updatedAt: null });
 }
-export function saveH10Cookie(cookies, note) {
+/** Lưu cookie VÀ localStorage. H10 xác thực bằng bearer token trong localStorage
+ *  (CORE_BEARER_TOKEN), cookie chỉ là phần phụ — đo thật 20/10/2026: nạp đủ 30 cookie vào
+ *  trình duyệt trắng vẫn bị đá ra /user/signin. Trình duyệt của người dùng vào được vì nó
+ *  đã sẵn localStorage từ lần đăng nhập trước. */
+export function saveH10Cookie(cookies, note, storage) {
   ensureDirs();
   const list = Array.isArray(cookies) ? cookies : [];
-  writeJsonAtomic(H10_COOKIE_FILE(), { cookies: list, note: String(note || "").slice(0, 200), updatedAt: new Date().toISOString() }, 1);
-  return { count: list.length, updatedAt: new Date().toISOString() };
+  const cur = getH10Cookie();
+  const st = (storage && typeof storage === "object") ? storage : cur.storage || {};
+  writeJsonAtomic(H10_COOKIE_FILE(), {
+    cookies: list.length ? list : cur.cookies || [],
+    storage: st,
+    note: String(note || "").slice(0, 200), updatedAt: new Date().toISOString()
+  }, 1);
+  return h10CookieStatus();
 }
-/** Tóm tắt an toàn để hiện lên UI — không trả giá trị cookie. */
+/** Tóm tắt an toàn để hiện lên UI — KHÔNG trả giá trị cookie hay token. */
 export function h10CookieStatus() {
   const c = getH10Cookie();
-  const domains = [...new Set((c.cookies || []).map((x) => x.domain).filter(Boolean))];
-  return { count: (c.cookies || []).length, domains, note: c.note || "", updatedAt: c.updatedAt };
+  const st = c.storage || {};
+  const token = st.CORE_BEARER_TOKEN;
+  return {
+    count: (c.cookies || []).length,
+    domains: [...new Set((c.cookies || []).map((x) => x.domain).filter(Boolean))],
+    storageKeys: Object.keys(st).length,
+    hasToken: !!(token && String(token).length > 20), // chỉ báo CÓ hay KHÔNG, không lộ giá trị
+    note: c.note || "", updatedAt: c.updatedAt
+  };
 }
 
 export function listH10Rules() { return readJson(H10_RULES_FILE(), []); }

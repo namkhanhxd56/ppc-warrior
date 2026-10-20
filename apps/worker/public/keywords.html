@@ -59,18 +59,29 @@
 <main>
   <div class="card">
     <h2>🔑 Cookie Helium 10</h2>
-    <p class="sub">Agent dùng cookie này để mở Cerebro trên máy bạn. Dán cả đoạn copy từ Google Doc cũng được — công cụ tự gỡ ký tự thừa và bỏ chữ quanh khối JSON.<br>
-      <b>Giá trị cookie không bao giờ được đọc ngược về trình duyệt</b>, chỉ hiện số lượng và thời điểm cập nhật.</p>
+    <p class="sub">
+      <b>Chỉ cookie là KHÔNG đủ.</b> Helium 10 xác thực bằng <span class="mono">CORE_BEARER_TOKEN</span> nằm trong localStorage —
+      trình duyệt của bạn vào được vì đã sẵn localStorage từ lần đăng nhập trước, còn trình duyệt của agent thì trắng tinh.
+      Cần dán <b>cả hai</b>.<br>
+      Giá trị cookie và token không bao giờ được đọc ngược về trình duyệt — chỉ hiện số lượng và thời điểm cập nhật.</p>
     <div class="row">
       <div style="flex:1;min-width:320px"><label>Dán cookie (JSON từ EditThisCookie / Cookie-Editor, hoặc chuỗi <span class="mono">a=1; b=2</span>)</label>
         <textarea id="ckRaw" rows="4" placeholder='[{"domain":".helium10.com","name":"...","value":"..."}]'></textarea></div>
+      <div style="flex:1;min-width:320px"><label>Dán localStorage <span class="hint">(bắt buộc — xem cách lấy bên dưới)</span></label>
+        <textarea id="ckStorage" rows="4" placeholder='{"CORE_BEARER_TOKEN":"...","globalConfig":"..."}'></textarea></div>
       <div style="max-width:200px"><label>Ghi chú</label><input type="text" id="ckNote" placeholder="VD: lấy từ Doc 20/10"></div>
-      <button class="btn-primary" id="ckSave">💾 Lưu cookie</button>
+      <button class="btn-primary" id="ckSave">💾 Lưu</button>
     </div>
     <div class="row" style="margin-top:10px">
       <span id="ckStatus" class="hint">đang đọc…</span><span class="msg" id="ckMsg"></span>
     </div>
     <div class="sec">
+      <div class="hint" style="margin-bottom:8px">
+        <b>Cách lấy localStorage:</b> mở tab Helium 10 <b>đang đăng nhập được</b> → F12 → tab <b>Console</b> → dán đoạn dưới → Enter → copy kết quả:
+        <div style="margin-top:5px"><code class="mono" style="background:#f0f3f9;padding:6px 9px;border-radius:6px;display:inline-block" id="snippet">copy(JSON.stringify(Object.fromEntries(Object.entries(localStorage))))</code>
+        <button class="btn-sm" id="copySnippet" style="margin-left:6px">📋 Copy đoạn lệnh</button></div>
+        <div style="margin-top:5px">Lệnh <span class="mono">copy()</span> chép thẳng vào clipboard — quay lại đây dán vào ô localStorage.</div>
+      </div>
       <div class="row">
         <button class="btn-sm" id="btnCheck">🔌 Kiểm tra kết nối H10</button>
         <span class="hint">Agent mở Cerebro bằng cookie này rồi báo về: vào được chưa, có bị Cloudflare chặn không, trang có những ô nào. Cần agent đang chạy.</span>
@@ -150,7 +161,7 @@
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
 
-const UI_VERSION = '0.37.2';
+const UI_VERSION = '0.38.0';
 (async () => {
   try { const v = (await (await fetch('/api/version')).json()).version; if (v !== UI_VERSION) throw new Error(v); }
   catch (e) { $('verWarn').style.display = 'block'; $('verWarn').textContent = `⚠️ Server phiên bản cũ (${e.message}) — hãy restart (npm start).`; }
@@ -237,16 +248,24 @@ $('ruleDel').onclick = async () => {
 /* ===== Cookie ===== */
 async function loadCookie() {
   const s = await (await fetch('/api/h10/cookie')).json();
-  $('ckStatus').innerHTML = s.count
-    ? `<span class="pill">${s.count} cookie</span> ${esc(s.domains.join(', '))} · cập nhật ${new Date(s.updatedAt).toLocaleString('vi-VN')}${s.note ? ' · ' + esc(s.note) : ''}`
-    : '<span class="pill off">chưa có cookie</span> agent sẽ không mở được Cerebro';
+  $('ckStatus').innerHTML = (s.count || s.storageKeys)
+    ? `<span class="pill">${s.count} cookie</span> <span class="pill${s.hasToken ? '' : ' off'}">${s.storageKeys} khoá localStorage${s.hasToken ? ' · có token' : ' · THIẾU token'}</span> `
+      + `${esc(s.domains.join(', '))} · cập nhật ${new Date(s.updatedAt).toLocaleString('vi-VN')}${s.note ? ' · ' + esc(s.note) : ''}`
+    : '<span class="pill off">chưa có gì</span> agent sẽ không mở được Cerebro';
 }
+$('copySnippet').onclick = () => {
+  navigator.clipboard.writeText($('snippet').textContent.trim());
+  $('ckMsg').className = 'msg ok'; $('ckMsg').textContent = '✓ đã copy đoạn lệnh';
+  setTimeout(() => $('ckMsg').textContent = '', 2500);
+};
 $('ckSave').onclick = async () => {
   const r = await (await fetch('/api/h10/cookie', { method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ raw: $('ckRaw').value, note: $('ckNote').value }) })).json();
-  $('ckMsg').className = r.ok ? 'msg ok' : 'msg err';
-  $('ckMsg').textContent = r.ok ? `✓ đã lưu ${r.count} cookie` : '✕ ' + (r.message || 'Lỗi');
-  if (r.ok) { $('ckRaw').value = ''; loadCookie(); }
+    body: JSON.stringify({ raw: $('ckRaw').value, storageRaw: $('ckStorage').value, note: $('ckNote').value }) })).json();
+  $('ckMsg').className = r.ok && !r.warn ? 'msg ok' : (r.ok ? 'msg err' : 'msg err');
+  $('ckMsg').textContent = r.ok
+    ? `✓ đã lưu ${r.count} cookie · ${r.storageKeys} khoá localStorage${r.warn ? ' — ⚠ ' + r.warn : ''}`
+    : '✕ ' + (r.message || 'Lỗi');
+  if (r.ok) { $('ckRaw').value = ''; $('ckStorage').value = ''; loadCookie(); }
 };
 
 /* ===== Kiểm tra kết nối H10 ===== */
@@ -270,6 +289,7 @@ $('btnCheck').onclick = async () => {
     ok: rep.ok, url: rep.url, title: rep.title, hasLogin: rep.hasLogin,
     hasCloudflare: rep.hasCloudflare, error: rep.error, screenshot: rep.screenshot,
     cookieGui: rep.cookiesSent, cookieNapLoi: rep.cookieSetErrors,
+    khoaLocalStorageDaGhi: rep.storageWritten, tokenTrenTrang: rep.tokenLive,
     cookieTrinhDuyetGiu: rep.cookiesInBrowser, tenCookie: rep.cookieNames,
     localStorage: rep.localStorageKeys, sessionStorage: rep.sessionStorageKeys,
     soOnhap: (rep.inputs || []).length, soNut: (rep.buttons || []).length, nutExport: rep.exportish

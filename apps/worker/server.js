@@ -21,7 +21,7 @@ import * as auth from "./src/auth.js";
 import { als, runAsUser, userDataDir } from "./src/db/user-context.js";
 
 dotenv.config();
-export const APP_VERSION = "0.37.2"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
+export const APP_VERSION = "0.38.0"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
 
 // RUN_MODE:
 // - "local" (mặc định): bấm Kiểm tra là scrape NGAY trên máy này (dùng 1 người, chạy local)
@@ -861,11 +861,19 @@ app.post("/api/catalog/manager", (req, res) => {
 app.get("/api/h10/cookie", (req, res) => res.json(store.h10CookieStatus()));
 app.post("/api/h10/cookie", (req, res) => {
   try {
-    let { cookies, raw, note } = req.body || {};
+    let { cookies, raw, note, storageRaw } = req.body || {};
     if (!Array.isArray(cookies)) cookies = parseCookieInput(raw);
-    if (!cookies.length) throw new Error("Không đọc được cookie nào — dán JSON từ EditThisCookie hoặc chuỗi name=value; name2=value2");
-    store.saveH10Cookie(cookies, note);
-    res.json({ ok: true, ...store.h10CookieStatus() });
+    let storage = null;
+    if (String(storageRaw || "").trim()) {
+      const j = JSON.parse(String(storageRaw).trim());
+      if (!j || typeof j !== "object" || Array.isArray(j)) throw new Error("localStorage phải là object {khoá: giá trị}");
+      storage = Object.fromEntries(Object.entries(j).map(([k, v]) => [k, typeof v === "string" ? v : JSON.stringify(v)]));
+    }
+    if (!cookies.length && !storage) throw new Error("Không đọc được gì — dán cookie (JSON từ EditThisCookie) hoặc localStorage");
+    store.saveH10Cookie(cookies, note, storage);
+    const st = store.h10CookieStatus();
+    if (!st.hasToken) st.warn = "Chưa có CORE_BEARER_TOKEN trong localStorage — H10 xác thực bằng token này, chỉ cookie là chưa đủ";
+    res.json({ ok: true, ...st });
   } catch (e) { res.status(400).json({ ok: false, message: e.message }); }
 });
 
@@ -916,8 +924,10 @@ function parseCookieInput(raw) {
    trả nguyên về trình duyệt qua /api/jobs — nhét cookie vào đó là rải bản sao khắp nơi. */
 app.post("/api/agent/h10-cookie", (req, res) => {
   const c = store.getH10Cookie();
-  if (!c.cookies?.length) return res.status(404).json({ error: "Chưa nạp cookie H10 ở trang Phân tích Keyword" });
-  res.json({ cookies: c.cookies, updatedAt: c.updatedAt });
+  if (!c.cookies?.length && !Object.keys(c.storage || {}).length) {
+    return res.status(404).json({ error: "Chưa nạp cookie/localStorage H10 ở trang Phân tích Keyword" });
+  }
+  res.json({ cookies: c.cookies || [], storage: c.storage || {}, updatedAt: c.updatedAt });
 });
 
 /* Báo cáo chẩn đoán: agent mở Cerebro rồi kể lại nó thấy gì. Có nó mới viết được selector

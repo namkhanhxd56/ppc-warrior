@@ -215,8 +215,10 @@ async function runH10CheckJob(job, logger) {
   let page = null;
   try {
     send("🔑 Lấy cookie H10 từ server...");
-    const { cookies } = await api("/api/agent/h10-cookie", {});
+    const { cookies, storage } = await api("/api/agent/h10-cookie", {});
+    const stKeys = Object.keys(storage || {});
     send(`   ${cookies.length} cookie · domain ${[...new Set(cookies.map((c) => c.domain))].join(", ")}`);
+    send(`   ${stKeys.length} khoá localStorage${storage?.CORE_BEARER_TOKEN ? " · có CORE_BEARER_TOKEN" : " · KHÔNG có CORE_BEARER_TOKEN"}`);
 
     /* KHÔNG dùng newReadyPage: nó kiểm tra session AMAZON và đặt zip — vô nghĩa với H10, mà
        lại ném lỗi nếu cookie Amazon hỏng, làm job H10 chết oan. Mở page trần rồi tự nạp cookie. */
@@ -242,6 +244,22 @@ async function runH10CheckJob(job, logger) {
     report.cookieSetErrors = setErr;
     send(`   Đã nạp ${toSet.length - setErr}/${toSet.length} cookie vào trình duyệt`);
 
+    /* NẠP localStorage — bắt buộc. H10 xác thực bằng CORE_BEARER_TOKEN trong localStorage,
+       cookie chỉ là phần phụ (đo thật 20/10: 30 cookie vào trình duyệt trắng vẫn bị đá ra
+       signin). localStorage gắn với ORIGIN nên phải ở đúng origin mới ghi được → mở một
+       trang nhẹ của members.helium10.com trước, ghi, rồi mới vào Cerebro. */
+    if (stKeys.length) {
+      send("🗝 Nạp localStorage vào origin members.helium10.com...");
+      await page.goto("https://members.helium10.com/user/signin", { waitUntil: "domcontentloaded", timeout: 60000 });
+      const wrote = await page.evaluate((st) => {
+        let n = 0;
+        for (const [k, v] of Object.entries(st)) { try { localStorage.setItem(k, v); n++; } catch {} }
+        return n;
+      }, storage);
+      report.storageWritten = wrote;
+      send(`   ghi được ${wrote}/${stKeys.length} khoá`);
+    }
+
     send("🌐 Mở Cerebro...");
     await page.goto("https://members.helium10.com/cerebro", { waitUntil: "domcontentloaded", timeout: 60000 });
     await new Promise((r) => setTimeout(r, 6000)); // Cerebro là SPA — chờ dựng xong
@@ -258,6 +276,11 @@ async function runH10CheckJob(job, logger) {
       return { local: keys(localStorage), session: keys(sessionStorage) };
     }).catch(() => ({ local: [], session: [] }));
     report.localStorageKeys = stor.local;
+    report.tokenLive = await page.evaluate(() => {
+      const t = localStorage.getItem("CORE_BEARER_TOKEN");
+      return t ? `có (${String(t).length} ký tự)` : "không có"; // không bao giờ trả giá trị token
+    }).catch(() => "?");
+    send(`   CORE_BEARER_TOKEN trên trang: ${report.tokenLive}`);
     report.sessionStorageKeys = stor.session;
     send(`   Trình duyệt đang giữ ${live.length} cookie cho trang này`);
     send(`   localStorage có ${stor.local.length} khoá · sessionStorage ${stor.session.length} khoá`);
