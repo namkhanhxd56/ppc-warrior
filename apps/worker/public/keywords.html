@@ -65,13 +65,14 @@
       Phải dùng <span class="mono">--user-data-dir</span> riêng: Chrome không mở cổng điều khiển nếu đã có cửa sổ chạy bằng profile mặc định.<br>
       <b>Mất đăng nhập thì agent tự hồi:</b> nếu H10 đá cửa sổ đó ra trang đăng nhập, agent tự nạp cookie đã lưu ở Cách 2 rồi tải lại —
       đúng thao tác tay của bạn. Nên vẫn nên lưu sẵn một bộ cookie để làm phao. Cookie đó mà cũng hết hạn thì phải đăng nhập lại tay.</p>
-    <div style="background:#0b1020;color:#7ef0a8;font:11.5px/1.6 ui-monospace,Menlo,monospace;padding:12px;border-radius:8px;white-space:pre-wrap" id="chromeCmd">"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
-  --remote-debugging-port=9222 \
-  --user-data-dir="$HOME/h10-chrome" \
-  https://members.helium10.com/cerebro</div>
+    <div class="row" style="margin-bottom:6px">
+      <label class="chk"><input type="radio" name="os" value="mac" checked> macOS</label>
+      <label class="chk"><input type="radio" name="os" value="win"> Windows</label>
+    </div>
+    <div style="background:#0b1020;color:#7ef0a8;font:11.5px/1.6 ui-monospace,Menlo,monospace;padding:12px;border-radius:8px;white-space:pre-wrap" id="chromeCmd"></div>
     <div class="row" style="margin-top:10px">
       <button class="btn-sm" id="copyCmd">📋 Copy lệnh</button>
-      <span class="hint">Chạy trong Terminal. Đăng nhập H10 trong cửa sổ vừa mở, rồi cứ để nguyên đó.
+      <span class="hint"><span id="osNote"></span> Đăng nhập H10 trong cửa sổ vừa mở, rồi cứ để nguyên đó.
         Agent tự tìm ở <span class="mono">127.0.0.1:9222</span>; đổi cổng thì sửa <span class="mono">H10_BROWSER_URL</span> trong <span class="mono">~/ppc-warrior-agent/.env</span>.</span>
     </div>
   </div>
@@ -180,7 +181,7 @@
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
 
-const UI_VERSION = '0.40.0';
+const UI_VERSION = '0.41.0';
 (async () => {
   try { const v = (await (await fetch('/api/version')).json()).version; if (v !== UI_VERSION) throw new Error(v); }
   catch (e) { $('verWarn').style.display = 'block'; $('verWarn').textContent = `⚠️ Server phiên bản cũ (${e.message}) — hãy restart (npm start).`; }
@@ -272,6 +273,21 @@ async function loadCookie() {
       + `${esc(s.domains.join(', '))} · cập nhật ${new Date(s.updatedAt).toLocaleString('vi-VN')}${s.note ? ' · ' + esc(s.note) : ''}`
     : '<span class="pill off">chưa có gì</span> agent sẽ không mở được Cerebro';
 }
+/* Lệnh mở Chrome khác nhau theo hệ điều hành — máy chạy agent H10 có thể là Windows. */
+const CHROME_CMD = {
+  mac: '"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \\\n  --remote-debugging-port=9222 \\\n  --user-data-dir="$HOME/h10-chrome" \\\n  https://members.helium10.com/cerebro',
+  win: '& "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" `\n  --remote-debugging-port=9222 `\n  --user-data-dir="$env:USERPROFILE\\h10-chrome" `\n  https://members.helium10.com/cerebro'
+};
+function renderChromeCmd() {
+  const os = document.querySelector('input[name=os]:checked').value;
+  $('chromeCmd').textContent = CHROME_CMD[os];
+  $('osNote').textContent = os === 'win'
+    ? 'Chạy trong PowerShell. Chrome cài chỗ khác thì sửa đường dẫn (thường là C:\\Program Files (x86)\\... trên máy cũ).'
+    : 'Chạy trong Terminal.';
+}
+document.querySelectorAll('input[name=os]').forEach((r) => { r.onchange = renderChromeCmd; });
+renderChromeCmd();
+
 $('copyCmd').onclick = () => {
   navigator.clipboard.writeText($('chromeCmd').textContent.trim());
   $('ckMsg').className = 'msg ok'; $('ckMsg').textContent = '✓ đã copy lệnh mở Chrome';

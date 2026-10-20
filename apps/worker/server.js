@@ -21,7 +21,7 @@ import * as auth from "./src/auth.js";
 import { als, runAsUser, userDataDir } from "./src/db/user-context.js";
 
 dotenv.config();
-export const APP_VERSION = "0.40.0"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
+export const APP_VERSION = "0.41.0"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
 
 // RUN_MODE:
 // - "local" (mặc định): bấm Kiểm tra là scrape NGAY trên máy này (dùng 1 người, chạy local)
@@ -45,7 +45,7 @@ const PASSWORD = process.env.WORKER_PASSWORD || "";
    - Có user: trang → redirect /login.html; API → 401; phiên qua cookie ppcw_sid
    - Agent: Basic <username>:<password> (tài khoản thật) → job/data vào ĐÚNG PHÂN VÙNG user đó
    - Mỗi request chạy trong AsyncLocalStorage context → file-store tự resolve ./data hay ./data/users/<name> */
-const PUBLIC_PATHS = ["/user", "/user.html", "/login.html", "/api/auth/login", "/api/auth/register", "/api/auth/me", "/api/version", "/favicon.ico", "/setup-agent.sh", "/agent-bundle.tgz"];
+const PUBLIC_PATHS = ["/user", "/user.html", "/login.html", "/api/auth/login", "/api/auth/register", "/api/auth/me", "/api/version", "/favicon.ico", "/setup-agent.sh", "/setup-agent.ps1", "/agent-bundle.tgz"];
 app.use((req, res, next) => {
   const p = req.path;
   if (PUBLIC_PATHS.includes(p)) return next();
@@ -219,6 +219,62 @@ echo "✅ Xong! Chạy agent:  cd $DIR && npm run agent"
 echo "   (Token gắn với tài khoản của bạn trên server — máy này KHÔNG lưu mật khẩu)"
 `);
 });
+/* ===== CÀI AGENT TRÊN WINDOWS =====
+   setup-agent.sh là bash — Windows không chạy được. Bản PowerShell này chỉ dùng curl.exe và
+   tar.exe CÓ SẴN trong Windows 10 (1803+) và 11, nên ngoài Node.js không phải cài thêm gì.
+   Ghi .env bằng Out-File -Encoding ascii: PowerShell 5.1 mặc định thêm BOM, dotenv sẽ đọc
+   dòng đầu thành "\uFEFFSERVER_URL" rồi agent báo thiếu SERVER_URL. */
+const PS_SETUP = [
+  "param(",
+  "  [Parameter(Mandatory=$true)][string]$Server,",
+  "  [Parameter(Mandatory=$true)][string]$Token",
+  ")",
+  "$ErrorActionPreference = \"Stop\"",
+  "",
+  "if (-not (Get-Command node -ErrorAction SilentlyContinue)) {",
+  "  Write-Host \"[X] Can Node.js 20+ - tai tai https://nodejs.org roi chay lai\" -ForegroundColor Red",
+  "  exit 1",
+  "}",
+  "$dir = Join-Path $env:USERPROFILE \"ppc-warrior-agent\"",
+  "Write-Host \"[1/3] Tai agent tu $Server vao $dir ...\"",
+  "New-Item -ItemType Directory -Force -Path $dir | Out-Null",
+  "Set-Location $dir",
+  "$tgz = Join-Path $env:TEMP \"ppc-agent.tgz\"",
+  "curl.exe -fsSL \"$Server/agent-bundle.tgz?token=$Token\" -o $tgz",
+  "if ($LASTEXITCODE -ne 0) { Write-Host \"[X] Tai that bai - kiem tra SERVER_URL va TOKEN\" -ForegroundColor Red; exit 1 }",
+  "tar.exe -xzf $tgz",
+  "Remove-Item $tgz -Force",
+  "",
+  "Write-Host \"[2/3] Cai thu vien (1-2 phut)...\"",
+  "npm install --omit=dev --silent",
+  "",
+  "Write-Host \"[3/3] Ghi .env ...\"",
+  "$envPath = Join-Path $dir \".env\"",
+  "if (Test-Path $envPath) {",
+  "  Write-Host \"    .env da co - giu nguyen cau hinh cu, chi cap nhat code\"",
+  "} else {",
+  "  $lines = @(",
+  "    \"SERVER_URL=$Server\",",
+  "    \"AGENT_TOKEN=$Token\",",
+  "    \"AGENT_NAME=$env:COMPUTERNAME\",",
+  "    \"HEADFUL=0\",",
+  "    \"CHROME_CHANNEL=chrome\",",
+  "    \"WORKER_PROFILE=1\",",
+  "    \"H10_BROWSER_URL=http://127.0.0.1:9222\"",
+  "  )",
+  "  $lines | Out-File -FilePath $envPath -Encoding ascii",
+  "}",
+  "",
+  "Write-Host \"\"",
+  "Write-Host \"[OK] Xong. Chay agent:\" -ForegroundColor Green",
+  "Write-Host \"     cd $dir\"",
+  "Write-Host \"     npm run agent\""
+];
+app.get("/setup-agent.ps1", (req, res) => {
+  res.setHeader("Content-Type", "text/plain; charset=utf-8");
+  res.send(PS_SETUP.join("\r\n")); // Windows cần CRLF
+});
+
 app.get("/agent-bundle.tgz", (req, res) => {
   if (!auth.resolveAgentToken(String(req.query.token || ""))) return res.status(401).send("Token không hợp lệ/đã thu hồi");
   res.setHeader("Content-Type", "application/gzip");
