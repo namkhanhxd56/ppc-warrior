@@ -21,7 +21,7 @@ import * as auth from "./src/auth.js";
 import { als, runAsUser, userDataDir } from "./src/db/user-context.js";
 
 dotenv.config();
-export const APP_VERSION = "0.41.6"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
+export const APP_VERSION = "0.42.0"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
 
 // RUN_MODE:
 // - "local" (mặc định): bấm Kiểm tra là scrape NGAY trên máy này (dùng 1 người, chạy local)
@@ -185,6 +185,12 @@ app.get("/api/agent-tokens", (req, res) => {
   if (!u) return res.status(401).json({ error: "Chưa đăng nhập" });
   res.json({ tokens: auth.listAgentTokens(u.name, u.role === "admin") });
 });
+app.post("/api/agent-tokens/delete", (req, res) => {
+  const u = auth.getSession(auth.parseCookie(req));
+  if (!u) return res.status(401).json({ error: "Chưa đăng nhập" });
+  try { auth.deleteAgentToken(String(req.body?.id || ""), u.name, u.role === "admin"); res.json({ ok: true }); }
+  catch (e) { res.status(400).json({ ok: false, message: e.message }); }
+});
 app.post("/api/agent-tokens/rename", (req, res) => {
   const u = auth.getSession(auth.parseCookie(req));
   if (!u) return res.status(401).json({ error: "Chưa đăng nhập" });
@@ -243,6 +249,15 @@ const PS_SETUP = [
   "  [Parameter(Mandatory=$true)][string]$Token",
   ")",
   "$ErrorActionPreference = \"Stop\"",
+  "",
+  "# Don dep tham so: copy tu web hay dinh dang \"url (url/)\" hoac khoang trang thua,",
+  "# curl se bao \"Malformed input to a URL function\". Cat tu khoang trang dau tien.",
+  "$Server = (($Server -replace '[()]',' ') -split '\\s+' | Where-Object { $_ -match '^https?://' } | Select-Object -First 1)",
+  "if (-not $Server) { Write-Host \"[X] SERVER_URL khong hop le\" -ForegroundColor Red; return }",
+  "$Server = $Server.TrimEnd('/')",
+  "$Token  = ($Token -split '\\s+' | Where-Object { $_ -match '^pwa_' } | Select-Object -First 1)",
+  "if (-not $Token) { Write-Host \"[X] TOKEN khong hop le - phai bat dau bang pwa_\" -ForegroundColor Red; return }",
+  "Write-Host \"    Server: $Server\" -ForegroundColor DarkGray",
   "",
   "if (-not (Get-Command node -ErrorAction SilentlyContinue)) {",
   "  Write-Host \"[X] Can Node.js 20+ - tai tai https://nodejs.org roi chay lai\" -ForegroundColor Red",

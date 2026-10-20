@@ -267,6 +267,19 @@ export function listAgentTokens(userName, isAdmin) {
     }));
 }
 
+/** XOÁ HẲN token khỏi danh sách. Khác "thu hồi": thu hồi giữ lại dòng để biết máy nào từng
+ *  được cấp (và chặn nó dùng tiếp); xoá là bỏ luôn dòng đó cho danh sách gọn.
+ *  Token đã xoá mà agent còn giữ thì lần poll sau bị từ chối — tác dụng như thu hồi. */
+export function deleteAgentToken(idSuffix, userName, isAdmin) {
+  const suffix = String(idSuffix || "");
+  if (suffix.length < 8) throw new Error("Mã token không hợp lệ");
+  const tokens = readTokens();
+  const entry = Object.entries(tokens).find(([token, t]) => token.endsWith(suffix) && (isAdmin || t.user === userName));
+  if (!entry) throw new Error("Không tìm thấy token (hoặc không có quyền)");
+  delete tokens[entry[0]];
+  writeTokens(tokens);
+}
+
 /** Đổi tên máy đã cấp token. Cùng quy tắc quyền như thu hồi: chủ token hoặc admin. */
 export function renameAgentToken(idSuffix, label, userName, isAdmin) {
   const suffix = String(idSuffix || "");

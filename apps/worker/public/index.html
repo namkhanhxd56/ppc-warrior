@@ -228,7 +228,7 @@
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;');
 
-const UI_VERSION = '0.41.6'; // PHẢI khớp APP_VERSION server.js
+const UI_VERSION = '0.42.0'; // PHẢI khớp APP_VERSION server.js
 (async () => {
   try {
     const v = (await (await fetch('/api/version')).json()).version;
@@ -1379,14 +1379,18 @@ monitorRun();
 /* ===== 🖥 AGENT — cài 1 lệnh, máy KHÔNG lưu mật khẩu ===== */
 window.__agentSetup = async () => {
   const r = await (await fetch('/api/agent-tokens')).json();
+  /* Dữ liệu đi qua data-* rồi gắn sự kiện SAU khi dựng, không nhét vào onclick.
+     Bản trước nhét nhãn máy vào onclick bằng JSON.stringify — nhãn có dấu nháy kép nên
+     thuộc tính HTML đứt ngay tại đó và nút đổi tên không bao giờ bấm được. */
   const rows = (r.tokens || []).map((t) => `
     <div style="display:flex;gap:8px;align-items:center;padding:5px 0;border-bottom:1px solid #f0f2f6;font-size:12px;${t.revoked ? 'opacity:.4' : ''}">
       <b style="flex:1">🖥 ${esc(t.label)}</b>
-      <button class="btn-sm" title="Đổi tên máy" onclick="__renameAgent('${t.id}', ${JSON.stringify(t.label)})">✏️</button>
       <span class="hint">${esc(t.user)}</span>
       <span class="hint" title="Hoạt động gần nhất">${t.lastSeen ? t.lastSeen.slice(0, 16).replace('T', ' ') : 'chưa chạy'}</span>
       ${t.revoked ? '<span style="color:#c0392b;font-size:11px">đã thu hồi</span>'
-        : `<button class="btn-sm" style="color:#c0392b" onclick="if(confirm('Thu hồi? Máy này sẽ không quét được nữa.'))fetch('/api/agent-tokens/revoke',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:'${t.id}'})}).then(()=>__agentSetup())">Thu hồi</button>`}
+        : `<button class="btn-sm agRevoke" data-id="${esc(t.id)}" title="Chặn máy này dùng tiếp, vẫn giữ dòng">Thu hồi</button>`}
+      <button class="btn-sm agRename" data-id="${esc(t.id)}" data-label="${esc(t.label)}" title="Đổi tên máy">✏️</button>
+      <button class="btn-sm agDelete" data-id="${esc(t.id)}" data-label="${esc(t.label)}" style="color:#c0392b" title="Xoá hẳn khỏi danh sách">🗑</button>
     </div>`).join('');
   modal('🖥 Agent quét ranking — cài 1 lệnh cho máy bất kỳ', `
     <div class="hint" style="font-size:12px;color:var(--mut);margin-bottom:8px">
@@ -1398,14 +1402,32 @@ window.__agentSetup = async () => {
     </div>
     <div id="agCmd"></div>
     <div style="margin-top:12px"><b style="font-size:12px">Máy đã cấp</b>${rows || '<div class="hint" style="font-size:12px;color:var(--mut)">chưa có</div>'}</div>`);
-};
-window.__renameAgent = async (id, cur) => {
-  const label = prompt('Tên máy (dễ nhớ, VD "Win – H10" hoặc "Mac – ranking"):', cur || '');
-  if (label === null || !label.trim()) return;
-  const r = await (await fetch('/api/agent-tokens/rename', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ id, label }) })).json();
-  if (!r.ok) return alert('🚨 ' + (r.message || 'Lỗi'));
-  __agentSetup();
+
+  // Gắn sự kiện sau khi modal đã dựng xong
+  const post = async (url, body) => {
+    const x = await (await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })).json();
+    if (!x.ok) { alert('🚨 ' + (x.message || x.error || 'Lỗi')); return false; }
+    return true;
+  };
+  document.querySelectorAll('#mmodal .agRename').forEach((b) => {
+    b.onclick = async () => {
+      const label = prompt('Tên máy (VD "Win – H10", "Mac – ranking"):', b.dataset.label || '');
+      if (label === null || !label.trim()) return;
+      if (await post('/api/agent-tokens/rename', { id: b.dataset.id, label })) __agentSetup();
+    };
+  });
+  document.querySelectorAll('#mmodal .agRevoke').forEach((b) => {
+    b.onclick = async () => {
+      if (!confirm('Thu hồi? Máy này sẽ không quét được nữa.')) return;
+      if (await post('/api/agent-tokens/revoke', { id: b.dataset.id })) __agentSetup();
+    };
+  });
+  document.querySelectorAll('#mmodal .agDelete').forEach((b) => {
+    b.onclick = async () => {
+      if (!confirm(`Xoá hẳn "${b.dataset.label}" khỏi danh sách?\n\nMáy đó đang chạy agent sẽ ngừng nhận việc.`)) return;
+      if (await post('/api/agent-tokens/delete', { id: b.dataset.id })) __agentSetup();
+    };
+  });
 };
 window.__newAgentToken = async () => {
   const r = await (await fetch('/api/agent-tokens', { method: 'POST', headers: { 'Content-Type': 'application/json' },
