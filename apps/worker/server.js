@@ -313,7 +313,11 @@ app.get("/setup-agent.ps1", (req, res) => {
 app.get("/agent-bundle.tgz", (req, res) => {
   if (!auth.resolveAgentToken(String(req.query.token || ""))) return res.status(401).send("Token không hợp lệ/đã thu hồi");
   res.setHeader("Content-Type", "application/gzip");
-  const tar = spawn("tar", ["czf", "-", "agent.js", "package.json", "src/scraper", "src/parser", "src/jobs", "src/db", "src/adjust", "src/launching", "src/data", "src/auth.js"]);
+  /* Danh sách này PHẢI phủ hết mọi thứ agent.js import. Thiếu một thư mục thì máy cài agent
+     chạy được đúng tới lúc khởi động rồi chết với ERR_MODULE_NOT_FOUND — mà lỗi đó chỉ hiện
+     trên máy đó, bên này không thấy gì. (Đã dính: thêm src/keywords mà quên khai ở đây.) */
+  const tar = spawn("tar", ["czf", "-", "agent.js", "package.json", "src/scraper", "src/parser",
+    "src/jobs", "src/db", "src/adjust", "src/launching", "src/data", "src/keywords", "src/auth.js"]);
   tar.stdout.pipe(res);
   tar.on("error", () => res.end());
 });
