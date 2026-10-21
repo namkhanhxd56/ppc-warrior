@@ -31,10 +31,8 @@
 <body>
 <header>
   <h1>⚔️ PPC Warrior</h1>
-  <nav id="nav" style="display:none;margin-left:10px">
-    <a href="/">📊 Check Ranking</a><a href="/launching.html">🚀 Tạo Campaign</a><a href="/adjust.html">⚙️ Điều chỉnh Campaign</a>
-  </nav>
-  <span style="margin-left:auto;font-size:13px;color:#fff;background:#243049;padding:6px 14px;border-radius:8px">👤 Tài khoản</span>
+  <nav hidden></nav><!-- nav.js dựng menu -->
+  
 </header>
 <main>
 
@@ -85,26 +83,14 @@
 
     <div class="card">
       <h2>🖥 Agent quét ranking của tôi</h2>
-      <p class="hint" style="margin-top:-4px">Agent là tiến trình quét chạy ngầm trên máy tính (IP dân cư của máy đó). Máy <b>không lưu mật khẩu</b> —
-        chỉ giữ 1 token gắn với tài khoản này, thu hồi được bất cứ lúc nào. Máy cần có Node.js 20+ và Google Chrome.</p>
-      <div style="display:flex;gap:10px;align-items:center;margin:12px 0 4px">
-        <input type="text" id="agLabel" placeholder="tên máy (VD: macbook-kha)" style="max-width:220px">
-        <button class="primary" onclick="newToken()">➕ Tạo lệnh cài cho máy mới</button>
-      </div>
-      <div id="agCmd"></div>
-      <div id="agList" style="margin-top:14px"></div>
-      <div class="hint" style="margin-top:10px">Cách dùng: bấm tạo lệnh → copy → dán vào Terminal (macOS) hoặc PowerShell (Windows) của máy cần quét.<br>
-        Cài xong chạy agent — <b>lệnh khác nhau theo hệ điều hành</b>:<br>
-        · macOS/Linux: <b>cd ~/ppc-warrior-agent &amp;&amp; npm run agent</b><br>
-        · Windows: <b>cd "$env:USERPROFILE\ppc-warrior-agent"</b> rồi <b>npm.cmd run agent</b>
-        <span style="color:#b45309">(PowerShell không hiểu <b>&amp;&amp;</b> — dùng dấu <b>;</b> hoặc tách 2 dòng; và phải gọi <b>npm.cmd</b> vì <b>npm</b> bị ExecutionPolicy chặn)</span><br>
-        Job bấm Run trên web sẽ do máy này quét.</div>
+      <div id="agentPanel"></div>
     </div>
 
     <div class="msg ok" id="pageMsg" style="padding:0 4px"></div>
   </div>
 
 </main>
+<script src="/agent-panel.js"></script>
 <script>
 const $ = (id) => document.getElementById(id);
 // Phải escape cả " — nhãn máy agent do NGƯỜI DÙNG đặt và ADMIN xem được nhãn của mọi người,
@@ -135,7 +121,6 @@ async function boot() {
   }
   // đã đăng nhập
   $('accountArea').style.display = '';
-  $('nav').style.display = 'flex';
   $('accName').textContent = me.user.name;
   $('roleChip').textContent = me.user.role;
   $('roleChip').style.background = me.user.role === 'admin' ? '#e5a400' : '#2455e6';
@@ -147,7 +132,7 @@ async function boot() {
       $('invCode').textContent = r.invite || '';
     } catch {}
   }
-  loadTokens();
+  AgentPanel.mount($('agentPanel'));
 }
 async function submitAuth() {
   const username = $('u').value.trim(), password = $('p').value;
@@ -169,31 +154,10 @@ function switchProj(name) {
     .then(() => note('📁 Đang thao tác trên dự án: ' + name));
 }
 
-/* ===== Agent tokens ===== */
-async function loadTokens() {
-  const r = await (await fetch('/api/agent-tokens')).json();
-  $('agList').innerHTML = '<b style="font-size:12.5px">Máy đã cấp</b>' + ((r.tokens || []).map((t) => `
-    <div class="mrow" style="${t.revoked ? 'opacity:.4' : ''}">
-      <b style="flex:1">🖥 ${esc(t.label)}</b>
-      <span class="hint">${esc(t.user)}</span>
-      <span class="hint" title="Hoạt động gần nhất">${t.lastSeen ? t.lastSeen.slice(0, 16).replace('T', ' ') : 'chưa chạy'}</span>
-      ${t.revoked ? '<span style="color:#c0392b;font-size:11.5px">đã thu hồi</span>'
-        : `<button class="danger" onclick="revoke('${t.id}')">Thu hồi</button>`}
-    </div>`).join('') || '<div class="hint">chưa có máy nào</div>');
-}
-async function newToken() {
-  const r = await (await fetch('/api/agent-tokens', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ label: $('agLabel').value }) })).json();
-  $('agCmd').innerHTML = `<div class="cmd">${esc(r.command)}</div>
-    <button style="margin-top:6px" onclick='navigator.clipboard.writeText(${JSON.stringify(r.command)}).then(()=>note("✅ Đã copy lệnh cài"))'>📋 Copy lệnh</button>`;
-  loadTokens();
-}
-async function revoke(id) {
-  if (!confirm('Thu hồi? Máy này sẽ không quét được nữa.')) return;
-  await fetch('/api/agent-tokens/revoke', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) });
-  loadTokens();
-}
+/* Bảng quản lý agent nằm ở public/agent-panel.js — dùng chung, một bản duy nhất. */
+
 boot();
 </script>
+<script src="/nav.js"></script>
 </body>
 </html>

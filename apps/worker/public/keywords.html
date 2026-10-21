@@ -46,14 +46,7 @@
 <div id="verWarn"></div>
 <header>
   <h1>⚔️ PPC Warrior</h1>
-  <nav>
-    <a href="/">📊 Check Ranking</a>
-    <a href="/catalog.html">📋 Danh mục</a>
-    <a href="/keywords.html" class="active">🔑 Phân tích Keyword</a>
-    <a href="/launching.html">🚀 Tạo Campaign</a>
-    <a href="/adjust.html">⚙️ Điều chỉnh Campaign</a>
-    <a href="/data.html">📈 Data</a>
-  </nav>
+  <nav></nav><!-- nav.js dựng menu — sửa danh sách trang ở public/nav.js -->
 </header>
 
 <main>
@@ -185,7 +178,7 @@
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
 
-const UI_VERSION = '0.44.0';
+const UI_VERSION = '0.45.0';
 (async () => {
   try { const v = (await (await fetch('/api/version')).json()).version; if (v !== UI_VERSION) throw new Error(v); }
   catch (e) { $('verWarn').style.display = 'block'; $('verWarn').textContent = `⚠️ Server phiên bản cũ (${e.message}) — hãy restart (npm start).`; }
@@ -473,5 +466,6 @@ async function followJob(jobId, out) {
   } catch {}
 })();
 </script>
+<script src="/nav.js"></script>
 </body>
 </html>

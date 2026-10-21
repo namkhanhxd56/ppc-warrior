@@ -21,7 +21,7 @@ import * as auth from "./src/auth.js";
 import { als, runAsUser, userDataDir } from "./src/db/user-context.js";
 
 dotenv.config();
-export const APP_VERSION = "0.44.0"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
+export const APP_VERSION = "0.45.0"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
 
 // RUN_MODE:
 // - "local" (mặc định): bấm Kiểm tra là scrape NGAY trên máy này (dùng 1 người, chạy local)
@@ -168,6 +168,11 @@ const requireAdmin = (req, res, next) => {
 app.get("/api/auth/users", requireAdmin, (req, res) => res.json({ users: auth.listUsers(), invite: auth.getInviteCode() }));
 
 /* ===== AGENT TOKEN (🖥 mỗi user tự cấp cho máy của mình — credentials KHÔNG rời server) ===== */
+/* PHẢI tự khai express.json() ở đây: bộ đọc JSON dùng chung mãi dưới dòng ~334, mà nhóm
+   route này nằm TRÊN nó nên req.body luôn undefined. Hậu quả im lặng, không hề báo lỗi:
+   đặt tên máy → label undefined → mọi máy đều thành "máy chưa đặt tên"; đổi tên/xoá/thu hồi
+   → id undefined → "Mã token không hợp lệ". Đúng 3 lỗi người dùng báo. */
+app.use("/api/agent-tokens", express.json());
 app.post("/api/agent-tokens", (req, res) => {
   const u = auth.getSession(auth.parseCookie(req));
   if (!u) return res.status(401).json({ error: "Chưa đăng nhập" });

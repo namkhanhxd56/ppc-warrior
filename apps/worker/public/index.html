@@ -118,14 +118,7 @@
 <body>
 <header>
   <h1>⚔️ PPC Warrior</h1>
-  <nav style="display:flex;gap:4px;margin-left:10px">
-    <a href="/" style="color:#fff;background:var(--b);text-decoration:none;font-size:13px;padding:6px 14px;border-radius:8px;font-weight:600">📊 Check Ranking</a>
-    <a href="/catalog.html" style="color:#9fb0c8;text-decoration:none;font-size:13px;padding:6px 14px;border-radius:8px">📋 Danh mục</a>
-    <a href="/keywords.html" style="color:#9fb0c8;text-decoration:none;font-size:13px;padding:6px 14px;border-radius:8px">🔑 Phân tích Keyword</a>
-    <a href="/launching.html" style="color:#9fb0c8;text-decoration:none;font-size:13px;padding:6px 14px;border-radius:8px">🚀 Tạo Campaign</a>
-    <a href="/adjust.html" style="color:#9fb0c8;text-decoration:none;font-size:13px;padding:6px 14px;border-radius:8px">⚙️ Điều chỉnh Campaign</a>
-    <a href="/data.html" style="color:#9fb0c8;text-decoration:none;font-size:13px;padding:6px 14px;border-radius:8px">📈 Data</a>
-  </nav>
+  <nav></nav><!-- nav.js dựng menu — sửa danh sách trang ở public/nav.js -->
   <span id="status" style="margin-left:auto;font-size:12px;color:#9fb0c8">Idle</span>
 </header>
 <main>
@@ -228,7 +221,7 @@
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;');
 
-const UI_VERSION = '0.44.0'; // PHẢI khớp APP_VERSION server.js
+const UI_VERSION = '0.45.0'; // PHẢI khớp APP_VERSION server.js
 (async () => {
   try {
     const v = (await (await fetch('/api/version')).json()).version;
@@ -1376,88 +1369,10 @@ loadTracking();
 // khóa nút Run, hiện đúng tiến độ. Không còn cảnh "F5 một cái là mất dấu lượt đang chạy".
 monitorRun();
 
-/* ===== 🖥 AGENT — cài 1 lệnh, máy KHÔNG lưu mật khẩu ===== */
-window.__agentSetup = async () => {
-  const r = await (await fetch('/api/agent-tokens')).json();
-  /* Dữ liệu đi qua data-* rồi gắn sự kiện SAU khi dựng, không nhét vào onclick.
-     Bản trước nhét nhãn máy vào onclick bằng JSON.stringify — nhãn có dấu nháy kép nên
-     thuộc tính HTML đứt ngay tại đó và nút đổi tên không bao giờ bấm được. */
-  const rows = (r.tokens || []).map((t) => `
-    <div style="display:flex;gap:8px;align-items:center;padding:5px 0;border-bottom:1px solid #f0f2f6;font-size:12px;${t.revoked ? 'opacity:.4' : ''}">
-      <b style="flex:1">🖥 ${esc(t.label)}</b>
-      <span class="hint">${esc(t.user)}</span>
-      <span class="hint" title="Hoạt động gần nhất">${t.lastSeen ? t.lastSeen.slice(0, 16).replace('T', ' ') : 'chưa chạy'}</span>
-      ${t.revoked ? '<span style="color:#c0392b;font-size:11px">đã thu hồi</span>'
-        : `<button class="btn-sm agRevoke" data-id="${esc(t.id)}" title="Chặn máy này dùng tiếp, vẫn giữ dòng">Thu hồi</button>`}
-      <button class="btn-sm agRename" data-id="${esc(t.id)}" data-label="${esc(t.label)}" title="Đổi tên máy">✏️</button>
-      <button class="btn-sm agDelete" data-id="${esc(t.id)}" data-label="${esc(t.label)}" style="color:#c0392b" title="Xoá hẳn khỏi danh sách">🗑</button>
-    </div>`).join('');
-  modal('🖥 Agent quét ranking — cài 1 lệnh cho máy bất kỳ', `
-    <div class="hint" style="font-size:12px;color:var(--mut);margin-bottom:8px">
-      Agent là tiến trình quét chạy ngầm trên máy tính (dùng IP dân cư của máy đó). Máy <b>không lưu tên đăng nhập/mật khẩu</b> —
-      chỉ giữ 1 token gắn với tài khoản của bạn, thu hồi được bất cứ lúc nào. Cần: Node.js 20+ và Google Chrome.</div>
-    <div class="row" style="align-items:center;margin-bottom:10px">
-      <input type="text" id="agLabel" placeholder="tên máy (VD: macbook-kha)" style="width:190px">
-      <button class="btn-sm" style="background:var(--b);color:#fff" onclick="__newAgentToken()">➕ Tạo lệnh cài cho máy mới</button>
-    </div>
-    <div id="agCmd"></div>
-    <div style="margin-top:12px"><b style="font-size:12px">Máy đã cấp</b>${rows || '<div class="hint" style="font-size:12px;color:var(--mut)">chưa có</div>'}</div>`);
-
-  // Gắn sự kiện sau khi modal đã dựng xong
-  const post = async (url, body) => {
-    const x = await (await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })).json();
-    if (!x.ok) { alert('🚨 ' + (x.message || x.error || 'Lỗi')); return false; }
-    return true;
-  };
-  document.querySelectorAll('#mmodal .agRename').forEach((b) => {
-    b.onclick = async () => {
-      const label = prompt('Tên máy (VD "Win – H10", "Mac – ranking"):', b.dataset.label || '');
-      if (label === null || !label.trim()) return;
-      if (await post('/api/agent-tokens/rename', { id: b.dataset.id, label })) __agentSetup();
-    };
-  });
-  document.querySelectorAll('#mmodal .agRevoke').forEach((b) => {
-    b.onclick = async () => {
-      if (!confirm('Thu hồi? Máy này sẽ không quét được nữa.')) return;
-      if (await post('/api/agent-tokens/revoke', { id: b.dataset.id })) __agentSetup();
-    };
-  });
-  document.querySelectorAll('#mmodal .agDelete').forEach((b) => {
-    b.onclick = async () => {
-      if (!confirm(`Xoá hẳn "${b.dataset.label}" khỏi danh sách?\n\nMáy đó đang chạy agent sẽ ngừng nhận việc.`)) return;
-      if (await post('/api/agent-tokens/delete', { id: b.dataset.id })) __agentSetup();
-    };
-  });
-};
-window.__newAgentToken = async () => {
-  const r = await (await fetch('/api/agent-tokens', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ label: document.getElementById('agLabel').value }) })).json();
-  // Lệnh cài khác nhau theo hệ điều hành — máy chạy H10 thường là Windows
-  const base = location.origin;
-  /* MỘT lệnh duy nhất: tải script rồi chạy thẳng trong phiên hiện tại.
-     Bản hai bước (iwr -OutFile rồi powershell -File) hay bị chạy sót một bước, và kết quả là
-     thư mục trống mà không ai biết hỏng ở đâu. Chạy từ scriptblock cũng không dính
-     ExecutionPolicy vì không nạp file .ps1 từ đĩa. */
-  const winCmd = `& ([scriptblock]::Create((iwr -useb "${base}/setup-agent.ps1").Content)) `
-    + `-Server "${base}" -Token "${r.token}"`;
-  const box = (t) => `<div style="background:#0b1020;color:#7ef0a8;border-radius:8px;padding:10px 12px;font:11.5px/1.6 ui-monospace,Menlo,monospace;word-break:break-all;white-space:pre-wrap">${esc(t)}</div>`;
-  document.getElementById('agCmd').innerHTML = `
-    <div style="font-size:11.5px;font-weight:700;margin:4px 0 4px">🍎 macOS / Linux — dán vào Terminal</div>
-    ${box(r.command)}
-    <div style="display:flex;gap:8px;margin-top:6px;align-items:center">
-      <button class="btn-sm" onclick="navigator.clipboard.writeText(this.dataset.c).then(()=>alert('✅ Đã copy'))" data-c="${esc(r.command)}">📋 Copy lệnh macOS</button>
-      <span class="hint" style="font-size:11px;color:var(--mut)">xong chạy: <b>cd ~/ppc-warrior-agent && npm run agent</b></span>
-    </div>
-    <div style="font-size:11.5px;font-weight:700;margin:12px 0 4px">🪟 Windows — dán vào PowerShell</div>
-    ${box(winCmd)}
-    <div style="display:flex;gap:8px;margin-top:6px;align-items:center">
-      <button class="btn-sm" onclick="navigator.clipboard.writeText(this.dataset.c).then(()=>alert('✅ Đã copy'))" data-c="${esc(winCmd)}">📋 Copy lệnh Windows</button>
-      <span class="hint" style="font-size:11px;color:var(--mut)">xong chạy: <b>cd "$env:USERPROFILE\\ppc-warrior-agent"; npm.cmd run agent</b><br>— PowerShell dùng dấu <b>;</b> (không dùng <b>&amp;&amp;</b>) và <b>npm.cmd</b> (không dùng <b>npm</b>, bị chặn bởi ExecutionPolicy)</span>
-    </div>
-    <div style="display:flex;gap:8px;margin-top:8px;align-items:center">
-      <span class="hint" style="font-size:11px;color:var(--mut)">Token (dùng riêng nếu cần): <b class="mono">${esc(r.token)}</b></span>
-    </div>`;
-};
+/* Bảng quản lý agent đã dọn khỏi đây: bản này KHÔNG NÚT NÀO MỞ ĐƯỢC (code chết), trong
+   khi trang Tài khoản lại có một bản rút gọn khác — hai bản trôi dạt, bản người dùng thật sự
+   dùng thì thiếu nút đổi tên/xoá và chỉ in lệnh cài macOS. Nay còn một bản duy nhất ở
+   public/agent-panel.js, gắn trên trang /user. Chip 👤 ở góc header dẫn thẳng tới đó. */
 
 /* ===== 👥 QUẢN LÝ USER (admin) ===== */
 window.__adminUsers = async () => {
@@ -1492,23 +1407,8 @@ window.__delUser = async (name) => {
   __adminUsers();
 };
 
-/* ===== USER (góc phải header → trang /user) ===== */
-(async () => {
-  try {
-    const me = await (await fetch('/api/auth/me')).json();
-    if (!me.user) return; // chế độ local 1 người — không hiện
-    const st = document.getElementById('status');
-    const chip = document.createElement('a');
-    chip.href = '/user';
-    chip.title = 'Tài khoản · agent · đăng xuất';
-    // Chỉ trang Check Ranking có #status (mang margin-left:auto). Các trang khác không có nên
-    // chip phải TỰ đẩy sang phải, không thì nó dính ngay sau menu — đổi tab là nhảy chỗ.
-    chip.style.cssText = `${st ? 'margin-left:12px' : 'margin-left:auto'};font-size:12px;text-decoration:none;color:#fff;font-weight:700;`
-      + `background:${me.user.role === 'admin' ? '#e5a400' : '#2455e6'};border-radius:9px;padding:3px 12px`;
-    chip.textContent = '👤 ' + me.user.name + (me.actAs && me.actAs !== me.user.name ? ' → 📁' + me.actAs : '');
-    document.querySelector('header')?.appendChild(chip); // luôn cùng 1 chỗ: cuối header
-  } catch {}
-})();
+/* Chip tài khoản ở góc header: nav.js dựng cho mọi trang. */
 </script>
+<script src="/nav.js"></script>
 </body>
 </html>
