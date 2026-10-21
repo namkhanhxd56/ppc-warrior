@@ -21,7 +21,7 @@ import * as auth from "./src/auth.js";
 import { als, runAsUser, userDataDir } from "./src/db/user-context.js";
 
 dotenv.config();
-export const APP_VERSION = "0.43.0"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
+export const APP_VERSION = "0.44.0"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
 
 // RUN_MODE:
 // - "local" (mặc định): bấm Kiểm tra là scrape NGAY trên máy này (dùng 1 người, chạy local)
@@ -499,6 +499,9 @@ app.get("/api/continue-targets", (req, res) => {
 });
 
 app.get("/api/jobs", (req, res) => res.json(store.listJobs()));
+// Dừng riêng một job (trang Phân tích Keyword) — KHÁC /api/stop vốn hủy sạch hàng đợi
+app.post("/api/jobs/:id/stop", (req, res) => res.json({ ok: store.requestStopJob(req.params.id) }));
+
 app.get("/api/jobs/:id", (req, res) => {
   const j = store.getJob(req.params.id);
   j ? res.json(j) : res.status(404).json({ error: "not found" });
@@ -1034,6 +1037,19 @@ app.post("/api/agent/h10-report", (req, res) => {
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ ok: false, message: e.message }); }
 });
+/* Agent nộp bộ keyword đã quét + lọc xong. Lưu THÀNH BỘ ngay tại đây chứ không bắt trang
+   web gọi thêm lượt nữa: máy đã quét xong rồi mà trình duyệt người dùng đóng tab thì công
+   sức mất trắng. */
+app.post("/api/agent/h10-scan-result", (req, res) => {
+  const b = req.body || {};
+  const keywords = Array.isArray(b.keywords) ? b.keywords : [];
+  if (!keywords.length) return res.status(400).json({ error: "Bộ keyword rỗng" });
+  const saved = store.saveH10Set({ name: b.name, asins: b.asins || [], ruleName: b.ruleName || "",
+    rule: b.rule || {}, perAsin: b.perAsin || [], keywords, source: "cerebro", jobId: b.jobId });
+  try { fs.writeFileSync(H10_REPORT(), JSON.stringify({ ...(b.diag || {}), savedSet: saved, at: new Date().toISOString() }, null, 1)); } catch {}
+  res.json({ ok: true, name: b.name, ...saved });
+});
+
 app.get("/api/h10/report", (req, res) => {
   try { res.json(JSON.parse(fs.readFileSync(H10_REPORT(), "utf8"))); }
   catch { res.json({ at: null }); }
@@ -1048,6 +1064,20 @@ app.post("/api/h10/check", (req, res) => {
   const job = store.enqueueJob({ kind: "h10check", asin: /^[A-Z0-9]{10}$/.test(asin) ? asin : null,
     runId: "h10-" + Date.now().toString(36) });
   res.json({ ok: true, jobId: job.id });
+});
+
+/* Xếp job QUÉT THẬT: agent mở Cerebro, nhập ASIN, bấm Export, đọc file rồi áp bộ quy tắc.
+   Cả danh sách ASIN đi trong MỘT job: agent giữ nguyên tab Cerebro giữa các lượt (mỗi lượt
+   mở lại trang mới mất ~10s), và tiến độ nằm gọn trong một dòng log để trang web bám theo. */
+app.post("/api/h10/scan", (req, res) => {
+  if (RUN_MODE !== "queue") return res.status(409).json({ ok: false, message: "Chỉ chạy ở chế độ queue (agent)" });
+  const b = req.body || {};
+  const asins = [...new Set((b.asins || []).map((a) => String(a).trim().toUpperCase()).filter((a) => /^[A-Z0-9]{10}$/.test(a)))];
+  if (!asins.length) return res.status(400).json({ ok: false, message: "Chưa có ASIN hợp lệ" });
+  const name = String(b.setName || "").trim() || `Cerebro ${new Date().toLocaleDateString("vi-VN")}`;
+  const job = store.enqueueJob({ kind: "h10scan", asins, rule: b.rule || {}, setName: name,
+    runId: "h10scan-" + Date.now().toString(36) });
+  res.json({ ok: true, jobId: job.id, asins: asins.length, setName: name });
 });
 
 // Bộ quy tắc = đúng các ô lọc của Cerebro + cách quét

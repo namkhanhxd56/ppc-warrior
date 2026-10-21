@@ -167,8 +167,10 @@
       <div style="max-width:150px"><label>&nbsp;</label><button class="btn-sm" id="catAll" style="width:100%">➕ Thêm cả Danh mục</button></div>
       <div style="max-width:220px"><label>Tên bộ keyword sẽ lưu</label><input type="text" id="setName" placeholder="VD: Ornament T10"></div>
       <button class="btn-ok" id="btnRun">▶ Chạy phân tích</button>
+      <button class="btn-sm" id="btnStop" style="display:none">⏹ Dừng</button>
       <span class="msg" id="runMsg"></span>
     </div>
+    <pre id="runOut" style="display:none;margin:12px 0 0;background:#0b1020;color:#7ef0a8;font:11.5px/1.5 ui-monospace,Menlo,monospace;padding:12px;border-radius:8px;max-height:300px;overflow:auto;white-space:pre-wrap"></pre>
   </div>
 
   <div class="card">
@@ -183,7 +185,7 @@
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
 
-const UI_VERSION = '0.43.0';
+const UI_VERSION = '0.44.0';
 (async () => {
   try { const v = (await (await fetch('/api/version')).json()).version; if (v !== UI_VERSION) throw new Error(v); }
   catch (e) { $('verWarn').style.display = 'block'; $('verWarn').textContent = `⚠️ Server phiên bản cũ (${e.message}) — hãy restart (npm start).`; }
@@ -416,9 +418,47 @@ $('runAsins').addEventListener('paste', (e) => {
 $('btnRun').onclick = async () => {
   const asins = $('runAsins').value.split(/[\s,]+/).map((x) => x.trim().toUpperCase()).filter((x) => /^[A-Z0-9]{10}$/.test(x));
   if (!asins.length) { $('runMsg').className = 'msg err'; $('runMsg').textContent = '✕ Chưa có ASIN hợp lệ'; return; }
-  $('runMsg').className = 'msg';
-  $('runMsg').textContent = `⏳ ${asins.length} ASIN · bộ "${$('ruleName').value || '(chưa đặt tên)'}" — phần agent quét Cerebro đang làm, chưa chạy được`;
+  const rule = readRule();
+  const out = $('runOut');
+  out.style.display = 'block';
+  out.textContent = '⏳ Đang xếp job...';
+  $('btnRun').disabled = true;
+  $('runMsg').className = 'msg'; $('runMsg').textContent = '';
+  try {
+    const r = await (await fetch('/api/h10/scan', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ asins, rule, setName: $('setName').value }) })).json();
+    if (!r.ok) throw new Error(r.message || 'Lỗi');
+    out.textContent = `Đã xếp job ${r.jobId} · ${r.asins} ASIN · bộ "${r.setName}"\nChờ agent nhận — máy nào đang bật agent VÀ có Chrome H10 mở cổng 9222 thì máy đó chạy.`;
+    $('btnStop').style.display = '';
+    $('btnStop').onclick = async () => { await fetch(`/api/jobs/${r.jobId}/stop`, { method:'POST' }); $('btnStop').disabled = true; };
+    await followJob(r.jobId, out);
+  } catch (e) {
+    out.textContent += '\n🚨 ' + e.message;
+    $('runMsg').className = 'msg err'; $('runMsg').textContent = '✕ ' + e.message;
+  } finally {
+    $('btnRun').disabled = false;
+    $('btnStop').style.display = 'none'; $('btnStop').disabled = false;
+  }
 };
+
+/* Bám theo job cho tới khi xong. Quét Cerebro lâu (mỗi ASIN cả phút) nên đừng đặt hạn ngắn
+   — hết vòng lặp mà job vẫn chạy thì nói rõ là "vẫn đang chạy", không giả vờ là hỏng. */
+async function followJob(jobId, out) {
+  for (let i = 0; i < 400; i++) {              // 400 × 3s ≈ 20 phút
+    await new Promise((x) => setTimeout(x, 3000));
+    const j = await (await fetch('/api/jobs/' + jobId)).json();
+    out.textContent = `[${j.status}${j.agent ? ' · ' + j.agent : ''}]\n` + (j.logs || []).join('\n');
+    out.scrollTop = out.scrollHeight;
+    if (['done', 'error', 'cancelled'].includes(j.status)) {
+      $('runMsg').className = j.status === 'done' ? 'msg ok' : 'msg err';
+      $('runMsg').textContent = j.status === 'done' ? '✓ xong' : (j.status === 'cancelled' ? '⏹ đã dừng' : '✕ ' + (j.error || 'lỗi'));
+      await loadSets();
+      if (j.status === 'error') await showReport();   // hỏng thì bày luôn báo cáo chẩn đoán
+      return;
+    }
+  }
+  out.textContent += '\n(vẫn đang chạy — tải lại trang rồi xem 📦 Bộ keyword đã lưu)';
+}
 
 (async () => {
   loadCookie(); loadSets();

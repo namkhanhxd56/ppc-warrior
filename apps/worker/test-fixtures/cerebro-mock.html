@@ -1,0 +1,32 @@
+<!doctype html><meta charset="utf-8"><title>Cerebro</title>
+<body>
+<!-- dựng lại đúng cấu trúc máy agent đã báo về: class là mã sinh tự động, nhận dạng
+     phải dựa vào placeholder / data-testid / chữ trên nút -->
+<button class="sc-iuOOrT fWfWOh" data-testid="header-notifications-btn"></button>
+<button class="sc-iuOOrT sc-shnyN bvJqFD">Bulk Report</button>
+<input type="hidden" name="csrf" value="x">
+<input class="sc-dfpqtn eRdDJJ" placeholder="Search site">
+<input class="sc-blmEgr sc-jNBTOL TpBaI eKsvRk"
+       placeholder="Enter a keyword, or enter up to 10 product identifiers for keyword comparison.">
+<div class="sc-x">
+  <div class="sc-y"><span>Exclude Variations</span>
+    <label><input type="checkbox" id="ev"></label></div>
+</div>
+<button class="sc-iuOOrT sc-cUUZCC fTZoDM jpQyNY" data-testid="getkeywords">Get Keywords</button>
+<div id="results" style="display:none">
+  <button class="sc-zz1" aria-label="Export data" title="Export"></button>
+  <table><tbody><tr><td>a</td></tr><tr><td>b</td></tr><tr><td>c</td></tr><tr><td>d</td></tr></tbody></table>
+</div>
+<ul id="menu" style="display:none">
+  <li role="menuitem">Export as CSV</li>
+  <li role="menuitem">Export as XLSX</li>
+</ul>
+<p>Download our mobile app to export reports on the go — excel users love it</p>
+<script>
+  document.querySelector('[data-testid=getkeywords]').onclick = () => {
+    setTimeout(() => { document.getElementById('results').style.display = 'block'; }, 300);
+  };
+  document.querySelector('#results button').onclick = () => { document.getElementById('menu').style.display = 'block'; };
+  window.picked = null;
+  document.querySelectorAll('#menu li').forEach(li => li.onclick = () => { window.picked = li.innerText; });
+</script>

@@ -1214,6 +1214,21 @@ export function activeSession() {
  *  (agent đọc được ở lô kế tiếp rồi tự bỏ dở). Dữ liệu đã quét không mất — mỗi lô 5 keyword
  *  đã được ghi qua /api/agent/partial trước đó rồi.
  *  Trả về {stopping, cancelled} = số job đang chạy / đang chờ bị đóng sổ. */
+/** Dừng ĐÚNG MỘT job. requestStopJobs() hủy sạch mọi job chưa xong — đúng cho nút Dừng của
+ *  trang Check Ranking, nhưng sai cho trang Phân tích Keyword: ở đó bấm Dừng sẽ giết luôn
+ *  lượt quét rank mà người khác trong team đang chạy. */
+export function requestStopJob(id) {
+  const jobs = readJobs();
+  const j = jobs.find((x) => x.id === id);
+  if (!j || (j.status !== "pending" && j.status !== "running")) return false;
+  j.stopRequested = true;
+  j.status = "cancelled";
+  j.finishedAt = new Date().toISOString();
+  j.logs.push("⏹ Đã dừng theo yêu cầu — phần đã quét xong vẫn được giữ");
+  writeJobs(jobs);
+  return true;
+}
+
 export function requestStopJobs() {
   const jobs = readJobs();
   const now = new Date().toISOString();

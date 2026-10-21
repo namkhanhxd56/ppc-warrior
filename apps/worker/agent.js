@@ -10,10 +10,13 @@
 
 import dotenv from "dotenv";
 import os from "os";
+import fs from "fs";
+import path from "path";
 import { launchBrowser, loadCookies, newCleanPage, verifySession, connectBrowser } from "./src/scraper/browser.js";
 import { ensureZipLocation } from "./src/scraper/set-location.js";
 import { runBatch } from "./src/jobs/run-batch.js";
 import * as store from "./src/db/file-store.js";
+import { parseCerebroExport, applyRule, mergeByKeyword } from "./src/keywords/cerebro.js";
 
 dotenv.config();
 
@@ -151,11 +154,13 @@ async function runJob(job) {
   // ⏹ Dừng: server đánh dấu job.stopRequested, agent nhận cờ qua response của LÔ và của LOG
   // (mỗi ≤5s) → dừng giữa chừng thay vì phải chạy hết ASIN như trước.
   let stopping = false;
-  const markStop = () => { if (!stopping) { stopping = true; console.log("  ⏹ Nhận yêu cầu dừng từ server"); } };
+  const state = { stop: false }; // bản dùng chung được cho các job dài (h10scan) — biến cục bộ ở trên không truyền ra ngoài được
+  const markStop = () => { state.stop = true; if (!stopping) { stopping = true; console.log("  ⏹ Nhận yêu cầu dừng từ server"); } };
   const logger = makeLogger(job.id, markStop);
   const send = logger.send;
   if (job.payload?.kind === "libscan") return runLibScanJob(job, logger);
   if (job.payload?.kind === "h10check") return runH10CheckJob(job, logger);
+  if (job.payload?.kind === "h10scan") return runH10ScanJob(job, logger, state);
 
   /* Loại job lạ = agent đang chạy BẢN CŨ (đã cập nhật file nhưng chưa khởi động lại tiến
      trình — Node nạp code lúc khởi động). Bản cũ rơi thẳng xuống nhánh quét rank rồi đọc
@@ -423,6 +428,269 @@ async function runH10CheckJob(job, logger) {
   }
 }
 
+/* ===== QUÉT CEREBRO THẬT =====
+   Agent chỉ làm đúng hai thao tác trên trang H10 — nhập ASIN và bấm Export — rồi bộ lọc
+   chạy bằng code trong src/keywords/cerebro.js. Lý do chọn vậy: mọi ô Min/Max của Cerebro
+   chỉ thu hẹp dòng HIỂN THỊ còn các cột đó đều CÓ trong file export, nên lọc ở đâu cũng ra
+   cùng kết quả; mà tự động bấm 18 ô là 18 chỗ gãy mỗi lần H10 đổi giao diện.
+   Ngoại lệ: Exclude Variations đổi chính TẬP DỮ LIỆU Cerebro trả về nên phải bật trên trang. */
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const DL_ROOT = path.resolve(process.cwd(), "data", "h10-dl");
+
+/** Liệt kê phần tử để CHẨN ĐOÁN khi không tìm thấy thứ cần bấm — có nó thì một lần chạy hỏng
+ *  là đủ biết trang đang trông thế nào, không phải đoán rồi thử lại nhiều vòng. */
+const listEls = (page, q) => page.evaluate((sel) => [...document.querySelectorAll(sel)]
+  .filter((e) => e.offsetParent !== null).slice(0, 30).map((e) => ({
+    tag: e.tagName.toLowerCase(), test: e.getAttribute("data-testid") || undefined,
+    aria: e.getAttribute("aria-label") || undefined, ph: e.getAttribute("placeholder") || undefined,
+    text: (e.innerText || "").trim().slice(0, 40) || undefined
+  })), q).catch(() => []);
+
+/** Hướng thư mục tải về của Chrome sang thư mục RIÊNG của job này.
+ *  Cấp browser áp cho mọi tab; Chrome mượn của người dùng có thể từ chối lệnh đó nên hạ
+ *  xuống cấp page. Thư mục riêng từng job để không nhặt nhầm file của lượt trước. */
+async function setDownloadDir(browser, page, dir) {
+  fs.mkdirSync(dir, { recursive: true });
+  try {
+    const s = await browser.target().createCDPSession();
+    await s.send("Browser.setDownloadBehavior", { behavior: "allow", downloadPath: dir, eventsEnabled: true });
+    return "browser";
+  } catch {}
+  const s = await page.createCDPSession();
+  await s.send("Page.setDownloadBehavior", { behavior: "allow", downloadPath: dir });
+  return "page";
+}
+
+/** Chờ file tải xong: bỏ qua .crdownload, và đòi KÍCH THƯỚC ĐỨNG YÊN 2 nhịp — đọc file
+ *  đang ghi dở thì parser báo "file rỗng/hỏng" mà thật ra chỉ là chưa tải xong. */
+export async function waitDownload(dir, timeoutMs) {
+  const before = new Set(fs.existsSync(dir) ? fs.readdirSync(dir) : []);
+  const t0 = Date.now();
+  let last = -1, stable = 0;
+  while (Date.now() - t0 < timeoutMs) {
+    await sleep(1000);
+    const done = fs.readdirSync(dir).filter((f) => !before.has(f) && !/\.(crdownload|tmp|part)$/i.test(f));
+    if (!done.length) continue;
+    const p = path.join(dir, done[0]);
+    const sz = fs.statSync(p).size;
+    if (sz > 0 && sz === last) { if (++stable >= 2) return p; } else { stable = 0; }
+    last = sz;
+  }
+  return null;
+}
+
+/** Bật/tắt một công tắc theo CHỮ cạnh nó (vd "Exclude Variations"). Cerebro bọc checkbox
+ *  trong nhiều lớp div nên dò từ phần tử có chữ đi LÊN tới khi gặp ô điều khiển. */
+export function toggleByLabel(page, reSource, want) {
+  return page.evaluate((src, on) => {
+    const re = new RegExp(src, "i");
+    const nodes = [...document.querySelectorAll("label,span,div,button,p")].filter((e) =>
+      e.offsetParent !== null && re.test(e.innerText || "") && (e.innerText || "").trim().length < 60);
+    for (const n of nodes) {
+      let box = null, up = n;
+      for (let i = 0; i < 4 && up && !box; i++, up = up.parentElement) {
+        box = up.querySelector('input[type=checkbox],[role=switch],[role=checkbox]');
+      }
+      if (!box) continue;
+      const cur = typeof box.checked === "boolean" ? box.checked : box.getAttribute("aria-checked") === "true";
+      if (cur !== on) (box.closest("label") || box).click();
+      return { found: true, was: cur, set: on, label: (n.innerText || "").trim().slice(0, 40) };
+    }
+    return { found: false };
+  }, reSource, want).catch((e) => ({ found: false, error: e.message }));
+}
+
+/** Đánh dấu ô nhập ASIN của Cerebro để bấm/gõ vào. Tìm theo placeholder/aria-label chứ
+ *  không theo class — class của H10 là mã sinh tự động, đổi mỗi lần họ build lại. Máy agent
+ *  đã báo về placeholder thật: "Enter a keyword, or enter up to 10 product identifiers...". */
+export function markAsinInput(page) {
+  return page.evaluate(() => {
+    document.querySelectorAll("[data-ppcw]").forEach((e) => e.removeAttribute("data-ppcw"));
+    const el = [...document.querySelectorAll("input,textarea")].find((e) =>
+      e.offsetParent !== null && e.type !== "hidden" &&
+      /asin|product identifier|keyword/i.test(`${e.placeholder || ""} ${e.getAttribute("aria-label") || ""}`));
+    if (!el) return null;
+    el.setAttribute("data-ppcw", "input");
+    return el.placeholder || el.getAttribute("aria-label") || "(không nhãn)";
+  });
+}
+
+/** Đánh dấu nút chạy tìm kiếm. data-testid="getkeywords" là tên THẬT lấy từ báo cáo của
+ *  máy agent; chữ "Get Keywords" chỉ là phương án dự phòng nếu H10 đổi testid. */
+export function markSubmit(page) {
+  return page.evaluate(() => {
+    const b = document.querySelector('[data-testid="getkeywords"]')
+      || [...document.querySelectorAll("button")].find((x) => /get keywords/i.test(x.innerText || ""));
+    if (!b) return null;
+    b.setAttribute("data-ppcw", "go");
+    return (b.innerText || "").trim() || "(nút không chữ)";
+  });
+}
+
+/** Bấm Export. Tìm theo CHỮ/nhãn chứ không theo class vì class của H10 là mã sinh tự động
+ *  ("sc-iuOOrT bvJqFD"), đổi mỗi lần họ build lại. Nút có thể mở menu con chọn CSV/XLSX. */
+export async function clickExport(page) {
+  const hit = await page.evaluate(() => {
+    const L = (e) => `${e.innerText || ""} ${e.getAttribute("aria-label") || ""} ${e.getAttribute("title") || ""} ${e.getAttribute("data-testid") || ""}`;
+    const el = [...document.querySelectorAll("button,a")].find((e) => e.offsetParent !== null && /export|download/i.test(L(e)));
+    if (!el) return null;
+    el.setAttribute("data-ppcw", "export");
+    return L(el).trim().slice(0, 60);
+  });
+  if (!hit) return { clicked: false };
+  await page.click('[data-ppcw="export"]');
+  await sleep(2500);
+  const fmt = await page.evaluate(() => {
+    const el = [...document.querySelectorAll('[role=menuitem],[role=option],li,button,a')].find((e) => {
+      const t = (e.innerText || "").trim();
+      return e.offsetParent !== null && t.length <= 30 && /\b(csv|xlsx|excel)\b/i.test(t);
+    });
+    if (!el) return null;
+    el.setAttribute("data-ppcw", "exportfmt");
+    return (el.innerText || "").trim().slice(0, 30);
+  });
+  if (fmt) await page.click('[data-ppcw="exportfmt"]');
+  return { clicked: true, button: hit, menu: fmt };
+}
+
+/** Số dòng kết quả ĐANG HIỆN trên màn hình. Viết dạng chuỗi để dùng lại được cho cả
+ *  waitForFunction lẫn evaluate. */
+export const VISIBLE_ROWS =
+  '[...document.querySelectorAll("table tbody tr, [role=row]")].filter((r) => r.offsetParent !== null).length';
+
+/** Một lượt quét: nhập ASIN → Get Keywords → chờ bảng → Export → đọc file → áp quy tắc.
+ *  Trả {rows, raw, diag} hoặc {error, diag}. KHÔNG ném lỗi: một ASIN hỏng không được phép
+ *  làm mất cả lượt quét của những ASIN còn lại. */
+async function scanCerebroOnce(page, asins, rule, dir, send) {
+  const d = { asins };
+  try {
+    await page.goto("https://members.helium10.com/cerebro-new", { waitUntil: "domcontentloaded", timeout: 60000 });
+    await sleep(5000); // Cerebro là SPA — chờ dựng xong
+    if (await page.evaluate(() => /sign in|log in|password/i.test(document.body.innerText.slice(0, 1200))))
+      return { error: "Chrome này đã mất đăng nhập H10 — đăng nhập lại trong cửa sổ đó rồi chạy lại", diag: d };
+
+    d.input = await markAsinInput(page);
+    if (!d.input) { d.inputsSeen = await listEls(page, "input,textarea"); return { error: "Không tìm thấy ô nhập ASIN trên Cerebro", diag: d }; }
+
+    // Gõ THẬT (click + type) chứ không gán .value: React bỏ qua gán thẳng, ô sẽ trông như vẫn trống
+    await page.click('[data-ppcw="input"]', { clickCount: 3 });
+    await page.keyboard.press("Backspace");
+    await page.type('[data-ppcw="input"]', asins.join(", "), { delay: 25 });
+    await sleep(600);
+
+    // Exclude Variations phải bật TRƯỚC khi tìm — nó đổi tập dữ liệu Cerebro trả về
+    d.excludeVariations = await toggleByLabel(page, "exclude\\s*variation", rule.excludeVariations !== false);
+
+    d.submit = await markSubmit(page);
+    if (!d.submit) { d.buttonsSeen = await listEls(page, "button"); return { error: 'Không tìm thấy nút "Get Keywords"', diag: d }; }
+    await page.click('[data-ppcw="go"]');
+    send("   ⏳ Cerebro đang tra cứu...");
+
+    const SEARCH_MS = 180000; // Cerebro tra 10 ASIN có thể lâu vài phút
+    /* Đếm dòng ĐANG HIỆN, không phải dòng có trong DOM: khung bảng của Cerebro nằm sẵn
+       trong DOM lúc đang tải (ẩn đi), nên đếm kiểu cũ là thấy "đã có kết quả" ngay lập tức
+       rồi bấm Export vào bảng trống. */
+    try {
+      await page.waitForFunction(VISIBLE_ROWS + " > 3", { timeout: SEARCH_MS, polling: 2000 });
+    } catch {
+      d.rowCount = await page.evaluate(VISIBLE_ROWS).catch(() => 0);
+      d.pageText = await page.evaluate(() => document.body.innerText.slice(0, 400)).catch(() => "");
+      return { error: `Cerebro không trả kết quả sau ${SEARCH_MS / 1000} giây`, diag: d };
+    }
+    await sleep(4000); // bảng vừa hiện vài dòng đầu — chờ nạp hết rồi mới Export
+    d.rowCount = await page.evaluate(VISIBLE_ROWS);
+    send(`   ✓ Có kết quả (${d.rowCount} dòng trên màn hình) — bấm Export`);
+
+    // Công tắc Exclude Variations của giao diện mới có thể nằm ở bảng lọc SAU kết quả
+    if (!d.excludeVariations?.found) {
+      d.excludeVariationsAfter = await toggleByLabel(page, "exclude\\s*variation", rule.excludeVariations !== false);
+      if (d.excludeVariationsAfter?.found && d.excludeVariationsAfter.was !== d.excludeVariationsAfter.set) await sleep(8000);
+    }
+
+    d.export = await clickExport(page);
+    if (!d.export.clicked) { d.buttonsSeen = await listEls(page, "button,a"); return { error: "Không tìm thấy nút Export trên trang kết quả", diag: d }; }
+
+    const file = await waitDownload(dir, 150000);
+    d.file = file ? path.basename(file) : null;
+    if (!file) return { error: "Đã bấm Export nhưng không thấy file tải về sau 150 giây", diag: d };
+
+    const parsed = parseCerebroExport(fs.readFileSync(file));
+    const res = applyRule(parsed.rows, rule);
+    d.reasons = res.reasons;
+    return { rows: res.kept, raw: parsed.rows.length, diag: d };
+  } catch (e) {
+    return { error: e.message, diag: d };
+  }
+}
+
+async function runH10ScanJob(job, logger, state = { stop: false }) {
+  const send = logger.send;
+  const p = job.payload || {};
+  const asins = (p.asins || []).map((a) => String(a).trim().toUpperCase()).filter((a) => /^[A-Z0-9]{10}$/.test(a));
+  const rule = p.rule || {};
+  const mode = rule.scanMode === "all" ? "all" : "each";
+  const diag = { jobId: job.id, agent: NAME, kind: "h10scan", setName: p.setName, steps: [] };
+  let shared = null, page = null;
+  try {
+    if (!asins.length) throw new Error("Không có ASIN hợp lệ trong job");
+    shared = await connectBrowser(H10_BROWSER_URL, send);
+    diag.mode = shared ? "chrome-co-san" : "trinh-duyet-rieng";
+    const browser = shared || await getBrowser(null, send);
+    page = shared ? await shared.newPage() : await newCleanPage(browser, null);
+    if (!shared) {
+      send("🔑 Không có Chrome sẵn — nạp cookie/localStorage từ server...");
+      const s = await api("/api/agent/h10-cookie", {});
+      await injectH10Session(browser, page, s.cookies, s.storage, send);
+    }
+
+    const dir = path.join(DL_ROOT, job.id);
+    diag.downloadScope = await setDownloadDir(browser, page, dir);
+
+    /* "all" = gộp vào 1 lần quét (Cerebro nhận tối đa 10 mã), "each" = quét từng mã rồi
+       tổng hợp — chậm hơn nhưng biết keyword đến từ ASIN nào và không bị giới hạn 10. */
+    const groups = mode === "all" ? [asins.slice(0, 10)] : asins.map((a) => [a]);
+    if (mode === "all" && asins.length > 10)
+      send(`⚠️ Cerebro nhận tối đa 10 ASIN mỗi lần — chỉ quét 10 mã đầu. Chọn "Từng ASIN" để quét hết ${asins.length} mã.`);
+
+    const batches = [], perAsin = [];
+    for (let i = 0; i < groups.length; i++) {
+      const g = groups[i];
+      // Dừng GIỮA các lượt, không cắt ngang một lượt đang tải file — bỏ dở ở giữa thì
+      // vừa mất công quét vừa để lại file tải dở trong thư mục
+      if (state.stop) { send(`⏹ Dừng theo yêu cầu sau ${i}/${groups.length} lượt — phần đã quét vẫn được lưu`); break; }
+      send(`🔎 [${i + 1}/${groups.length}] ${g.join(", ")}`);
+      const r = await scanCerebroOnce(page, g, rule, dir, send);
+      diag.steps.push(r.diag);
+      if (r.error) { send(`   🚨 ${r.error}`); perAsin.push({ asins: g, error: r.error, count: 0 }); continue; }
+      batches.push({ asin: g.join("+"), rows: r.rows });
+      perAsin.push({ asins: g, raw: r.raw, count: r.rows.length });
+      send(`   ✓ file export ${r.raw} dòng → ${r.rows.length} keyword đạt quy tắc`);
+    }
+    if (!batches.length) throw new Error("Không quét được ASIN nào — mở 🔑 Phân tích Keyword › 📄 Xem báo cáo lần trước để biết trang đang trông thế nào");
+
+    const keywords = mergeByKeyword(batches);
+    send(`📦 Tổng hợp ${batches.length}/${groups.length} lượt quét → ${keywords.length} keyword`);
+    const saved = await api("/api/agent/h10-scan-result", {
+      jobId: job.id, name: p.setName, asins, ruleName: rule.name || "", rule, keywords, perAsin, diag
+    });
+    send(`💾 Đã lưu bộ "${saved.name}" — ${saved.count} keyword. Nạp được ở mục 2️⃣ trang Tạo Campaign.`);
+  } catch (e) {
+    send(`🚨 ${e.message}`);
+    diag.error = e.message;
+    await logger.flush();
+    await api("/api/agent/fail", { jobId: job.id, error: e.message }).catch(() => {});
+  } finally {
+    await logger.flush();
+    // Gửi báo cáo DÙ THÀNH CÔNG HAY KHÔNG: hỏng thì đây là thứ duy nhất nói được vì sao
+    try { await api("/api/agent/h10-report", diag); } catch {}
+    if (page) { try { await page.close(); } catch {} }
+    // NGẮT chứ không ĐÓNG: close() tắt luôn cửa sổ Chrome của người dùng, mất cả phiên H10
+    if (shared) { try { shared.disconnect(); } catch {} }
+    else if (hold) hold.lastUsed = Date.now();
+  }
+}
+
 /* Job quét Competitor Library: mở trang /dp/ từng ASIN — ảnh/title (server chỉ lưu lần đầu),
    Sale "bought in past month" + GIÁ (lưu theo ngày) → đẩy về /api/agent/lib-result */
 async function runLibScanJob(job, logger) {
@@ -470,7 +738,9 @@ async function runLibScanJob(job, logger) {
   }
 }
 
-(async () => {
+/* AGENT_NO_RUN=1: nạp file này để KIỂM THỬ các hàm bên trong mà không khởi động vòng poll.
+   Không có cờ này thì mọi lệnh `import agent.js` đều biến thành một agent thật đang chạy. */
+if (!process.env.AGENT_NO_RUN) (async () => {
   if (!SERVER) {
     console.error('Thiếu SERVER_URL trong .env — VD: SERVER_URL=https://xxx.up.railway.app');
     process.exit(1);

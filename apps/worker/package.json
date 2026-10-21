@@ -7,7 +7,8 @@
   "scripts": {
     "start": "node server.js",
     "start:vps": "xvfb-run -a --server-args='-screen 0 1366x900x24' node server.js",
-    "agent": "node agent.js"
+    "agent": "node agent.js",
+    "test": "node test/run.mjs"
   },
   "dependencies": {
     "dotenv": "^17.2.1",
