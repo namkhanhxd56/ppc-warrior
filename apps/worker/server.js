@@ -45,7 +45,11 @@ const PASSWORD = process.env.WORKER_PASSWORD || "";
    - Có user: trang → redirect /login.html; API → 401; phiên qua cookie ppcw_sid
    - Agent: Basic <username>:<password> (tài khoản thật) → job/data vào ĐÚNG PHÂN VÙNG user đó
    - Mỗi request chạy trong AsyncLocalStorage context → file-store tự resolve ./data hay ./data/users/<name> */
-const PUBLIC_PATHS = ["/user", "/user.html", "/login.html", "/api/auth/login", "/api/auth/register", "/api/auth/me", "/api/version", "/favicon.ico", "/setup-agent.sh", "/setup-agent.ps1", "/agent-bundle.tgz"];
+/* /nav.js và /agent-panel.js phải công khai: chúng nằm trên CHÍNH trang đăng nhập. Không
+   mở thì thẻ <script src> bị redirect sang /user, trình duyệt nhận về HTML và ném
+   "Unexpected token '<'" ngay giữa màn hình đăng nhập. Hai file này chỉ là mã giao diện —
+   mọi API chúng gọi vẫn chặn theo phiên như cũ. */
+const PUBLIC_PATHS = ["/user", "/user.html", "/login.html", "/api/auth/login", "/api/auth/register", "/api/auth/me", "/api/version", "/favicon.ico", "/setup-agent.sh", "/setup-agent.ps1", "/agent-bundle.tgz", "/nav.js", "/agent-panel.js"];
 app.use((req, res, next) => {
   const p = req.path;
   if (PUBLIC_PATHS.includes(p)) return next();
