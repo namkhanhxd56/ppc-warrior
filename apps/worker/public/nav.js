@@ -37,6 +37,9 @@
     /* Chip luôn nằm CUỐI header, trên mọi trang. Trang Check Ranking có sẵn #status mang
        margin-left:auto nên chip chỉ cần cách ra; trang khác thì chip tự đẩy sang phải. */
     const st = document.getElementById("status");
+    // Dọn sạch chip cũ trước khi gắn: trang nào còn sót đoạn tự dựng chip thì cũng chỉ còn
+    // lại MỘT cái. (Đã dính thật: adjust/data/launching giữ bản chép riêng → hiện 2 chip.)
+    header.querySelectorAll('a[href="/user"]').forEach((e) => e.remove());
     const chip = document.createElement("a");
     chip.href = "/user";
     chip.title = "Tài khoản · agent · đăng xuất";

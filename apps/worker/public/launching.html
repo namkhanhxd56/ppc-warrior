@@ -586,7 +586,7 @@ const TYPE_LABEL = { SP_KW_EXACT:'Exact', SP_KW_PHRASE:'Phrase', SP_KW_BROAD:'Br
 const STRATEGIES = ['Dynamic bids - down only','Dynamic bids - up and down','Fixed bid'];
 
 /* ===== Cảnh báo server chạy code cũ ===== */
-const UI_VERSION = '0.45.0';
+const UI_VERSION = '0.45.1';
 /* ===== THANH TIẾN ĐỘ QUÉT RANKING (dùng chung mọi trang) =====
    Lượt quét sống ở HÀNG ĐỢI trên server, không phải ở tab nào. Trước đây chuyển sang trang
    này là mất dấu — tệ hơn, bản cũ còn làm CHẾT luôn lượt quét vì vòng lặp điều phối nằm ở
@@ -1981,23 +1981,7 @@ function previewNames() {
 }
 for (const id of ['nameKw','asin','sku','manager','startDate','category','noteExact']) $(id).addEventListener('input', previewNames);
 
-/* ===== USER (góc phải header → trang /user) ===== */
-(async () => {
-  try {
-    const me = await (await fetch('/api/auth/me')).json();
-    if (!me.user) return; // chế độ local 1 người — không hiện
-    const st = document.getElementById('status');
-    const chip = document.createElement('a');
-    chip.href = '/user';
-    chip.title = 'Tài khoản · agent · đăng xuất';
-    // Chỉ trang Check Ranking có #status (mang margin-left:auto). Các trang khác không có nên
-    // chip phải TỰ đẩy sang phải, không thì nó dính ngay sau menu — đổi tab là nhảy chỗ.
-    chip.style.cssText = `${st ? 'margin-left:12px' : 'margin-left:auto'};font-size:12px;text-decoration:none;color:#fff;font-weight:700;`
-      + `background:${me.user.role === 'admin' ? '#e5a400' : '#2455e6'};border-radius:9px;padding:3px 12px`;
-    chip.textContent = '👤 ' + me.user.name + (me.actAs && me.actAs !== me.user.name ? ' → 📁' + me.actAs : '');
-    document.querySelector('header')?.appendChild(chip); // luôn cùng 1 chỗ: cuối header
-  } catch {}
-})();
+/* Chip tài khoản ở góc header: nav.js dựng cho mọi trang — đừng chép lại ở đây. */
 </script>
 <script src="/nav.js"></script>
 </body>
