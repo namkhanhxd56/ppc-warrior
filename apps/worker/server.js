@@ -10,7 +10,7 @@ import { setZipLocation, ensureZipLocation } from "./src/scraper/set-location.js
 import { runBatch } from "./src/jobs/run-batch.js";
 import { planCampaigns, buildRowsFromPlans, buildSdRows, buildSbRows, BULK_HEADER, SD_HEADER, SB_HEADER, DEFAULTS as LAUNCH_DEFAULTS } from "./src/launching/bulk-builder.js";
 import { parseH10 } from "./src/launching/h10-parser.js";
-import { etlBulk, queryRows, buildUpdateRows, rowKey, groupTerms, listPortfolios, stampAsins } from "./src/adjust/bulk-etl.js";
+import { etlBulk, queryRows, buildUpdateRows, rowKey, groupTerms, listPortfolios, stampAsins, AD_TYPES, AD_PRODUCT } from "./src/adjust/bulk-etl.js";
 import { evaluate as evaluateRules } from "./src/adjust/rule-engine.js";
 import { DEFAULT_RULES } from "./src/adjust/default-rules.js";
 import { buildMetrics, summarize, cellOf, buildAsinDaily } from "./src/data/consolidate.js";
@@ -1213,19 +1213,34 @@ app.post("/api/adjust/query", (req, res) => {
   res.json({ ok: true, ...out, meta: ds.meta });
 });
 
+/** Dòng Update chia theo loại ads → [{ ad, sheet, header, rows }]. Mỗi loại ghi vào sheet
+    cùng tên sheet gốc trong file bulk (Amazon nhận diện SP/SB/SD theo tên sheet + cột Product).
+    Dataset cũ (trước khi có SB/SD) không có headers/sheetNames → chỉ SP với ds.header. */
+function buildUpdateSheets(ds, edits, negatives) {
+  const out = [];
+  for (const ad of AD_TYPES) {
+    const header = ad === "SP" ? ds.header : ds.headers?.[ad];
+    if (!header || !header.length) continue;
+    const rows = buildUpdateRows(header, ds.byKey, edits, ad === "SP" ? negatives : [], ad);
+    const sheet = ds.sheetNames?.[ad] || `${AD_PRODUCT[ad]} Campaigns`;
+    out.push({ ad, sheet, header, rows });
+  }
+  return out;
+}
+
 /** Dựng workbook Update (dòng thay đổi + Negative) + ghi audit. Trả {buf, rowCount}. */
 function writeUpdateWorkbook(ds, edits, negatives, id, source) {
-  const rows = buildUpdateRows(ds.header, ds.byKey, edits, negatives);
-  if (!rows.length) throw new Error("Không có thay đổi nào để xuất");
-  const ws = XLSX.utils.json_to_sheet(rows, { header: ds.header });
+  const sheets = buildUpdateSheets(ds, edits, negatives).filter((x) => x.rows.length);
+  const rowCount = sheets.reduce((n, x) => n + x.rows.length, 0);
+  if (!rowCount) throw new Error("Không có thay đổi nào để xuất");
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, "Sponsored Products Campaigns");
+  for (const x of sheets) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(x.rows, { header: x.header }), x.sheet);
   const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
   fs.mkdirSync(ADJUST_DIR_FN(), { recursive: true });
   const audit = { at: new Date().toISOString(), dataset: id, source: source || "manual",
     edits: (edits || []).length, negatives: (negatives || []).length, detail: { edits, negatives } };
   fs.appendFileSync(`${ADJUST_DIR_FN()}/audit.jsonl`, JSON.stringify(audit) + "\n");
-  return { buf, rowCount: rows.length };
+  return { buf, rowCount };
 }
 
 function sendWorkbook(res, buf, rowCount, id) {
@@ -1264,7 +1279,8 @@ app.post("/api/adjust/export-all", (req, res) => {
     const { id, edits, negatives, creates } = req.body || {};
     const ds = loadDataset(id);
     if (!ds) throw new Error("Dataset không tồn tại");
-    const updateRows = buildUpdateRows(ds.header, ds.byKey, edits, negatives);
+    const sheets = buildUpdateSheets(ds, edits, negatives);
+    const updateRows = sheets.flatMap((x) => x.rows);
     let createRows = [], campaigns = 0, missing = [];
     if (Array.isArray(creates) && creates.length) {
       const built = buildHarvestCreateRows(creates.map((c) => ({
@@ -1272,13 +1288,21 @@ app.post("/api/adjust/export-all", (req, res) => {
         note: c.note, portfolioId: c.pf, campaignMode: c.mode
       })));
       campaigns = built.campaigns;
+      if (!ds.header?.length) throw new Error("Dataset không có sheet Sponsored Products — không tạo được campaign SP mới");
       const m = remapToDatasetHeader(built.rows, ds.header);
       createRows = m.rows; missing = m.missing;
     }
     const rows = [...updateRows, ...createRows];
     if (!rows.length) throw new Error("Không có thay đổi nào để xuất");
+    // SP: Update + Create chung 1 sheet; SB/SD: mỗi loại 1 sheet riêng (chỉ Update)
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows, { header: ds.header }), "Sponsored Products Campaigns");
+    const bySheet = {};
+    for (const x of sheets) {
+      const xr = x.ad === "SP" ? [...x.rows, ...createRows] : x.rows;
+      if (!xr.length) continue;
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(xr, { header: x.header }), x.sheet);
+      bySheet[x.ad] = xr.length;
+    }
     const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
     fs.mkdirSync(ADJUST_DIR_FN(), { recursive: true });
     const audit = { at: new Date().toISOString(), dataset: id, source: "manual",
@@ -1290,7 +1314,7 @@ app.post("/api/adjust/export-all", (req, res) => {
       `attachment; filename="bulk-adjust-${id}-${new Date().toISOString().slice(0, 10)}.xlsx"`);
     res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
     res.setHeader("X-Adjust-Info", JSON.stringify({ rows: rows.length,
-      updateRows: updateRows.length, createRows: createRows.length, campaigns, missing }));
+      updateRows: updateRows.length, createRows: createRows.length, campaigns, missing, bySheet }));
     res.send(buf);
   } catch (e) {
     res.status(400).json({ ok: false, message: e.message });
@@ -1365,13 +1389,15 @@ app.post("/api/adjust/run-rules", (req, res) => {
     if (Array.isArray(ruleIds) && ruleIds.length) rules = rules.filter((r) => ruleIds.includes(r.id));
 
     const asinOf = (r) => { const a = String(r.asin || "").toUpperCase(); if (/^B0[A-Z0-9]{8}$/.test(a)) return a; const m = String(r.name || "").toUpperCase().match(/B0[A-Z0-9]{8}/); return m ? m[0] : null; };
-    const asins = [...new Set(ds.records.map(asinOf).filter(Boolean))];
+    // Rule Set v1 viết cho SP (placement, match type, harvest...) — chưa áp lên SB/SD
+    const spRecords = ds.records.filter((r) => !r.ad || r.ad === "SP");
+    const asins = [...new Set(spRecords.map(asinOf).filter(Boolean))];
     const products = store.getProductsMap(asins);
     const targetAcosByAsin = {};
     for (const [a, p] of Object.entries(products)) if (p.target_acos != null) targetAcosByAsin[a] = p.target_acos;
     const rankByAsinKw = buildRankMap(asins);
 
-    const proposals = evaluateRules(rules, ds.records, { targetAcosByAsin, rankByAsinKw });
+    const proposals = evaluateRules(rules, spRecords, { targetAcosByAsin, rankByAsinKw });
     const runId = Date.now().toString(36);
     store.setProposalStatusByDataset(id, "pending", "superseded"); // dọn dry-run cũ chưa duyệt
     const inserted = store.insertProposals(proposals.map((p) => ({ ...p, datasetId: id, runId })));

@@ -21,78 +21,161 @@ export const r4 = (n) => Math.round(n * 10000) / 10000;
 // 6 entity chỉnh sửa được (user dùng bật/tắt cả Ad Group + Product Ad — không chỉ 4 như trước).
 const KEEP_ENTITIES = new Set(["Campaign", "Ad Group", "Product Ad", "Keyword", "Product Targeting", "Bidding Adjustment"]);
 
-/** Khóa duy nhất của 1 dòng entity (ID số là string — 15 chữ số, không để mất chính xác).
-    Có adid để phân biệt nhiều Product Ad trong cùng Ad Group (camp multi-SKU). */
-export function rowKey(e) {
-  return [e.e, e.cid, e.agid, e.kid, e.tid, e.adid, e.pl].join("|");
+/* ===== 3 loại ads: SP / SB / SD — mỗi loại 1 sheet riêng, header riêng =====
+   SB: Amazon xuất 2 sheet — "Sponsored Brands Campaigns" (định dạng cũ) và "SB Multi Ad Group
+   Campaigns" (định dạng mới). Sheet mới chứa TRỌN sheet cũ (đo file 14/07/2026: 388/388 campaign
+   trùng, thêm Ad Group + Ad + Placement) → chỉ đọc 1 sheet, ưu tiên sheet mới, để khỏi đếm đôi. */
+export const AD_TYPES = ["SP", "SB", "SD"];
+export const AD_PRODUCT = { SP: "Sponsored Products", SB: "Sponsored Brands", SD: "Sponsored Display" };
+const isSearchTerm = (n) => /search term/i.test(n);
+const SHEET_PICK = {
+  SP: (names) => names.find((n) => n === "Sponsored Products Campaigns")
+    || names.find((n) => /^Sponsored Products/i.test(n) && !isSearchTerm(n)),
+  SB: (names) => names.find((n) => /^SB Multi Ad Group/i.test(n))
+    || names.find((n) => /^Sponsored Brands/i.test(n) && !isSearchTerm(n)),
+  SD: (names) => names.find((n) => /^Sponsored Display/i.test(n) && !isSearchTerm(n))
+};
+
+/** Entity gốc của Amazon → entity chuẩn hoá mà UI/rule/export dùng chung.
+    SP giữ nguyên. SB/SD: các loại Ad (Video Ad, Product Collection Ad, Brand Video Ad...) quy về
+    "Product Ad" (chỉ bật/tắt), "Bidding Adjustment by Placement" → "Bidding Adjustment",
+    SD "Audience/Contextual Targeting" → "Product Targeting" (bid + state). Tên gốc giữ ở `eo`
+    để hiển thị và ghi đúng cột Entity khi xuất. Negative không giữ (chưa sửa trong Adjust). */
+function normEntity(ad, ent) {
+  if (ad === "SP") return KEEP_ENTITIES.has(ent) ? ent : null;
+  if (/^Negative|Negative/.test(ent)) return null;
+  if (["Campaign", "Ad Group", "Keyword", "Product Targeting"].includes(ent)) return ent;
+  if (ad === "SB" && /^Bidding Adjustment/.test(ent)) return "Bidding Adjustment";
+  if (ad === "SD" && /Targeting$/.test(ent)) return "Product Targeting";
+  if (/Ad$/.test(ent)) return "Product Ad";
+  return null;
 }
 
-/**
- * ETL file bulk (buffer) → dataset gọn.
- * @returns {{ meta, header, records[], terms[] }}
- */
-export function etlBulk(buffer, filename) {
-  const wb = XLSX.read(buffer, { type: "buffer", dense: true });
-  const sheet = wb.Sheets["Sponsored Products Campaigns"];
-  if (!sheet) throw new Error('Không tìm thấy sheet "Sponsored Products Campaigns" — có đúng file bulk Amazon?');
+/** Khóa duy nhất của 1 dòng entity (ID số là string — 15 chữ số, không để mất chính xác).
+    Có adid để phân biệt nhiều Product Ad trong cùng Ad Group (camp multi-SKU).
+    SB/SD có tiền tố "SB:"/"SD:"; SP KHÔNG có — giữ nguyên khoá cũ cho ledger/proposal đã lưu. */
+export function rowKey(e) {
+  const pre = e.ad && e.ad !== "SP" ? e.ad + ":" : "";
+  return pre + [e.e, e.cid, e.agid, e.kid, e.tid, e.adid, e.pl].join("|");
+}
 
+/** Tính lại !ref theo ô thật của sheet dense. File bulk Amazon (từ ~10/2026) ghi
+    <dimension ref="A1:BB1"/> dù có hàng chục nghìn dòng; SheetJS tin thẻ đó (chỉ bỏ qua
+    khi ref thiếu dấu ":" như "A1" ở file cũ) → sheet_to_json chỉ trả mỗi dòng header. */
+function fixDenseRef(sheet) {
+  if (!sheet || !Array.isArray(sheet)) return;
+  let maxC = 0;
+  for (const row of sheet) if (row && row.length > maxC) maxC = row.length;
+  if (sheet.length && maxC) sheet["!ref"] = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: sheet.length - 1, c: maxC - 1 } });
+}
+
+/** Đọc 1 sheet campaign (SP/SB/SD) → { header, total, records[] }. Tên cột khác nhau giữa
+    các loại (Daily Budget ↔ Budget, Product Targeting ID ↔ Targeting ID...) → tra theo danh
+    sách tên thay thế. */
+function parseCampaignSheet(sheet, ad) {
+  fixDenseRef(sheet);
   const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
+  if (!rows.length) return { header: [], total: 0, records: [] };
   const H = rows[0].map(String);
-  const c = (name) => H.findIndex((h) => h === name);
+  const c = (...names) => { for (const n of names) { const i = H.indexOf(n); if (i !== -1) return i; } return -1; };
   const ix = {
     entity: c("Entity"), cid: c("Campaign ID"), agid: c("Ad Group ID"),
-    kid: c("Keyword ID"), tid: c("Product Targeting ID"), adid: c("Ad ID"), sku: c("SKU"),
-    name: c("Campaign Name (Informational only)"), agname: c("Ad Group Name (Informational only)"),
+    kid: c("Keyword ID"), tid: c("Product Targeting ID", "Targeting ID"), adid: c("Ad ID"), sku: c("SKU"),
+    name: c("Campaign Name (Informational only)", "Campaign Name"),
+    agname: c("Ad Group Name (Informational only)", "Ad Group Name"), adname: c("Ad Name"),
     pfname: c("Portfolio Name (Informational only)"), pfid: c("Portfolio ID"), asin: c("ASIN (Informational only)"),
+    casins: c("Creative ASINs"),
     state: c("State"), cstate: c("Campaign State (Informational only)"),
-    bud: c("Daily Budget"), agbid: c("Ad Group Default Bid"), bid: c("Bid"),
-    sd: c("Start Date"),
-    kw: c("Keyword Text"), mt: c("Match Type"), tt: c("Targeting Type"),
+    bud: c("Daily Budget", "Budget"), agbid: c("Ad Group Default Bid"), bid: c("Bid"),
+    sd: c("Start Date"), ed: c("End Date"),
+    kw: c("Keyword Text"), mt: c("Match Type"),
+    tt: c("Targeting Type"), tactic: c("Tactic"), cost: c("Cost Type"), fmt: c("Ad Format", "Creative Type"),
     bs: c("Bidding Strategy"), pl: c("Placement"), pct: c("Percentage"),
-    ex: c("Product Targeting Expression"), ed: c("End Date"),
+    ex: c("Product Targeting Expression", "Targeting Expression"),
     imp: c("Impressions"), clk: c("Clicks"), sp: c("Spend"), sa: c("Sales"),
     or: c("Orders"), un: c("Units")
   };
-  if (ix.entity === -1 || ix.cid === -1) throw new Error("Header không khớp cấu trúc bulk chuẩn");
+  if (ix.entity === -1 || ix.cid === -1) throw new Error(`Header sheet ${AD_PRODUCT[ad]} không khớp cấu trúc bulk chuẩn`);
 
   const records = [];
   for (let i = 1; i < rows.length; i++) {
     const r = rows[i];
-    const entity = String(r[ix.entity] || "");
-    if (!KEEP_ENTITIES.has(entity)) continue;
+    const g = (k) => (ix[k] === -1 ? "" : r[ix[k]]);
+    const gs = (k) => String(g(k) ?? "");
+    const eo = gs("entity");
+    const entity = normEntity(ad, eo);
+    if (!entity) continue;
 
-    const imp = num(r[ix.imp]), clk = num(r[ix.clk]), sp = num(r[ix.sp]),
-      sa = num(r[ix.sa]), or = num(r[ix.or]);
-    records.push({
+    const imp = num(g("imp")), clk = num(g("clk")), sp = num(g("sp")),
+      sa = num(g("sa")), or = num(g("or"));
+    // SB ad: không có cột ASIN, chỉ có "Creative ASINs" — 1 ASIN thì nhận, nhiều thì để trống
+    let asin = gs("asin");
+    if (!asin && entity === "Product Ad") {
+      const ca = gs("casins").split(/[,\s]+/).filter(Boolean);
+      if (ca.length === 1) asin = ca[0];
+    }
+    const tt = ad === "SP" ? gs("tt")
+      : ad === "SD" ? [gs("tactic"), gs("cost")].filter(Boolean).join(" · ")
+      : gs("fmt");
+    const rec = {
       e: entity,
-      cid: String(r[ix.cid] || ""), agid: String(r[ix.agid] || ""),
-      kid: String(r[ix.kid] || ""), tid: String(r[ix.tid] || ""),
-      adid: String(r[ix.adid] || ""), sku: entity === "Product Ad" ? String(r[ix.sku] || "") : "",
-      name: String(r[ix.name] || ""), agname: String(r[ix.agname] || ""),
-      pfname: String(r[ix.pfname] || ""), pfid: String(r[ix.pfid] || ""), asin: String(r[ix.asin] || ""),
-      st: String(r[ix.state] || ""), cst: String(r[ix.cstate] || ""),
-      bud: entity === "Campaign" ? num(r[ix.bud]) : null,
-      sd: entity === "Campaign" ? String(r[ix.sd] || "") : "",
-      ed: entity === "Campaign" ? String(r[ix.ed] || "") : "",
-      agbid: num(r[ix.agbid]) || null,
-      bid: (entity === "Keyword" || entity === "Product Targeting") ? num(r[ix.bid]) : null,
-      kw: String(r[ix.kw] || ""), mt: String(r[ix.mt] || ""),
-      tt: String(r[ix.tt] || ""), bs: String(r[ix.bs] || ""),
-      pl: String(r[ix.pl] || ""), pct: entity === "Bidding Adjustment" ? num(r[ix.pct]) : null,
-      ex: String(r[ix.ex] || ""),
-      imp, clk, sp: r2(sp), sa: r2(sa), or, un: num(r[ix.un]),
+      cid: gs("cid"), agid: gs("agid"),
+      kid: gs("kid"), tid: gs("tid"),
+      adid: gs("adid"), sku: entity === "Product Ad" ? (gs("sku") || gs("adname")) : "",
+      name: gs("name"), agname: gs("agname"),
+      pfname: gs("pfname"), pfid: gs("pfid"), asin,
+      st: gs("state"), cst: gs("cstate"),
+      bud: entity === "Campaign" ? num(g("bud")) : null,
+      sd: entity === "Campaign" ? gs("sd") : "",
+      ed: entity === "Campaign" ? gs("ed") : "",
+      agbid: num(g("agbid")) || null,
+      bid: (entity === "Keyword" || entity === "Product Targeting") ? num(g("bid")) : null,
+      kw: gs("kw"), mt: gs("mt"),
+      tt, bs: gs("bs"),
+      pl: gs("pl"), pct: entity === "Bidding Adjustment" ? num(g("pct")) : null,
+      ex: gs("ex"),
+      imp, clk, sp: r2(sp), sa: r2(sa), or, un: num(g("un")),
       ctr: imp > 0 ? r4(clk / imp) : 0,
       cr: clk > 0 ? r4(or / clk) : 0,
       acos: sa > 0 ? r4(sp / sa) : null, // null = có spend không sales (∞) hoặc chưa có gì
       cpc: clk > 0 ? r2(sp / clk) : 0,
       roas: sp > 0 ? r2(sa / sp) : 0
-    });
+    };
+    if (ad !== "SP") { rec.ad = ad; if (eo !== entity) rec.eo = eo; }
+    records.push(rec);
   }
+  return { header: H, total: rows.length - 1, records };
+}
+
+/**
+ * ETL file bulk (buffer) → dataset gọn. Đọc cả 3 sheet campaign SP / SB / SD (có sheet nào
+ * đọc sheet đó — khi tải bulk, Amazon chỉ xuất loại được tick).
+ * @returns {{ meta, header, headers, sheetNames, records[], terms[] }}
+ *   header = header SP (giữ tên cũ cho code xuất Create/harvest); headers/sheetNames theo loại.
+ */
+export function etlBulk(buffer, filename) {
+  const wb = XLSX.read(buffer, { type: "buffer", dense: true });
+  const headers = {}, sheetNames = {}, byAd = {};
+  const records = [];
+  let totalRows = 0;
+  for (const ad of AD_TYPES) {
+    const name = SHEET_PICK[ad](wb.SheetNames);
+    if (!name) continue;
+    const out = parseCampaignSheet(wb.Sheets[name], ad);
+    headers[ad] = out.header; sheetNames[ad] = name;
+    byAd[ad] = { sheet: name, rows: out.total, kept: out.records.length };
+    totalRows += out.total;
+    for (const rec of out.records) records.push(rec);
+  }
+  if (!Object.keys(sheetNames).length)
+    throw new Error('Không tìm thấy sheet "Sponsored Products / Sponsored Brands / Sponsored Display Campaigns" — có đúng file bulk Amazon?');
+  if (!totalRows) throw new Error(`Các sheet ${Object.values(sheetNames).join(", ")} không có dòng dữ liệu nào`);
 
   /* ===== SP Search Term Report (nếu có khi tải bulk) ===== */
   const terms = [];
   const stSheet = wb.Sheets["SP Search Term Report"];
   if (stSheet) {
+    fixDenseRef(stSheet);
     const st = XLSX.utils.sheet_to_json(stSheet, { header: 1, defval: "" });
     const h2 = st[0].map(String);
     const c2 = (n) => h2.findIndex((h) => h === n);
@@ -135,12 +218,12 @@ export function etlBulk(buffer, filename) {
       filename,
       windowStart: m ? m[1] : null, windowEnd: m ? m[2] : null,
       importedAt: new Date().toISOString(),
-      totalRows: rows.length - 1, kept: records.length, termCount: terms.length, stats,
+      totalRows, kept: records.length, termCount: terms.length, stats, byAd,
       spend: r2(records.filter((r) => r.e === "Campaign").reduce((n, r) => n + r.sp, 0)),
       sales: r2(records.filter((r) => r.e === "Campaign").reduce((n, r) => n + r.sa, 0)),
       orders: records.filter((r) => r.e === "Campaign").reduce((n, r) => n + r.or, 0)
     },
-    header: H,
+    header: headers.SP || [], headers, sheetNames,
     records, terms
   };
 }
@@ -198,6 +281,7 @@ export function queryRows(list, q = {}) {
       (r.tt && r.tt.toLowerCase().includes(s)) ||
       (r.targeting && r.targeting.toLowerCase().includes(s)));
   }
+  if (f.ad) out = out.filter((r) => (r.ad || "SP") === f.ad);
   if (f.entity) { const ents = Array.isArray(f.entity) ? f.entity : [f.entity]; if (ents.length) out = out.filter((r) => ents.includes(r.e)); }
   // Portfolio: gộp tên + ID. Portfolio chỉ có ở dòng Campaign → lọc cả cây campaign qua cid.
   if (f.portfolio) {
@@ -358,9 +442,20 @@ const FIELD_TO_COL = {
   name: "Campaign Name",   // đổi tên campaign
   agname: "Ad Group Name"  // đổi tên ad group
 };
+// SB/SD: budget nằm ở cột "Budget"; SB không có Ad Group Default Bid / Bidding Strategy
+const FIELD_TO_COL_AD = {
+  SP: FIELD_TO_COL,
+  SB: { ...FIELD_TO_COL, bud: "Budget", bs: null, agbid: null },
+  SD: { ...FIELD_TO_COL, bud: "Budget", bs: null, pct: null }
+};
 
-export function buildUpdateRows(header, recordsByKey, edits, negatives) {
+/**
+ * Dòng Update cho 1 loại ads (mặc định SP — giữ tương thích lời gọi cũ).
+ * Chỉ lấy edit của record cùng loại; negative chỉ áp cho SP (search term chỉ có ở SP).
+ */
+export function buildUpdateRows(header, recordsByKey, edits, negatives, ad = "SP") {
   const emptyRow = () => Object.fromEntries(header.map((h) => [h, ""]));
+  const has = new Set(header);
   const rows = [];
 
   // Gom edits theo dòng (1 dòng nhiều trường đổi → 1 dòng Update duy nhất)
@@ -372,51 +467,59 @@ export function buildUpdateRows(header, recordsByKey, edits, negatives) {
 
   for (const [k, fields] of byRow) {
     const rec = recordsByKey.get(k);
-    if (!rec) continue;
+    if (!rec || (rec.ad || "SP") !== ad) continue;
     const row = emptyRow();
-    row["Product"] = "Sponsored Products";
-    row["Entity"] = rec.e;
+    const set = (col, v) => { if (col && has.has(col)) row[col] = v; };
+    row["Product"] = AD_PRODUCT[ad];
+    row["Entity"] = rec.eo || rec.e; // SB/SD: ghi lại đúng tên entity gốc (Video Ad, Audience Targeting...)
     row["Operation"] = "Update";
     row["Campaign ID"] = rec.cid;
-    if (rec.agid) row["Ad Group ID"] = rec.agid;
-    if (rec.kid) row["Keyword ID"] = rec.kid;
-    if (rec.tid) row["Product Targeting ID"] = rec.tid;
-    if (rec.adid) row["Ad ID"] = rec.adid;
+    if (rec.agid) set("Ad Group ID", rec.agid);
+    if (rec.kid) set("Keyword ID", rec.kid);
+    if (rec.tid) set(has.has("Product Targeting ID") ? "Product Targeting ID" : "Targeting ID", rec.tid);
+    if (rec.adid) set("Ad ID", rec.adid);
     // Placement giữ NGUYÊN chuỗi đầy đủ từ file ("Placement Top"/"Placement Rest Of Search"/
     // "Placement Product Page"/"Placement Amazon Business") — KHÔNG map camelCase (xác minh Book2.xlsx).
-    if (rec.e === "Bidding Adjustment") row["Placement"] = rec.pl;
+    // SB: "Top of Search"/"Detail Page"/"Home"/"Other" — cũng giữ nguyên.
+    if (rec.e === "Bidding Adjustment") set("Placement", rec.pl);
 
-    // ⚠️ REQUIRED HEADERS khi Update (sheet Config trong chính file bulk Amazon, xác minh 18/07/2026):
-    // - Campaign: Campaign Id, Campaign Name, Daily Budget, State, Start Date, Bidding Strategy
-    //   (PHẢI có đủ dù không đổi — thiếu là Amazon từ chối dòng)
-    // - Ad Group: Ad Group Id, Ad Group Name, Ad Group Default Bid, State
-    // - Product Ad: Campaign Id, Ad Group Id, Ad ID, State (+ SKU)
-    // - Keyword / Product Targeting: Id + State (Bid optional)
-    // - Bidding Adjustment: Campaign Id + Placement (Percentage optional)
-    // → điền giá trị HIỆN TẠI cho trường required, rồi đè bằng giá trị user sửa
-    if (rec.e === "Campaign") {
-      row["Campaign Name"] = rec.name || "";
-      row["Daily Budget"] = rec.bud ?? "";
-      row["State"] = rec.st || "enabled";
-      row["Start Date"] = rec.sd || "";
-      row["Bidding Strategy"] = rec.bs || "";
-    } else if (rec.e === "Ad Group") {
-      row["Ad Group Name"] = rec.agname || "";
-      row["Ad Group Default Bid"] = rec.agbid ?? "";
-      row["State"] = rec.st || "enabled";
-    } else if (rec.e === "Product Ad") {
-      row["State"] = rec.st || "enabled";
-      if (rec.sku) row["SKU"] = rec.sku;
-    } else if (rec.e === "Keyword" || rec.e === "Product Targeting") {
-      row["State"] = rec.st || "enabled";
+    if (ad === "SP") {
+      // ⚠️ REQUIRED HEADERS khi Update (sheet Config trong chính file bulk Amazon, xác minh 18/07/2026):
+      // - Campaign: Campaign Id, Campaign Name, Daily Budget, State, Start Date, Bidding Strategy
+      //   (PHẢI có đủ dù không đổi — thiếu là Amazon từ chối dòng)
+      // - Ad Group: Ad Group Id, Ad Group Name, Ad Group Default Bid, State
+      // - Product Ad: Campaign Id, Ad Group Id, Ad ID, State (+ SKU)
+      // - Keyword / Product Targeting: Id + State (Bid optional)
+      // - Bidding Adjustment: Campaign Id + Placement (Percentage optional)
+      // → điền giá trị HIỆN TẠI cho trường required, rồi đè bằng giá trị user sửa
+      if (rec.e === "Campaign") {
+        row["Campaign Name"] = rec.name || "";
+        row["Daily Budget"] = rec.bud ?? "";
+        row["State"] = rec.st || "enabled";
+        row["Start Date"] = rec.sd || "";
+        row["Bidding Strategy"] = rec.bs || "";
+      } else if (rec.e === "Ad Group") {
+        row["Ad Group Name"] = rec.agname || "";
+        row["Ad Group Default Bid"] = rec.agbid ?? "";
+        row["State"] = rec.st || "enabled";
+      } else if (rec.e === "Product Ad") {
+        row["State"] = rec.st || "enabled";
+        if (rec.sku) row["SKU"] = rec.sku;
+      } else if (rec.e === "Keyword" || rec.e === "Product Targeting") {
+        row["State"] = rec.st || "enabled";
+      }
+    } else if (rec.e !== "Bidding Adjustment") {
+      // SB/SD: file Config KHÔNG có bảng required headers cho 2 loại này → ghi tối thiểu:
+      // ID + State hiện tại (+ Budget hiện tại với Campaign) rồi đè trường user sửa.
+      set("State", rec.st || "enabled");
+      if (rec.e === "Campaign") set("Budget", rec.bud ?? "");
     }
 
-    for (const [f, v] of Object.entries(fields)) {
-      const colName = FIELD_TO_COL[f];
-      if (colName) row[colName] = v;
-    }
+    const map = FIELD_TO_COL_AD[ad] || FIELD_TO_COL;
+    for (const [f, v] of Object.entries(fields)) set(map[f], v);
     rows.push(row);
   }
+  if (ad !== "SP") return rows;
 
   // Negative Keyword mới (Create, ID thật — pattern Negative Keyword.xlsx)
   for (const ng of negatives || []) {

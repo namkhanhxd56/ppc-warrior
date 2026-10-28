@@ -66,6 +66,7 @@
   .rule-row { display:flex; align-items:center; gap:10px; padding:7px 4px; border-bottom:1px solid #eef1f7; font-size:12.5px; }
   .rule-row.off { opacity:.5; }
   .badge { font-size:10.5px; padding:2px 7px; border-radius:10px; background:#eef1f7; color:#556; font-weight:600; }
+  .badge.ad-SB { background:#fff3e0; color:#b45f06; } .badge.ad-SD { background:#e8f4fd; color:#1565a8; }
   .badge.rank { background:#f3eefb; color:#6b3fa0; } .badge.profit { background:#eef4ff; color:#2455e6; } .badge.all { background:#eefaf0; color:#157a3d; }
   .diff-old { color:#b12727; } .diff-new { color:#157a3d; font-weight:700; }
   .subcard { border:1px solid #e3e8f0; border-radius:10px; padding:12px 14px; margin:10px 0; }
@@ -127,6 +128,10 @@
     <div class="bulkbar" id="filterBar">
       <b style="font-size:12px">🔎</b>
       <input type="text" id="fQ" placeholder="Tên campaign / keyword / ASIN / term" style="width:230px">
+      <select id="fAd" style="max-width:120px" title="Loại ads — mỗi loại là 1 sheet trong file bulk">
+        <option value="">Mọi loại ads</option><option value="SP">SP · Products</option>
+        <option value="SB">SB · Brands</option><option value="SD">SD · Display</option>
+      </select>
       <span style="position:relative;display:inline-block">
         <button type="button" class="btn-sm" id="fEntityBtn" onclick="toggleEntityDD(event)" style="min-width:130px;text-align:left;background:#fff;border:1px solid #ccd3e0">Mọi Entity ▾</button>
         <div id="fEntityDD" style="display:none;position:absolute;left:0;top:112%;z-index:40;background:#fff;border:1px solid #ccd3e0;border-radius:8px;padding:6px 10px;box-shadow:0 8px 24px rgba(0,0,0,.18);min-width:175px">
@@ -426,7 +431,8 @@ $('btnImport').onclick = async () => {
   const r = await (await fetch('/api/adjust/import', { method: 'POST', body: fd })).json();
   if (!r.ok) { $('importMsg').className = 'msg err'; $('importMsg').textContent = '❌ ' + r.message; return; }
   $('importMsg').className = 'msg ok';
-  $('importMsg').textContent = `✅ ${r.meta.kept} dòng làm việc / ${r.meta.totalRows} dòng gốc · ${r.meta.termCount} search term`;
+  const perAd = Object.entries(r.meta.byAd || {}).map(([ad, b]) => `${ad} ${b.kept}`).join(' · ');
+  $('importMsg').textContent = `✅ ${r.meta.kept} dòng làm việc / ${r.meta.totalRows} dòng gốc${perAd ? ' (' + perAd + ')' : ''} · ${r.meta.termCount} search term`;
   await loadDatasets(r.id);
 };
 
@@ -443,7 +449,7 @@ function filters() {
     ranges[$('fMetric').value] = [mn, mx];
   }
   const entity = [...$('fEntity').querySelectorAll('input:checked')].map((c) => c.value);
-  return { q: $('fQ').value.trim(), entity, portfolio: $('fPortfolio').value, state: $('fState').value, ranges };
+  return { q: $('fQ').value.trim(), entity, portfolio: $('fPortfolio').value, state: $('fState').value, ad: $('fAd').value, ranges };
 }
 
 const pageSizeFor = () => tab === 'terms' ? 60 : 500;
@@ -559,7 +565,7 @@ function buildTargetRow(x) {
   let nameCell;
   if (x.e === 'Campaign') nameCell = txtCell('name', x.name, 230);
   else if (x.e === 'Ad Group') nameCell = txtCell('agname', x.agname, 200);
-  else if (x.e === 'Product Ad') { const asin = x.asin || ((x.name || '').match(/B0[A-Z0-9]{8}/) || [''])[0]; nameCell = `<td class="mut" title="${esc(x.name)}">${esc(asin) || '—'}</td>`; }
+  else if (x.e === 'Product Ad') { const asin = x.asin || ((x.name || '').match(/B0[A-Z0-9]{8}/) || [''])[0]; nameCell = `<td class="mut" title="${esc(x.name)}">${esc(asin || (x.ad ? x.sku : '')) || '—'}</td>`; }
   else nameCell = EMPTY;
   let targeting = '', tTitle = '';
   if (x.e === 'Campaign') { targeting = x.tt ? `<span class="hint">${esc(x.tt)}</span>` : ''; tTitle = x.tt || ''; }
@@ -569,7 +575,7 @@ function buildTargetRow(x) {
   const cells = [
     `<td><input type="checkbox" ${sel.has(x.k) ? 'checked' : ''} onchange="tick('${x.k}', this.checked)"></td>`,
     nameCell,
-    `<td>${x.e === 'Bidding Adjustment' ? 'Placement' : esc(x.e)}</td>`,
+    `<td>${x.ad ? `<span class="badge ad-${x.ad}">${x.ad}</span> ` : ''}${x.e === 'Bidding Adjustment' ? 'Placement' : esc(x.eo || x.e)}</td>`,
     `<td class="mut">Update</td>`,
     `<td class="l" style="max-width:220px;overflow:hidden;text-overflow:ellipsis" title="${esc(tTitle)}">${targeting}</td>`,
     `<td class="mut">${esc(x.sku || '')}</td>`,
@@ -578,7 +584,7 @@ function buildTargetRow(x) {
   ];
   if (x.e === 'Campaign') cells.push(stSel(), numCell('bud', x.bud), DASH, DASH);
   else if (x.e === 'Bidding Adjustment') cells.push(`<td class="mut">${esc(x.cst)}</td>`, DASH, DASH, pctCell(x.pct));
-  else if (x.e === 'Ad Group') cells.push(stSel(), DASH, numCell('agbid', x.agbid), DASH);
+  else if (x.e === 'Ad Group') cells.push(stSel(), DASH, x.ad === 'SB' ? DASH : numCell('agbid', x.agbid), DASH);
   else if (x.e === 'Product Ad') cells.push(stSel(), DASH, DASH, DASH);
   else cells.push(stSel(), DASH, numCell('bid', x.bid), DASH);
   cells.push(`<td>${x.imp}</td><td>${x.clk}</td><td>${money(x.sp)}</td><td>${money(x.sa)}</td><td>${x.or}</td>
@@ -923,7 +929,8 @@ async function doExport() {
   a.href = URL.createObjectURL(blob);
   a.download = (res.headers.get('Content-Disposition') || '').match(/filename="(.+)"/)?.[1] || 'bulk-adjust.xlsx';
   a.click();
-  setMsg('ok', `✅ ${info.rows} dòng (${info.updateRows} Update + ${info.createRows} Create)`);
+  const sheetInfo = Object.entries(info.bySheet || {}).map(([ad, n]) => `${ad} ${n}`).join(' · ');
+  setMsg('ok', `✅ ${info.rows} dòng (${info.updateRows} Update + ${info.createRows} Create)${sheetInfo ? ' — ' + sheetInfo : ''}`);
   loadAudit(); // cập nhật nhật ký
   const clear = await dialog({ title: '✅ Đã tải file bulk',
     text: `<b>${info.rows}</b> dòng trong 1 file — upload vào Amazon Ads (Bulk operations):<br>
@@ -1090,7 +1097,7 @@ $('tabTerms').onclick = () => setTab('terms');
 $('tabChanges').onclick = () => setTab('changes');
 $('tabRules').onclick = () => setTab('rules');
 $('btnFilter').onclick = () => { page = 1; refresh(); };
-$('btnClearFilter').onclick = () => { $('fQ').value = ''; $('fEntity').querySelectorAll('input').forEach(c => c.checked = false); updateEntityLabel(); $('fPortfolio').value = ''; $('fPfInput').value = ''; $('fState').value = ''; $('fMetric').value = ''; $('fMin').value = ''; $('fMax').value = ''; page = 1; refresh(); };
+$('btnClearFilter').onclick = () => { $('fQ').value = ''; $('fEntity').querySelectorAll('input').forEach(c => c.checked = false); updateEntityLabel(); $('fPortfolio').value = ''; $('fPfInput').value = ''; $('fState').value = ''; $('fAd').value = ''; $('fMetric').value = ''; $('fMin').value = ''; $('fMax').value = ''; page = 1; refresh(); };
 $('fQ').addEventListener('keydown', (e) => { if (e.key === 'Enter') { page = 1; refresh(); } });
 window.toggleEntityDD = (e) => { const dd = $('fEntityDD'); dd.style.display = dd.style.display === 'none' ? 'block' : 'none'; if (e) e.stopPropagation(); };
 function updateEntityLabel() {
@@ -1100,6 +1107,7 @@ function updateEntityLabel() {
 document.addEventListener('click', (e) => { const dd = $('fEntityDD'); if (dd && dd.style.display !== 'none' && !e.target.closest('#fEntityDD') && e.target !== $('fEntityBtn')) dd.style.display = 'none'; });
 $('fEntity').addEventListener('change', () => { updateEntityLabel(); page = 1; refresh(); });
 $('fState').addEventListener('change', () => { page = 1; refresh(); });
+$('fAd').addEventListener('change', () => { page = 1; refresh(); });
 document.addEventListener('click', (e) => { if (!e.target.closest('#fPfDD') && e.target !== $('fPfInput')) closePfDD(); });
 $('sortField').onchange = $('sortDir').onchange = () => { refresh(); };
 // Infinite scroll: cuộn gần đáy khung bảng → tải thêm
