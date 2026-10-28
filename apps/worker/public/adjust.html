@@ -66,6 +66,8 @@
   .rule-row { display:flex; align-items:center; gap:10px; padding:7px 4px; border-bottom:1px solid #eef1f7; font-size:12.5px; }
   .rule-row.off { opacity:.5; }
   .badge { font-size:10.5px; padding:2px 7px; border-radius:10px; background:#eef1f7; color:#556; font-weight:600; }
+  th[data-sort]:hover { background:#e4e9f4; }
+  th.sorted { color:#2455e6; }
   .badge.ad-SB { background:#fff3e0; color:#b45f06; } .badge.ad-SD { background:#e8f4fd; color:#1565a8; }
   .badge.rank { background:#f3eefb; color:#6b3fa0; } .badge.profit { background:#eef4ff; color:#2455e6; } .badge.all { background:#eefaf0; color:#157a3d; }
   .diff-old { color:#b12727; } .diff-new { color:#157a3d; font-weight:700; }
@@ -153,6 +155,9 @@
       </span>
       <select id="fState" style="max-width:110px">
         <option value="">Mọi State</option><option>enabled</option><option>paused</option>
+      </select>
+      <select id="fEdited" style="max-width:150px" title="Dòng đã sửa = đang chờ trong tab 📋 Thay đổi + đã xuất file trong 7 ngày qua (khớp theo ID Amazon, nên vẫn nhận ra khi import file bulk mới)">
+        <option value="">Mọi dòng</option><option value="hide">Ẩn dòng đã sửa</option><option value="only">Chỉ dòng đã sửa</option>
       </select>
       <select id="fMetric" style="max-width:110px">
         <option value="">— Chỉ số —</option>
@@ -449,7 +454,7 @@ function filters() {
     ranges[$('fMetric').value] = [mn, mx];
   }
   const entity = [...$('fEntity').querySelectorAll('input:checked')].map((c) => c.value);
-  return { q: $('fQ').value.trim(), entity, portfolio: $('fPortfolio').value, state: $('fState').value, ad: $('fAd').value, ranges };
+  return { q: $('fQ').value.trim(), entity, portfolio: $('fPortfolio').value, state: $('fState').value, ad: $('fAd').value, edited: $('fEdited').value, ranges };
 }
 
 const pageSizeFor = () => tab === 'terms' ? 60 : 500;
@@ -457,6 +462,7 @@ async function queryPage(p) {
   const url = tab === 'terms' ? '/api/adjust/terms-grouped' : '/api/adjust/query';
   const body = { id: dsId, filters: filters(), sort: $('sortField').value, dir: $('sortDir').value, page: p, pageSize: pageSizeFor() };
   if (tab !== 'terms') body.tab = tab;
+  if (body.filters.edited) body.pendingKeys = [...new Set(edits.map(e => e.k))];
   const r = await (await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })).json();
   if (!r.ok) { $('tableArea').innerHTML = `<span class="msg err">❌ ${esc(r.message)}</span>`; return null; }
   return r;
@@ -476,6 +482,7 @@ function appendBatch(r) {
 async function refresh() {
   const plainMode = tab === 'rules' || tab === 'changes'; // 2 tab không dùng bảng dữ liệu bulk
   $('filterBar').style.display = plainMode ? 'none' : '';
+  $('fEdited').style.display = tab === 'terms' ? 'none' : ''; // "đã sửa" chỉ áp cho Campaigns & Targets
   $('actionBar').style.display = plainMode ? 'none' : '';
   $('pgnBar').style.display = plainMode ? 'none' : '';
   $('tableArea').style.maxHeight = plainMode ? 'none' : '';
@@ -497,6 +504,7 @@ async function refresh() {
     <div class="stat"><b>${pct(r.agg.acos)}</b><span>ACoS</span></div>
     <div class="stat"><b>${fmtYmd(r.meta.windowStart)} – ${fmtYmd(r.meta.windowEnd)}</b><span>Window</span></div>`;
   if (tab === 'targets') renderTargetsInit(); else renderTermsInit();
+  markSortHeader();
   appendBatch(r);
   updateLoadInfo(r.total);
   makeResizable(tab === 'terms' ? 'tblTerms' : 'tblTargets'); // khóa bề rộng sau khi có dữ liệu → kéo co được
@@ -542,9 +550,9 @@ function renderTargetsInit() {
     <span class="hint">Bid/Budget: Đặt / ±$ / ±% · State: gõ enabled|paused rồi Đặt · áp cho các dòng đã tick</span>`;
   $('tableArea').innerHTML = `<table id="tblTargets"><thead><tr>
     <th style="width:28px"><input type="checkbox" onchange="tickAll(this.checked)"></th>
-    <th class="l">Name</th><th>Entity</th><th>Oper.</th><th class="l">Targeting</th><th>SKU</th><th>Start</th><th>End</th>
-    <th>State</th><th>Budget</th><th>Bid</th><th>%</th>
-    <th>Impr</th><th>Clicks</th><th>Spend</th><th>Sales</th><th>Orders</th><th>ACoS</th><th>ROAS</th><th>CTR</th><th>CR</th><th>CPC</th>
+    <th class="l" data-sort="name">Name</th><th data-sort="e">Entity</th><th>Oper.</th><th class="l">Targeting</th><th>SKU</th><th>Start</th><th>End</th>
+    <th data-sort="st">State</th><th data-sort="bud">Budget</th><th data-sort="bid">Bid</th><th data-sort="pct">%</th>
+    <th data-sort="imp">Impr</th><th data-sort="clk">Clicks</th><th data-sort="sp">Spend</th><th data-sort="sa">Sales</th><th data-sort="or">Orders</th><th data-sort="acos">ACoS</th><th data-sort="roas">ROAS</th><th data-sort="ctr">CTR</th><th data-sort="cr">CR</th><th data-sort="cpc">CPC</th>
     </tr></thead><tbody id="tbMain"></tbody></table>`;
   lastCid = null;
 }
@@ -603,7 +611,7 @@ function renderTermsInit() {
   $('tableArea').innerHTML = `<table id="tblTerms"><thead><tr>
     <th style="width:44px"><input type="checkbox" onchange="tickAll(this.checked)"></th>
     <th class="l">ASIN → Search Term → Ad Group</th>
-    <th>Impr</th><th>Clicks</th><th>CTR</th><th>CR</th><th>CPC</th><th>Spend</th><th>Sales</th><th>ROAS</th><th>ACoS</th><th>Orders</th>
+    <th data-sort="imp">Impr</th><th data-sort="clk">Clicks</th><th data-sort="ctr">CTR</th><th data-sort="cr">CR</th><th data-sort="cpc">CPC</th><th data-sort="sp">Spend</th><th data-sort="sa">Sales</th><th data-sort="roas">ROAS</th><th data-sort="acos">ACoS</th><th data-sort="or">Orders</th>
     </tr></thead><tbody id="tbMain"></tbody></table>`;
 }
 // Cấu trúc: ASIN (header) → search term (tgroup, xổ được) → ad group (tchild)
@@ -1097,7 +1105,7 @@ $('tabTerms').onclick = () => setTab('terms');
 $('tabChanges').onclick = () => setTab('changes');
 $('tabRules').onclick = () => setTab('rules');
 $('btnFilter').onclick = () => { page = 1; refresh(); };
-$('btnClearFilter').onclick = () => { $('fQ').value = ''; $('fEntity').querySelectorAll('input').forEach(c => c.checked = false); updateEntityLabel(); $('fPortfolio').value = ''; $('fPfInput').value = ''; $('fState').value = ''; $('fAd').value = ''; $('fMetric').value = ''; $('fMin').value = ''; $('fMax').value = ''; page = 1; refresh(); };
+$('btnClearFilter').onclick = () => { $('fQ').value = ''; $('fEntity').querySelectorAll('input').forEach(c => c.checked = false); updateEntityLabel(); $('fPortfolio').value = ''; $('fPfInput').value = ''; $('fState').value = ''; $('fAd').value = ''; $('fEdited').value = ''; $('fMetric').value = ''; $('fMin').value = ''; $('fMax').value = ''; page = 1; refresh(); };
 $('fQ').addEventListener('keydown', (e) => { if (e.key === 'Enter') { page = 1; refresh(); } });
 window.toggleEntityDD = (e) => { const dd = $('fEntityDD'); dd.style.display = dd.style.display === 'none' ? 'block' : 'none'; if (e) e.stopPropagation(); };
 function updateEntityLabel() {
@@ -1108,8 +1116,34 @@ document.addEventListener('click', (e) => { const dd = $('fEntityDD'); if (dd &&
 $('fEntity').addEventListener('change', () => { updateEntityLabel(); page = 1; refresh(); });
 $('fState').addEventListener('change', () => { page = 1; refresh(); });
 $('fAd').addEventListener('change', () => { page = 1; refresh(); });
+$('fEdited').addEventListener('change', () => { page = 1; refresh(); });
 document.addEventListener('click', (e) => { if (!e.target.closest('#fPfDD') && e.target !== $('fPfInput')) closePfDD(); });
 $('sortField').onchange = $('sortDir').onchange = () => { refresh(); };
+
+/* ===== Sắp xếp bằng cách bấm tiêu đề cột =====
+   Bấm cột mới → giảm dần (chữ: tăng dần A→Z); bấm lại cùng cột → đảo chiều.
+   Đồng bộ với 2 ô "Sắp xếp" phía trên (thêm option nếu cột chưa có trong danh sách). */
+const TEXT_SORT = ['name', 'e', 'st'];
+$('tableArea').addEventListener('click', (ev) => {
+  const th = ev.target.closest('th[data-sort]');
+  if (!th || ev.target.closest('.col-resizer')) return; // kéo co cột thì không sắp xếp
+  const f = th.dataset.sort, sf = $('sortField');
+  if (sf.value === f) $('sortDir').value = $('sortDir').value === 'desc' ? 'asc' : 'desc';
+  else {
+    if (![...sf.options].some(o => o.value === f)) sf.add(new Option(th.textContent.trim(), f));
+    sf.value = f;
+    $('sortDir').value = TEXT_SORT.includes(f) ? 'asc' : 'desc';
+  }
+  page = 1; refresh();
+});
+function markSortHeader() {
+  const f = $('sortField').value, arrow = $('sortDir').value === 'asc' ? ' ▲' : ' ▼';
+  document.querySelectorAll('#tableArea th[data-sort]').forEach(th => {
+    th.classList.toggle('sorted', th.dataset.sort === f);
+    if (th.dataset.sort === f) th.insertAdjacentHTML('beforeend', `<span class="sort-arrow">${arrow}</span>`);
+    th.title = 'Bấm để sắp xếp theo cột này';
+  });
+}
 // Infinite scroll: cuộn gần đáy khung bảng → tải thêm
 $('pgPrev').style.display = 'none';
 $('pgNext').style.display = 'none';

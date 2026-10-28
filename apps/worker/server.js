@@ -1207,11 +1207,40 @@ app.post("/api/adjust/query", (req, res) => {
   const ds = loadDataset(id);
   if (!ds) return res.status(404).json({ ok: false, message: "Chưa có dataset — upload file bulk trước" });
   const list = tab === "terms" ? ds.terms : ds.records;
-  const out = queryRows(list, req.body);
+  const q = { ...req.body };
+  if (q.filters?.edited) {
+    // "Đã sửa" = đang chờ trong tab Thay đổi (client gửi khoá) + đã xuất file trong 7 ngày qua
+    q.editedKeys = new Set([...recentExportedKeys(), ...(Array.isArray(q.pendingKeys) ? q.pendingKeys : [])]);
+  }
+  const out = queryRows(list, q);
   // gắn rowKey cho tab targets (để ledger sửa đổi)
   if (tab !== "terms") out.rows = out.rows.map((r) => ({ k: rowKey(r), ...r }));
   res.json({ ok: true, ...out, meta: ds.meta });
 });
+
+/** Khoá dòng đã xuất file Update trong N ngày (đọc audit.jsonl — gồm cả xuất thủ công lẫn từ rule).
+    Khoá theo ID Amazon nên vẫn khớp khi import file bulk mới hôm sau. Cache theo mtime file. */
+const EDITED_LOOKBACK_DAYS = 7;
+const exportedKeysCache = new Map(); // đường dẫn audit → { mtime, day, keys }
+function recentExportedKeys() {
+  const file = `${ADJUST_DIR_FN()}/audit.jsonl`;
+  let mtime = 0;
+  try { mtime = fs.statSync(file).mtimeMs; } catch { return []; }
+  const day = new Date().toISOString().slice(0, 10);
+  const hit = exportedKeysCache.get(file);
+  if (hit && hit.mtime === mtime && hit.day === day) return hit.keys;
+  const since = Date.now() - EDITED_LOOKBACK_DAYS * 864e5;
+  const keys = new Set();
+  for (const line of fs.readFileSync(file, "utf8").split("\n")) {
+    if (!line) continue;
+    let e; try { e = JSON.parse(line); } catch { continue; }
+    if (!e.at || Date.parse(e.at) < since) continue;
+    for (const ed of e.detail?.edits || []) if (ed && ed.k) keys.add(ed.k);
+  }
+  const arr = [...keys];
+  exportedKeysCache.set(file, { mtime, day, keys: arr });
+  return arr;
+}
 
 /** Dòng Update chia theo loại ads → [{ ad, sheet, header, rows }]. Mỗi loại ghi vào sheet
     cùng tên sheet gốc trong file bulk (Amazon nhận diện SP/SB/SD theo tên sheet + cột Product).

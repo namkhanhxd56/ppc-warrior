@@ -298,6 +298,12 @@ export function queryRows(list, q = {}) {
   }
   if (f.matchType) out = out.filter((r) => (r.mt || "").toLowerCase() === f.matchType.toLowerCase());
   if (f.state) out = out.filter((r) => r.st === f.state);
+  // Dòng "đã sửa" (đang chờ trong ledger + đã xuất gần đây — server ghép bộ khoá vào q.editedKeys)
+  if (f.edited && q.editedKeys instanceof Set) {
+    const ek = q.editedKeys;
+    if (f.edited === "hide") out = out.filter((r) => !ek.has(rowKey(r)));
+    else if (f.edited === "only") out = out.filter((r) => ek.has(rowKey(r)));
+  }
   // Khoảng chỉ số: {metric: [min, max]} — '' = không giới hạn
   for (const [metric, range] of Object.entries(f.ranges || {})) {
     const [min, max] = range;
@@ -340,10 +346,17 @@ export function queryRows(list, q = {}) {
       if (ea !== eb) return ea - eb;
       return (b.sp || 0) - (a.sp || 0);
     });
-  } else {
+  } else if (SORTABLE.has(sortF)) {
+    // Ô trống (Bid của dòng Campaign, Budget của Keyword...) luôn nằm CUỐI dù tăng hay giảm.
+    // ACoS null mà có spend = tiêu tiền không ra đơn → coi là ∞ (xếp như ACoS cao nhất).
+    const val = (r) => {
+      const v = r[sortF];
+      if (v === null || v === undefined || v === "") return sortF === "acos" && r.sp > 0 ? Infinity : null;
+      return typeof v === "string" ? v.toLowerCase() : v;
+    };
     out = out.slice().sort((a, b) => {
-      const av = a[sortF] === null ? -Infinity : a[sortF];
-      const bv = b[sortF] === null ? -Infinity : b[sortF];
+      const av = val(a), bv = val(b);
+      if (av === null || bv === null) return av === bv ? 0 : av === null ? 1 : -1;
       return av < bv ? -dir : av > bv ? dir : 0;
     });
   }
@@ -352,6 +365,10 @@ export function queryRows(list, q = {}) {
   const page = Math.max(1, q.page || 1);
   return { total, agg, page, pageSize, rows: out.slice((page - 1) * pageSize, page * pageSize) };
 }
+
+/** Cột được phép sắp xếp (bấm tiêu đề cột) — chặn sort theo khoá lạ. */
+const SORTABLE = new Set(["name", "e", "st", "bud", "bid", "agbid", "pct",
+  "imp", "clk", "sp", "sa", "or", "acos", "roas", "ctr", "cr", "cpc"]);
 
 /** Danh sách portfolio (tên + ID) từ dòng Campaign — cho dropdown filter. */
 export function listPortfolios(records) {
