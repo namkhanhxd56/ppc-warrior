@@ -89,7 +89,8 @@
       <div class="bar">
         <b class="barT">🏷 Group</b>
         <span id="gBar" style="display:contents"></span>
-        <button class="btn-sm" id="gAdd" title="Đặt tên theo cách bạn chia: tên nhóm root, tên phân loại…">➕ Group</button>
+        <input type="text" id="gNewName" placeholder="Tên group mới — VD: Root - pickle, Phân loại - gift" style="width:270px;padding:5px 8px" title="Đặt tên theo cách bạn chia: tên nhóm root, tên phân loại…">
+        <button class="btn-sm" id="gAdd">➕ Thêm group</button>
         <span class="hint">Bid mặc định | +n ngày (trống = chạy theo Ngày tạo)</span>
       </div>
       <div class="bar" style="margin-top:8px">
@@ -115,8 +116,9 @@
         <span style="flex:1"></span>
         <div><label>Keyword đã tick</label>
           <div style="display:flex;gap:6px;align-items:center">
-            <select id="bkGroup" style="min-width:150px"></select><button class="btn-sm" id="btnBkGroup">Gán group</button>
-            <input type="text" inputmode="decimal" id="bkBid" placeholder="bid" style="width:70px"><button class="btn-sm" id="btnBkBid">Đặt bid tay</button>
+            <input type="text" id="bkGroup" list="bkGroupDl" placeholder="Tên group — chọn hoặc gõ tên mới" style="width:240px;padding:5px 8px" title="Gõ tên chưa có → tự tạo group mới rồi gán"><datalist id="bkGroupDl"></datalist>
+            <button class="btn-sm" id="btnBkGroup" style="background:var(--b);color:#fff">Gán group</button>
+            <button class="btn-sm" id="btnBkUngroup" title="Đưa keyword đã tick về (chưa phân group)">Bỏ group</button>
             <button class="btn-sm" id="btnBkClear" title="Bỏ bid sửa tay → theo bid group">Theo bid group</button>
             <button class="btn-sm btn-bad" id="btnBkDel">Xoá</button>
           </div></div>
@@ -246,7 +248,7 @@ function renderGroups() {
   // Giữ lựa chọn đang có khi dựng lại option; lần đầu (chưa có option) thì để option đầu tiên — "Mọi group"
   const keep = (id, html) => { const had = $(id).options.length, v = $(id).value; $(id).innerHTML = html; if (had && [...$(id).options].some((o) => o.value === v)) $(id).value = v; };
   keep('impGroup', opts('(chưa phân group)'));
-  keep('bkGroup', opts('(chưa phân group)'));
+  $('bkGroupDl').innerHTML = cur.groups.map((g) => `<option value="${esc(g.name)}"></option>`).join('');
   keep('fGroup', `<option value="*">Mọi group (${cur.keywords.length})</option><option value="">(chưa phân group) (${cnt[''] || 0})</option>`
     + cur.groups.map((g) => `<option value="${esc(g.name)}">${esc(g.name)} (${cnt[g.name] || 0})</option>`).join(''));
 }
@@ -270,15 +272,27 @@ $('gBar').addEventListener('click', (e) => {
   cur.groups.splice(+d.dataset.del, 1);
   setDirty(true); renderAll();
 });
+/** Tìm group theo tên (không phân biệt hoa thường); chưa có thì tạo mới — dùng cho cả ô
+ *  "Tên group mới" lẫn ô "Gán group" (gõ tên mới là tạo luôn, khỏi phải tạo trước rồi mới gán). */
+function ensureGroup(name) {
+  name = String(name || '').trim().slice(0, 60);
+  if (!name) return null;
+  const ex = cur.groups.find((g) => g.name.toLowerCase() === name.toLowerCase());
+  if (ex) return { g: ex, created: false };
+  const g = { name, bid: null, offset: 0 };
+  cur.groups.push(g);
+  return { g, created: true };
+}
 $('gAdd').onclick = () => {
-  const name = (prompt('Tên group (VD: Root - pickle ornament, Phân loại - gift):') || '').trim();
-  if (!name) return;
-  if (cur.groups.some((g) => g.name.toLowerCase() === name.toLowerCase())) { alert('Đã có group tên này'); return; }
-  cur.groups.push({ name, bid: null, offset: 0 });
+  const r = ensureGroup($('gNewName').value);
+  if (!r) { $('gNewName').focus(); return; }
+  if (!r.created) { alert(`Đã có group "${r.g.name}"`); return; }
+  $('gNewName').value = '';
   setDirty(true); renderAll();
   const inp = $('gBar').querySelector(`input[data-i="${cur.groups.length - 1}"][data-f="bid"]`);
-  if (inp) inp.focus();
+  if (inp) inp.focus(); // tạo xong nhảy vào ô bid của group mới
 };
+$('gNewName').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('gAdd').click(); });
 
 /* ===== Nạp keyword ===== */
 $('btnImport').onclick = async () => {
@@ -440,13 +454,16 @@ $('btnMore').onclick = () => { shown += PAGE; renderKw(); };
 const picked = () => cur.keywords.filter((k) => sel.has(k.kw));
 $('btnBkGroup').onclick = () => {
   const ks = picked(); if (!ks.length) return alert('Chưa tick keyword nào');
-  ks.forEach((k) => { k.group = $('bkGroup').value; });
+  const r = ensureGroup($('bkGroup').value);
+  if (!r) { $('bkGroup').focus(); return alert('Gõ hoặc chọn tên group'); }
+  ks.forEach((k) => { k.group = r.g.name; });
   setDirty(true); renderAll();
+  msg('saveMsg', 'ok', `✓ Gán ${ks.length} keyword vào "${r.g.name}"${r.created ? ' (group mới — nhập bid / +n ngày ở thanh Group)' : ''} — nhớ 💾 Lưu list`);
 };
-$('btnBkBid').onclick = () => {
+$('bkGroup').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('btnBkGroup').click(); });
+$('btnBkUngroup').onclick = () => {
   const ks = picked(); if (!ks.length) return alert('Chưa tick keyword nào');
-  const b = numOrNull($('bkBid').value); if (b == null || b <= 0) return alert('Nhập bid > 0');
-  ks.forEach((k) => { k.bid = b; });
+  ks.forEach((k) => { k.group = ''; });
   setDirty(true); renderAll();
 };
 $('btnBkClear').onclick = () => {
