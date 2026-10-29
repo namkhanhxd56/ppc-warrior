@@ -33,6 +33,8 @@
   td.del { width:34px; text-align:center; }
   td.del button { background:transparent; color:#b7c0cf; padding:4px 8px; }
   td.del button:hover { color:var(--bad); }
+  #kBody tr.cur td { background:#eaf0ff; } #kBody tr.cur td:first-child { box-shadow:inset 3px 0 0 var(--b); }
+  #kBody td.txt, #kBody td.num { cursor:default; user-select:none; }
   td input.manual { color:#b45f06; font-weight:700; }
   .row { display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap; }
   .msg { font-size:12.5px; } .msg.ok { color:var(--ok); } .msg.err { color:var(--bad); }
@@ -129,6 +131,7 @@
           <tbody id="kBody"></tbody>
         </table>
       </div>
+      <div class="hint" style="margin-top:6px">⌨ Bấm vào 1 dòng rồi <b>Shift + ↑/↓</b> để chọn liền nhiều dòng · <b>Shift + Cmd/Ctrl + ↑/↓</b> chọn tới đầu/cuối danh sách · <b>Shift + click</b> ô tick để chọn cả dải · <b>Space</b> tick/bỏ tick dòng đang đứng.</div>
       <div class="row" style="margin-top:8px"><span class="hint" id="moreInfo"></span><button class="btn-sm" id="btnMore" style="display:none">Hiện thêm</button></div>
     </div>
   </div>
@@ -187,7 +190,7 @@ async function loadLists(pickId) {
 async function openList(id) {
   cur = (await api('/api/kwlists/' + encodeURIComponent(id))).list;
   try { localStorage.setItem('ppcw_kwlist_cur', id); } catch {}
-  sel.clear(); shown = PAGE; setDirty(false);
+  sel.clear(); shown = PAGE; curIdx = anchorIdx = -1; setDirty(false);
   renderAll();
 }
 $('listSel').onchange = async () => {
@@ -328,6 +331,8 @@ function filtered() {
 }
 function renderKw() {
   const rows = filtered();
+  visKw = rows.map((k) => k.kw);
+  if (curIdx >= visKw.length) curIdx = anchorIdx = -1;
   const gOpts = (cv) => `<option value=""${cv ? '' : ' selected'}>(chưa phân group)</option>` + cur.groups.map((g) => `<option value="${esc(g.name)}"${g.name === cv ? ' selected' : ''}>${esc(g.name)}</option>`).join('');
   $('kBody').innerHTML = rows.slice(0, shown).map((k) => {
     const g = groupOf(k.group);
@@ -340,10 +345,9 @@ function renderKw() {
       <td class="txt hint">+${g ? g.offset || 0 : 0} ngày</td>
       <td class="del"><button title="Xoá keyword">✕</button></td></tr>`;
   }).join('');
-  $('kwCount').textContent = `— ${rows.length} / ${cur.keywords.length} keyword${sel.size ? ` · đã tick ${sel.size}` : ''}`;
+  syncTicks(); markCursor();
   $('moreInfo').textContent = rows.length > shown ? `Đang hiện ${shown} / ${rows.length}` : '';
   $('btnMore').style.display = rows.length > shown ? '' : 'none';
-  $('tickAll').checked = rows.length > 0 && rows.slice(0, shown).every((k) => sel.has(k.kw));
   document.querySelectorAll('th[data-sort]').forEach((th) => {
     th.classList.toggle('sorted', th.dataset.sort === sortF);
     th.textContent = th.textContent.replace(/ [▲▼]$/, '') + (th.dataset.sort === sortF ? (sortDir > 0 ? ' ▲' : ' ▼') : '');
@@ -353,28 +357,85 @@ function renderAll() { if (!cur) return; renderGroups(); renderKw(); }
 const kwOfRow = (el) => cur.keywords.find((k) => k.kw === el.closest('tr').dataset.kw);
 $('kBody').addEventListener('change', (e) => {
   const k = kwOfRow(e.target); if (!k) return;
-  if (e.target.classList.contains('tk')) { e.target.checked ? sel.add(k.kw) : sel.delete(k.kw); renderKw(); return; }
+  if (e.target.classList.contains('tk')) {
+    e.target.checked ? sel.add(k.kw) : sel.delete(k.kw);
+    setAnchor(visKw.indexOf(k.kw)); syncTicks(); markCursor(); // không vẽ lại cả bảng → giữ focus cho phím mũi tên
+    return;
+  }
   if (e.target.classList.contains('kg')) { k.group = e.target.value; setDirty(true); renderAll(); return; }
   if (e.target.classList.contains('kb')) { k.bid = numOrNull(e.target.value); setDirty(true); renderKw(); }
 });
 $('kBody').addEventListener('click', (e) => {
+  const tr = e.target.closest('tr'); if (!tr) return;
+  const idx = visKw.indexOf(tr.dataset.kw);
+  // Shift + click ô tick: tick cả dải từ dòng neo tới dòng này
+  // preventDefault làm trình duyệt TRẢ ô tick về trạng thái cũ SAU khi xử lý xong → vẽ lại dấu tick ở lượt sau
+  if (e.target.classList.contains('tk') && e.shiftKey && anchorIdx >= 0) { e.preventDefault(); moveCursor(idx, true); setTimeout(syncTicks, 0); return; }
+  // Bấm vào ô chữ/số của dòng → đặt dòng đang đứng (để dùng phím mũi tên)
+  if (e.target.closest('td.txt, td.num')) { if (e.shiftKey && anchorIdx >= 0) moveCursor(idx, true); else { setAnchor(idx); markCursor(); } return; }
   if (!e.target.closest('td.del button')) return;
   const k = kwOfRow(e.target); if (!k) return;
   cur.keywords = cur.keywords.filter((x) => x !== k); sel.delete(k.kw);
   setDirty(true); renderAll();
 });
 $('tickAll').onchange = () => {
-  const vis = filtered().slice(0, shown);
-  vis.forEach((k) => $('tickAll').checked ? sel.add(k.kw) : sel.delete(k.kw));
-  renderKw();
+  visKw.slice(0, shown).forEach((kw) => $('tickAll').checked ? sel.add(kw) : sel.delete(kw));
+  syncTicks();
 };
+
+/* ===== Chọn bằng bàn phím kiểu Excel =====
+   Dòng NEO (anchor) = dòng bấm/tick gần nhất. Shift + ↑/↓ chọn dải neo → dòng đang đứng, cộng
+   với những gì đã tick TRƯỚC khi bắt đầu dải (baseSel) — co dải lại thì dòng ra khỏi dải trả
+   về trạng thái cũ, y như Excel. Shift + Cmd/Ctrl nhảy tới đầu/cuối danh sách đang lọc. */
+let visKw = [];                 // thứ tự keyword đang hiện (sau lọc + sắp xếp)
+let curIdx = -1, anchorIdx = -1;
+let baseSel = new Set();
+function syncTicks() {
+  $('kBody').querySelectorAll('tr').forEach((tr) => { const cb = tr.querySelector('.tk'); if (cb) cb.checked = sel.has(tr.dataset.kw); });
+  $('kwCount').textContent = `— ${visKw.length} / ${cur.keywords.length} keyword${sel.size ? ` · đã tick ${sel.size}` : ''}`;
+  const vis = visKw.slice(0, shown);
+  $('tickAll').checked = vis.length > 0 && vis.every((kw) => sel.has(kw));
+}
+function markCursor() {
+  const rows = $('kBody').children;
+  for (let i = 0; i < rows.length; i++) rows[i].classList.toggle('cur', i === curIdx);
+}
+function setAnchor(i) { curIdx = anchorIdx = i; baseSel = new Set(sel); }
+function moveCursor(i, extend) {
+  if (!visKw.length) return;
+  i = Math.max(0, Math.min(visKw.length - 1, i));
+  if (i >= shown) { shown = Math.ceil((i + 1) / PAGE) * PAGE; renderKw(); } // dải chạm cuối phần đang vẽ → vẽ thêm
+  if (!extend || anchorIdx < 0) { setAnchor(i); markCursor(); }
+  else {
+    curIdx = i;
+    sel.clear(); baseSel.forEach((kw) => sel.add(kw));
+    const [a, b] = anchorIdx < i ? [anchorIdx, i] : [i, anchorIdx];
+    for (let j = a; j <= b; j++) sel.add(visKw[j]);
+    syncTicks(); markCursor();
+  }
+  const tr = $('kBody').children[curIdx];
+  if (tr) tr.scrollIntoView({ block: 'nearest' });
+}
+document.addEventListener('keydown', (e) => {
+  if (!cur || curIdx < 0) return;
+  if (e.target.matches && e.target.matches('input:not([type=checkbox]), select, textarea')) return; // đang gõ trong ô → để phím làm việc của nó
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    const dir = e.key === 'ArrowDown' ? 1 : -1;
+    moveCursor((e.metaKey || e.ctrlKey) ? (dir > 0 ? visKw.length - 1 : 0) : curIdx + dir, e.shiftKey);
+  } else if (e.key === ' ' && !e.target.matches?.('input[type=checkbox]')) {
+    e.preventDefault();
+    const kw = visKw[curIdx]; sel.has(kw) ? sel.delete(kw) : sel.add(kw);
+    baseSel = new Set(sel); anchorIdx = curIdx; syncTicks();
+  }
+});
 document.querySelectorAll('th[data-sort]').forEach((th) => th.onclick = () => {
   const f = th.dataset.sort;
   if (sortF === f) sortDir = -sortDir; else { sortF = f; sortDir = (f === 'kw' || f === 'group') ? 1 : -1; }
-  renderKw();
+  curIdx = anchorIdx = -1; renderKw();
 });
-$('fQ').oninput = () => { shown = PAGE; renderKw(); };
-$('fGroup').onchange = () => { shown = PAGE; renderKw(); };
+$('fQ').oninput = () => { shown = PAGE; curIdx = anchorIdx = -1; renderKw(); };
+$('fGroup').onchange = () => { shown = PAGE; curIdx = anchorIdx = -1; renderKw(); };
 $('btnMore').onclick = () => { shown += PAGE; renderKw(); };
 const picked = () => cur.keywords.filter((k) => sel.has(k.kw));
 $('btnBkGroup').onclick = () => {
