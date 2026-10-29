@@ -1127,13 +1127,16 @@ const FILTER_GROUPS = [
     NF('bid', 'Target bid', '$'), MF.roas, MF.cr, MF.imp, MF.clk, MF.ctr, MF.sp, MF.cpc, MF.or, MF.sa, MF.acos,
     { f: 'edited', label: 'Đã sửa (đang chờ + đã xuất 7 ngày)', kind: 'edited' }] }
 ];
-const OPS = [['gt', '>'], ['gte', '≥'], ['lt', '<'], ['lte', '≤'], ['eq', '='], ['between', 'trong khoảng']];
+// Chip số: 1 điều kiện bắt buộc (op, v) + 1 điều kiện phụ tuỳ chọn (op2, v2), AND với nhau
+// → "ACoS > 30% và < 60%". Chip cũ dạng "between" (đã lưu localStorage) đổi sang ≥ … và ≤ ….
+const OPS = [['gt', '>'], ['gte', '≥'], ['lt', '<'], ['lte', '≤'], ['eq', '=']];
+const opLb = (op) => (OPS.find(o => o[0] === op) || [op, op])[1];
 let chips = [];
 try { chips = JSON.parse(localStorage.getItem('ppcw_adj_chips') || '[]'); if (!Array.isArray(chips)) chips = []; } catch { chips = []; }
 const saveChips = () => { try { localStorage.setItem('ppcw_adj_chips', JSON.stringify(chips)); } catch {} };
 const grpOf = (lvl) => FILTER_GROUPS.find(g => g.lvl === lvl);
 const defOf = (c) => grpOf(c.lvl)?.items.find(i => i.f === c.f);
-chips = chips.filter(defOf);
+chips = chips.filter(defOf).map(c => c.op === 'between' ? { ...c, op: 'gte', op2: 'lte' } : c);
 const fmtUnit = (d, x) => d.unit === '$' ? '$' + x : d.unit === '%' ? x + '%' : d.unit === 'x' ? x + 'x' : String(x);
 function chipText(c) {
   const d = defOf(c); let val;
@@ -1142,7 +1145,7 @@ function chipText(c) {
   else if (d.kind === 'enum') {
     val = (c.f.endsWith('st') && c.in.length === 2 && c.in.includes('enabled') && c.in.includes('paused')) ? 'All but archived'
       : c.in.map(v => (d.opts.find(o => o[0] === v) || [v, v])[1]).join(', ');
-  } else val = c.op === 'between' ? `${fmtUnit(d, c.v)} – ${fmtUnit(d, c.v2)}` : `${OPS.find(o => o[0] === c.op)[1]} ${fmtUnit(d, c.v)}`;
+  } else val = `${opLb(c.op)} ${fmtUnit(d, c.v)}` + (c.op2 ? ` và ${opLb(c.op2)} ${fmtUnit(d, c.v2)}` : '');
   return `<span class="hint">${esc(grpOf(c.lvl).title)} ·</span> <b>${esc(d.label)}:</b> ${esc(val)}`;
 }
 function renderChips() {
@@ -1174,12 +1177,13 @@ window.openChipEditor = (lvl, f, idx) => {
   const cur = idx !== undefined ? chips[idx] : null;
   let body;
   if (d.kind === 'num') {
-    const op = cur?.op || 'gt';
-    body = `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-      <select id="ceOp" onchange="$('ceV2w').style.display = this.value === 'between' ? '' : 'none'">${OPS.map(o => `<option value="${o[0]}" ${o[0] === op ? 'selected' : ''}>${o[1]}</option>`).join('')}</select>
-      <input type="text" inputmode="decimal" id="ceV" style="width:80px" value="${cur ? esc(cur.v) : ''}">
-      <span id="ceV2w" style="display:${op === 'between' ? '' : 'none'}">– <input type="text" inputmode="decimal" id="ceV2" style="width:80px" value="${cur?.v2 !== undefined ? esc(cur.v2) : ''}"></span>
-      <span class="hint">${d.unit === '%' ? 'nhập %, vd 30' : d.unit === '$' ? 'USD' : d.unit === 'x' ? 'lần' : ''}</span></div>`;
+    const op = cur?.op || 'gt', op2 = cur?.op2 || '';
+    const opSel = (id, val, blank) => `<select id="${id}" style="width:118px">${blank ? `<option value="" ${val ? '' : 'selected'}>— không —</option>` : ''}${OPS.map(o => `<option value="${o[0]}" ${o[0] === val ? 'selected' : ''}>${o[1]}</option>`).join('')}</select>`;
+    const unitHint = d.unit === '%' ? 'nhập %, vd 30' : d.unit === '$' ? 'USD' : d.unit === 'x' ? 'lần' : '';
+    body = `<div style="display:grid;grid-template-columns:auto auto auto;gap:6px;align-items:center">
+      <span class="hint">Điều kiện 1</span>${opSel('ceOp', op, false)}<input type="text" inputmode="decimal" id="ceV" style="width:90px" value="${cur ? esc(cur.v) : ''}">
+      <span class="hint">và (tuỳ chọn)</span>${opSel('ceOp2', op2, true)}<input type="text" inputmode="decimal" id="ceV2" style="width:90px" value="${op2 && cur?.v2 !== undefined ? esc(cur.v2) : ''}">
+      </div><div class="hint" style="margin-top:4px">${unitHint}${unitHint ? ' · ' : ''}VD: &gt; 30 và &lt; 60 — để "không" nếu chỉ cần 1 điều kiện</div>`;
   } else if (d.kind === 'enum') {
     const on = cur?.in || [];
     body = d.opts.map(o => `<label><input type="checkbox" class="ceIn" value="${esc(o[0])}" ${on.includes(o[0]) ? 'checked' : ''}> ${esc(o[1])}</label>`).join('')
@@ -1201,6 +1205,8 @@ window.openChipEditor = (lvl, f, idx) => {
       <button class="btn-primary" style="padding:5px 14px" onclick="saveChip('${lvl}','${f}',${idx === undefined ? 'undefined' : idx})">Áp dụng</button></div>`;
   $('fPop').style.display = 'block';
   const first = $('fPop').querySelector('#ceV, #cePfQ'); if (first) first.focus();
+  // Gõ số vào ô thứ 2 mà chưa chọn phép so sánh → tự chọn "<" (trường hợp hay dùng nhất: cận trên)
+  const v2 = $('fPop').querySelector('#ceV2'); if (v2) v2.addEventListener('input', () => { if (v2.value.trim() && !$('ceOp2').value) $('ceOp2').value = 'lt'; });
   $('fPop').querySelectorAll('#ceV, #ceV2').forEach(el => el.addEventListener('keydown', (e) => { if (e.key === 'Enter') saveChip(lvl, f, idx); }));
 };
 window.filterPfList = (q) => { q = q.toLowerCase(); document.querySelectorAll('#cePfList label').forEach(l => { l.style.display = !q || l.dataset.lb.includes(q) ? '' : 'none'; }); };
@@ -1212,7 +1218,19 @@ window.saveChip = (lvl, f, idx) => {
     const num = (id) => { const x = parseFloat(String($(id)?.value || '').replace(',', '.')); return isNaN(x) ? null : x; };
     c.op = $('ceOp').value; c.v = num('ceV');
     if (c.v === null) return err('Nhập giá trị số');
-    if (c.op === 'between') { c.v2 = num('ceV2'); if (c.v2 === null) return err('Nhập giá trị thứ 2'); if (c.v2 < c.v) [c.v, c.v2] = [c.v2, c.v]; }
+    const op2 = $('ceOp2').value;
+    if (op2) {
+      c.op2 = op2; c.v2 = num('ceV2');
+      if (c.v2 === null) return err('Nhập giá trị cho điều kiện 2 (hoặc chọn "— không —")');
+      // Chặn khoảng rỗng, VD "> 60 và < 30" → không dòng nào khớp
+      const lo = [], hi = [];
+      for (const [o, x] of [[c.op, c.v], [c.op2, c.v2]]) {
+        if (o === 'gt' || o === 'gte') lo.push([x, o === 'gt']);
+        else if (o === 'lt' || o === 'lte') hi.push([x, o === 'lt']);
+        else { lo.push([x, false]); hi.push([x, false]); } // "=" vừa là cận dưới vừa là cận trên
+      }
+      for (const [l, ls] of lo) for (const [h, hs] of hi) if (l > h || (l === h && (ls || hs))) return err('Hai điều kiện không có giá trị nào thoả — kiểm tra lại');
+    }
   } else if (d.kind === 'edited') c.v = document.querySelector('input[name="ceEd"]:checked')?.value || 'hide';
   else { c.in = [...document.querySelectorAll('.ceIn:checked')].map(x => x.value); if (!c.in.length) return err('Chọn ít nhất 1 mục'); }
   if (idx !== undefined && chips[idx]) chips[idx] = c; else chips.push(c);

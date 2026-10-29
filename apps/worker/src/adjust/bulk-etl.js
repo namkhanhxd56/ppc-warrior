@@ -406,9 +406,12 @@ function chipMatch(r, c, editedKeys) {
   const v = chipValue(r, c.f);
   if (v === null || v === undefined || v === "") return false;
   const a = Number(c.v);
-  if (c.op === "between") return v >= a && v <= Number(c.v2);
+  if (c.op === "between") return v >= a && v <= Number(c.v2); // chip cũ
   const fn = CHIP_NUM_OPS[c.op];
-  return fn ? fn(Number(v), a) : true;
+  if (fn && !fn(Number(v), a)) return false;
+  const fn2 = c.op2 ? CHIP_NUM_OPS[c.op2] : null; // điều kiện phụ, AND — VD "> 30 và < 60"
+  if (fn2 && !fn2(Number(v), Number(c.v2))) return false;
+  return true;
 }
 function applyChips(out, list, chips, editedKeys) {
   if (!Array.isArray(chips) || !chips.length) return out;
