@@ -205,8 +205,16 @@
     <h2>2️⃣ Keyword &amp; Target ASIN</h2>
     <div class="grid2">
       <div>
-        <label>Keywords — mỗi dòng: <code>keyword</code> hoặc <code>keyword | bid</code></label>
-        <textarea id="keywords" rows="9" placeholder="positive pickle jar&#10;pickle affirmation cards | 0.62"></textarea>
+        <label>Keywords — mỗi dòng: <code>keyword</code> · <code>keyword | bid</code> · <code>keyword | bid | +n</code> <span class="hint">(+n = campaign bắt đầu sau Ngày tạo n ngày)</span></label>
+        <textarea id="keywords" rows="9" placeholder="positive pickle jar&#10;pickle affirmation cards | 0.62&#10;pickle gift for her | 0.55 | +7"></textarea>
+        <div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <span style="font-size:11.5px;font-weight:600;color:var(--mut);flex:0 0 auto" title="Danh mục Keyword: list → group (bid + n ngày)">🗂 List keyword</span>
+          <select id="kwlSel" data-nopersist="1" style="flex:0 0 auto;max-width:200px"></select>
+          <button class="btn-sm" id="btnKwl" style="flex:0 0 auto;background:var(--b);color:#fff">⬇ Kéo keyword từ list</button>
+          <a href="/kwlists.html" class="hint" style="flex:0 0 auto">sửa list ↗</a>
+        </div>
+        <div id="kwlGroups" style="margin-top:4px;display:flex;gap:10px;flex-wrap:wrap;font-size:12px"></div>
+        <div class="hint" id="kwlMsg" style="margin-top:2px"></div>
         <div style="margin-top:8px;display:flex;gap:10px;align-items:center;flex-wrap:nowrap">
           <span style="font-size:11.5px;font-weight:600;color:var(--mut);flex:0 0 auto">Cerebro H10</span>
           <input type="file" id="h10File" accept=".csv,.xlsx" style="flex:0 0 auto;width:auto">
@@ -586,7 +594,7 @@ const TYPE_LABEL = { SP_KW_EXACT:'Exact', SP_KW_PHRASE:'Phrase', SP_KW_BROAD:'Br
 const STRATEGIES = ['Dynamic bids - down only','Dynamic bids - up and down','Fixed bid'];
 
 /* ===== Cảnh báo server chạy code cũ ===== */
-const UI_VERSION = '0.45.1';
+const UI_VERSION = '0.46.0';
 /* ===== THANH TIẾN ĐỘ QUÉT RANKING (dùng chung mọi trang) =====
    Lượt quét sống ở HÀNG ĐỢI trên server, không phải ở tab nào. Trước đây chuyển sang trang
    này là mất dấu — tệ hơn, bản cũ còn làm CHẾT luôn lượt quét vì vòng lặp điều phối nằm ở
@@ -627,6 +635,7 @@ const PERSIST_KEY = 'ppcw_launch_form_v1';
 function persistForm() {
   const data = { fields: {}, checks: {}, adTypes: [], h10Data };
   document.querySelectorAll('main input[id], main select[id], main textarea[id]').forEach(el => {
+    if (el.dataset.nopersist) return; // ô kéo list keyword: luôn theo ASIN đang chọn, không lưu form
     if (el.type === 'checkbox') data.checks[el.id] = el.checked;
     else if (el.type !== 'file') data.fields[el.id] = el.value;
   });
@@ -844,6 +853,9 @@ async function loadCatalogPick() {
       }
       g.value = pfDefault;
     }
+    // List keyword theo ASIN (cột List keyword ở Danh mục) — nhiều ASIN thì lấy list của ASIN đầu tiên có gán
+    const kl = (ps.find((p) => p.kwList) || {}).kwList || '';
+    if (kl && $('kwlSel') && [...$('kwlSel').options].some((o) => o.value === kl)) { $('kwlSel').value = kl; loadKwlGroups(); }
     $('prodMsg').textContent = ps.length > 1
       ? `${ps.length} sản phẩm · tên campaign dùng "ASINs - <tên portfolio>" · chọn portfolio bên cạnh`
       : `1 sản phẩm · ${ps[0].type}${ps[0].portfolioId ? ' · portfolio mặc định đã điền' : ' · chưa gán portfolio trong Danh mục'}`;
@@ -866,7 +878,7 @@ async function loadPortfolioDir(keepValues = {}) {
 }
 
 (async () => {
-  await Promise.all([loadPortfolioDir(), loadCatalogPick()]);
+  await Promise.all([loadPortfolioDir(), loadCatalogPick(), loadKwlOptions()]);
   const restored = restoreForm();
   // restoreForm gán value cho select — chạy lại để giữ ID lạ không có trong danh mục
   await loadPortfolioDir();
@@ -959,6 +971,53 @@ receiveAdjustCampaigns();
   } catch {}
 })();
 
+/* ===== Kéo keyword từ Danh mục Keyword (list → group: bid + n ngày) ===== */
+let kwlCache = null; // list đang chọn (đầy đủ)
+async function loadKwlOptions() {
+  let lists = [];
+  try { lists = (await (await fetch('/api/kwlists')).json()).lists || []; } catch {}
+  $('kwlSel').innerHTML = '<option value="">— chọn list —</option>'
+    + lists.map((l) => `<option value="${esc(l.id)}">${esc(l.name)} (${l.kwCount})</option>`).join('');
+  const ps = pickedProducts().map((p) => catalog.find((c) => c.asin === p.asin)).filter(Boolean);
+  const kl = (ps.find((p) => p.kwList) || {}).kwList || '';
+  if (kl && lists.some((l) => l.id === kl)) $('kwlSel').value = kl;
+  await loadKwlGroups();
+}
+async function loadKwlGroups() {
+  const id = $('kwlSel').value;
+  kwlCache = null; $('kwlGroups').innerHTML = ''; $('kwlMsg').textContent = '';
+  if (!id) return;
+  try { kwlCache = (await (await fetch('/api/kwlists/' + encodeURIComponent(id))).json()).list; } catch {}
+  if (!kwlCache) { $('kwlMsg').textContent = '✕ Không đọc được list'; return; }
+  const cnt = {};
+  for (const k of kwlCache.keywords) cnt[k.group] = (cnt[k.group] || 0) + 1;
+  const gs = [...kwlCache.groups.map((g) => ({ name: g.name, label: `${g.name} · ${g.bid != null ? '$' + g.bid : 'bid —'} · +${g.offset || 0} ngày` })),
+    ...(cnt[''] ? [{ name: '', label: '(chưa phân group)' }] : [])];
+  $('kwlGroups').innerHTML = gs.map((g) => `<label class="chk" style="margin:0;white-space:nowrap"><input type="checkbox" class="kwlG" value="${esc(g.name)}" checked> ${esc(g.label)} <span class="hint">(${cnt[g.name] || 0})</span></label>`).join('')
+    || '<span class="hint">List chưa có group/keyword</span>';
+}
+$('kwlSel').onchange = loadKwlGroups;
+$('btnKwl').onclick = () => {
+  if (!kwlCache) { $('kwlMsg').textContent = '✕ Chọn list trước (hoặc gán List keyword cho ASIN ở Danh mục)'; return; }
+  const on = new Set([...document.querySelectorAll('.kwlG:checked')].map((c) => c.value));
+  const order = new Map(kwlCache.groups.map((g, i) => [g.name, i]));
+  const gOf = (n) => kwlCache.groups.find((g) => g.name === n);
+  const ks = kwlCache.keywords.filter((k) => on.has(k.group))
+    .sort((a, b) => (order.get(a.group) ?? 999) - (order.get(b.group) ?? 999) || (b.sv || 0) - (a.sv || 0));
+  if (!ks.length) { $('kwlMsg').textContent = '✕ Không có keyword nào trong các group đã chọn'; return; }
+  const line = (k) => {
+    const g = gOf(k.group), bid = k.bid != null ? k.bid : (g ? g.bid : null), off = g ? (g.offset || 0) : 0;
+    return [k.kw, bid != null ? bid : '', off ? '+' + off : ''].filter((x, i) => i === 0 || x !== '').join(' | ');
+  };
+  // Keyword đã có trong ô → thay bằng dòng mới từ list (bid/ngày mới nhất); dòng khác giữ nguyên
+  const fresh = new Map(ks.map((k) => [k.kw, line(k)]));
+  const kept = $('keywords').value.split('\n').map((l) => l.trim()).filter(Boolean)
+    .filter((l) => !fresh.has(l.split(/\s*[|\t]\s*/)[0].toLowerCase()));
+  $('keywords').value = [...kept, ...fresh.values()].join('\n');
+  persistForm();
+  $('kwlMsg').textContent = `✅ Kéo ${ks.length} keyword từ "${kwlCache.name}" (${on.size} group) — sửa thoải mái trong ô trước khi tạo campaign`;
+};
+
 /* ===== Import Helium10 ===== */
 $('btnH10').onclick = async () => {
   const f = $('h10File').files[0];
@@ -1007,10 +1066,15 @@ $('btnSnap').onclick = async () => {
 /* ===== Payload ===== */
 function buildPayload() {
   const sp = $('onSP').checked;
+  // "keyword | bid | +n" — +n (n ngày sau Ngày tạo) nằm ở cột 3, hoặc cột 2 khi không có bid ("kw | +3")
   const keywords = $('keywords').value.split('\n').map(l => l.trim()).filter(Boolean).map(l => {
     const m = l.split(/\s*[|\t]\s*/);
     const text = m[0].toLowerCase();
-    return { text, bid: m[1] ? parseFloat(String(m[1]).replace(',', '.')) : null, bids: h10Data[text] || null };
+    let bidS = m[1] || '', offS = m[2] || '';
+    if (/^\+\s*\d+/.test(bidS)) { offS = bidS; bidS = ''; }
+    const bid = bidS ? parseFloat(String(bidS).replace(',', '.')) : null;
+    const offset = parseInt(String(offS).replace(/[^0-9]/g, ''), 10) || 0;
+    return { text, bid: isNaN(bid) ? null : bid, bids: h10Data[text] || null, ...(offset ? { offset } : {}) };
   });
   const adTypes = [...document.querySelectorAll('#adTypes input:checked')].map(c => c.value);
   return {

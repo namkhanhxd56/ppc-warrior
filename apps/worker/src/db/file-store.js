@@ -708,6 +708,7 @@ export function listCatalog() {
       asin,
       list: p.list || "", sku: p.sku || "", type: p.type === "FBM" ? "FBM" : "FBA",
       portfolioId: p.portfolioId || "",  // portfolio mặc định — gán theo TÊN LIST, tự điền khi chọn ASIN
+      kwList: p.kwList || "",            // id list trong Danh mục Keyword — Tạo Campaign kéo keyword từ đây
       category: p.category || ""
     }))
     .sort((a, b) => (a.list || "~").localeCompare(b.list || "~") || a.asin.localeCompare(b.asin));
@@ -729,6 +730,7 @@ export function saveCatalog(rows) {
       sku: String(r.sku || "").trim().slice(0, 60),
       type: String(r.type || "").toUpperCase() === "FBM" ? "FBM" : "FBA",
       portfolioId: String(r.portfolioId || "").trim(),
+      kwList: String(r.kwList ?? old[asin]?.kwList ?? "").trim().slice(0, 40),
       category: String(r.category ?? old[asin]?.category ?? "").trim().slice(0, 60),
       updatedAt: new Date().toISOString()
     };
@@ -766,6 +768,82 @@ export function savePortfolioDir(rows) {
   writeJsonAtomic(PORTFOLIOS_FILE(), next, 1);
   return listPortfolioDir();
 }
+/* ===== DANH MỤC KEYWORD (độc lập với "Phân tích Keyword") =====
+   List (VD "Pickle ornament") → nhiều group (keyword product / gift / decor...), mỗi group có
+   bid riêng và offset +n ngày so với ngày launch chính (ô "Ngày tạo" ở Tạo Campaign).
+   Keyword: {kw, sv, group, bid} — bid null = theo bid của group, có số = chỉnh tay.
+   Cùng 1 keyword được nằm ở nhiều list (mỗi list giữ group/bid riêng).
+   Sản phẩm trong Danh mục gán kwList = id list → Tạo Campaign kéo nhanh "kw | bid | +n". */
+const KWLISTS_FILE = () => path.join(userDataDir(), "kw-lists.json");
+const kwListsAll = () => { const d = readJson(KWLISTS_FILE(), {}); return Array.isArray(d.lists) ? d.lists : []; };
+const kwListsWrite = (lists) => { ensureDirs(); writeJsonAtomic(KWLISTS_FILE(), { lists }, 1); };
+const numOrNull = (v) => { if (v === "" || v === null || v === undefined) return null; const n = parseFloat(String(v).replace(",", ".")); return isNaN(n) ? null : n; };
+function cleanKwList(l) {
+  const groups = [];
+  const gSeen = new Set();
+  for (const g of Array.isArray(l.groups) ? l.groups : []) {
+    const name = String(g.name || "").trim().slice(0, 60);
+    if (!name || gSeen.has(name.toLowerCase())) continue;
+    gSeen.add(name.toLowerCase());
+    groups.push({ name, bid: numOrNull(g.bid), offset: Math.max(0, Math.min(365, Math.round(Number(g.offset) || 0))) });
+  }
+  const gNames = new Set(groups.map((g) => g.name));
+  const keywords = [];
+  const kSeen = new Set();
+  for (const k of Array.isArray(l.keywords) ? l.keywords : []) {
+    const kw = String(k.kw || "").replace(/\s+/g, " ").trim().toLowerCase().slice(0, 200);
+    if (!kw || kSeen.has(kw)) continue;
+    kSeen.add(kw);
+    keywords.push({ kw, sv: numOrNull(k.sv), group: gNames.has(k.group) ? k.group : "", bid: numOrNull(k.bid) });
+  }
+  return { id: l.id, name: String(l.name || "").trim().slice(0, 80) || "List không tên", groups, keywords,
+    updatedAt: new Date().toISOString() };
+}
+export function listKwLists() {
+  return kwListsAll().map((l) => ({ id: l.id, name: l.name, groups: l.groups || [], kwCount: (l.keywords || []).length, updatedAt: l.updatedAt }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+export function getKwList(id) { return kwListsAll().find((l) => l.id === id) || null; }
+export function createKwList(name) {
+  const lists = kwListsAll();
+  const l = cleanKwList({ id: "kl" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), name, groups: [], keywords: [] });
+  lists.push(l); kwListsWrite(lists);
+  return l;
+}
+export function saveKwList(id, data) {
+  const lists = kwListsAll();
+  const i = lists.findIndex((l) => l.id === id);
+  if (i === -1) return null;
+  lists[i] = cleanKwList({ ...data, id });
+  kwListsWrite(lists);
+  return lists[i];
+}
+export function deleteKwList(id) {
+  const lists = kwListsAll();
+  const next = lists.filter((l) => l.id !== id);
+  if (next.length === lists.length) return false;
+  kwListsWrite(next);
+  return true;
+}
+/** Gộp keyword mới vào list (import Cerebro / dán tay): keyword đã có thì chỉ cập nhật SV,
+ *  giữ nguyên group/bid đã phân — import lại file mới không làm mất công phân group. */
+export function mergeKwIntoList(id, rows, group) {
+  const l = getKwList(id);
+  if (!l) return null;
+  const byKw = new Map(l.keywords.map((k) => [k.kw, k]));
+  let added = 0, updated = 0;
+  for (const r of rows || []) {
+    const kw = String(r.kw || "").replace(/\s+/g, " ").trim().toLowerCase();
+    if (!kw) continue;
+    const ex = byKw.get(kw);
+    if (ex) { if (r.sv != null) { ex.sv = r.sv; updated++; } continue; }
+    const k = { kw, sv: r.sv ?? null, group: group || "", bid: null };
+    l.keywords.push(k); byKw.set(kw, k); added++;
+  }
+  const saved = saveKwList(id, l);
+  return { list: saved, added, updated };
+}
+
 /** ID → tên (tên portfolio đi vào tên campaign khi campaign gom nhiều ASIN/keyword). */
 export function portfolioName(id) {
   if (!id) return "";

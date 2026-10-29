@@ -10,6 +10,7 @@ import { setZipLocation, ensureZipLocation } from "./src/scraper/set-location.js
 import { runBatch } from "./src/jobs/run-batch.js";
 import { planCampaigns, buildRowsFromPlans, buildSdRows, buildSbRows, BULK_HEADER, SD_HEADER, SB_HEADER, DEFAULTS as LAUNCH_DEFAULTS } from "./src/launching/bulk-builder.js";
 import { parseH10 } from "./src/launching/h10-parser.js";
+import { parseCerebroExport } from "./src/keywords/cerebro.js";
 import { etlBulk, queryRows, buildUpdateRows, rowKey, groupTerms, listPortfolios, stampAsins, AD_TYPES, AD_PRODUCT, assertBidCap } from "./src/adjust/bulk-etl.js";
 import { evaluate as evaluateRules } from "./src/adjust/rule-engine.js";
 import { DEFAULT_RULES } from "./src/adjust/default-rules.js";
@@ -21,7 +22,7 @@ import * as auth from "./src/auth.js";
 import { als, runAsUser, userDataDir } from "./src/db/user-context.js";
 
 dotenv.config();
-export const APP_VERSION = "0.45.1"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
+export const APP_VERSION = "0.46.0"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
 
 // RUN_MODE:
 // - "local" (mặc định): bấm Kiểm tra là scrape NGAY trên máy này (dùng 1 người, chạy local)
@@ -962,6 +963,39 @@ app.post("/api/catalog/manager", (req, res) => {
   const manager = String(req.body?.manager || "").trim().slice(0, 5);
   store.saveLaunchSettings({ manager });
   res.json({ ok: true, manager });
+});
+
+/* ===================== DANH MỤC KEYWORD (list → group → keyword) =====================
+   Độc lập với "Phân tích Keyword": chỉ dùng chung bộ đọc file export Cerebro. */
+const uploadKw = multer({ dest: "./data/uploads", limits: { fileSize: 40 * 1024 * 1024 } });
+app.get("/api/kwlists", (req, res) => res.json({ ok: true, lists: store.listKwLists() }));
+app.get("/api/kwlists/:id", (req, res) => {
+  const l = store.getKwList(req.params.id);
+  if (!l) return res.status(404).json({ ok: false, message: "Không tìm thấy list" });
+  res.json({ ok: true, list: l });
+});
+app.post("/api/kwlists", (req, res) => {
+  const name = String(req.body?.name || "").trim();
+  if (!name) return res.status(400).json({ ok: false, message: "Nhập tên list" });
+  res.json({ ok: true, list: store.createKwList(name) });
+});
+app.put("/api/kwlists/:id", (req, res) => {
+  const l = store.saveKwList(req.params.id, req.body || {});
+  if (!l) return res.status(404).json({ ok: false, message: "Không tìm thấy list" });
+  res.json({ ok: true, list: l });
+});
+app.delete("/api/kwlists/:id", (req, res) => res.json({ ok: store.deleteKwList(req.params.id) }));
+// Import file export Cerebro (csv/xlsx) → chỉ lấy Keyword Phrase + Search Volume, gộp vào list
+app.post("/api/kwlists/:id/import", (req, res, next) => uploadKw.single("file")(req, res, next), (req, res) => {
+  try {
+    if (!req.file) throw new Error("Chưa chọn file");
+    let parsed;
+    try { parsed = parseCerebroExport(fs.readFileSync(req.file.path)); } finally { fs.unlink(req.file.path, () => {}); }
+    const rows = parsed.rows.map((r) => ({ kw: r.text, sv: r.searchVolume ?? null }));
+    const out = store.mergeKwIntoList(req.params.id, rows, String(req.body?.group || ""));
+    if (!out) return res.status(404).json({ ok: false, message: "Không tìm thấy list" });
+    res.json({ ok: true, ...out, total: rows.length });
+  } catch (e) { res.status(400).json({ ok: false, message: e.message }); }
 });
 
 /* ===================== PHÂN TÍCH KEYWORD (Helium 10 Cerebro) ===================== */

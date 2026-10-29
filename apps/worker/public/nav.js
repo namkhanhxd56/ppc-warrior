@@ -6,6 +6,7 @@
   const PAGES = [
     ["/", "📊 Check Ranking"],
     ["/catalog.html", "📋 Danh mục"],
+    ["/kwlists.html", "🗂 Danh mục Keyword"],
     ["/keywords.html", "🔑 Phân tích Keyword"],
     ["/launching.html", "🚀 Tạo Campaign"],
     ["/adjust.html", "⚙️ Điều chỉnh Campaign"],

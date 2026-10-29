@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<title>PPC Warrior — Danh mục Keyword</title>
+<style>
+  :root { --b:#2455e6; --ok:#1a9e50; --bad:#e04545; --warn:#d98a00; --mut:#667; }
+  * { box-sizing:border-box; }
+  body { font-family:-apple-system,Segoe UI,Arial,sans-serif; margin:0; background:#f4f6fa; color:#1b2330; }
+  header { background:#101828; color:#fff; padding:14px 24px; display:flex; align-items:center; gap:14px; }
+  header h1 { font-size:17px; margin:0; }
+  main { max-width:1180px; margin:20px auto; padding:0 16px; }
+  .card { background:#fff; border:1px solid #e3e8f0; border-radius:12px; padding:18px 20px; margin-bottom:16px; }
+  .card > h2 { font-size:14px; margin:0 0 4px; }
+  .card .sub { font-size:12px; color:var(--mut); margin:0 0 12px; line-height:1.6; }
+  label { font-size:11.5px; color:var(--mut); display:block; margin:0 0 4px; font-weight:600; }
+  input, select, textarea { padding:7px 9px; border:1px solid #ccd3e0; border-radius:7px; font-size:13px; font-family:inherit; background:#fff; }
+  input:focus, select:focus, textarea:focus { outline:2px solid #c7d5ff; border-color:var(--b); }
+  button { padding:8px 16px; border:none; border-radius:7px; cursor:pointer; font-size:13px; font-weight:600; }
+  button:disabled { opacity:.45; cursor:not-allowed; }
+  .btn-primary { background:var(--b); color:#fff; }
+  .btn-sm { padding:5px 12px; font-size:12px; background:#eef1f7; }
+  .btn-bad { background:#fde8e8; color:#c0392b; }
+  table { border-collapse:collapse; width:100%; font-size:12.5px; }
+  th, td { border:1px solid #e3e8f0; padding:0; text-align:left; }
+  th { background:#f0f3f9; padding:6px 8px; font-size:11.5px; color:var(--mut); white-space:nowrap; }
+  th[data-sort] { cursor:pointer; user-select:none; } th[data-sort]:hover { background:#e4e9f4; } th.sorted { color:var(--b); }
+  td input, td select { border:none; border-radius:0; width:100%; background:transparent; font-size:12.5px; padding:6px 8px; }
+  td input:focus, td select:focus { outline:2px solid #c7d5ff; outline-offset:-2px; }
+  td.txt { padding:6px 8px; }
+  td.num { padding:6px 8px; text-align:right; font-variant-numeric:tabular-nums; }
+  td.c { text-align:center; padding:4px; }
+  td.del { width:34px; text-align:center; }
+  td.del button { background:transparent; color:#b7c0cf; padding:4px 8px; }
+  td.del button:hover { color:var(--bad); }
+  td input.manual { color:#b45f06; font-weight:700; }
+  .row { display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap; }
+  .msg { font-size:12.5px; } .msg.ok { color:var(--ok); } .msg.err { color:var(--bad); }
+  .hint { font-size:11.5px; color:var(--mut); }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  @media (max-width:860px) { .grid2 { grid-template-columns:1fr; } }
+  .dirty { color:var(--warn); font-weight:700; font-size:12.5px; }
+  .pill { display:inline-block; font-size:11px; padding:1px 8px; border-radius:10px; background:#eef1f7; color:#556; font-weight:600; }
+  #verWarn { display:none; background:#b45309; color:#fff; padding:8px 16px; font-size:13px; text-align:center; }
+  .scroll { max-height:620px; overflow:auto; border:1px solid #e3e8f0; border-radius:8px; }
+  .scroll table { border:none; } .scroll th { position:sticky; top:0; z-index:2; }
+</style>
+</head>
+<body>
+<div id="verWarn"></div>
+<header>
+  <h1>⚔️ PPC Warrior</h1>
+  <nav></nav><!-- nav.js dựng menu — sửa danh sách trang ở public/nav.js -->
+</header>
+
+<main>
+  <div class="card">
+    <h2>🗂 Danh mục Keyword</h2>
+    <p class="sub">
+      Mỗi <b>list</b> (VD "Pickle ornament") gồm nhiều <b>group</b> (keyword product, keyword gift, keyword decor…). Mỗi group có <b>bid</b> riêng và <b>+n ngày</b> so với ngày launch chính.
+      Keyword theo bid của group, sửa tay từng keyword được. Cùng một keyword nằm ở nhiều list được.<br>
+      Gán list cho ASIN ở <a href="/catalog.html">📋 Danh mục</a> (cột List keyword) → sang <a href="/launching.html">🚀 Tạo Campaign</a> bấm "Kéo keyword từ list" là ra <span style="font-family:ui-monospace,Menlo,monospace">keyword | bid | +n</span>.
+      Phần này độc lập với 🔑 Phân tích Keyword.
+    </p>
+    <div class="row">
+      <div><label>List</label><select id="listSel" style="min-width:260px"></select></div>
+      <button class="btn-sm" id="btnNew">➕ List mới</button>
+      <button class="btn-sm" id="btnRename">✎ Đổi tên</button>
+      <button class="btn-sm btn-bad" id="btnDel">🗑 Xoá list</button>
+      <span style="flex:1"></span>
+      <span class="dirty" id="dirtyFlag"></span>
+      <button class="btn-primary" id="btnSave">💾 Lưu list</button>
+      <span class="msg" id="saveMsg"></span>
+    </div>
+  </div>
+
+  <div id="listArea" style="display:none">
+    <div class="grid2">
+      <div class="card">
+        <h2>🏷 Group</h2>
+        <p class="sub">Bid để trống = keyword không có bid (Tạo Campaign dùng bid mặc định). <b>+n ngày</b>: campaign của group này bắt đầu sau ngày launch chính n ngày.</p>
+        <table>
+          <thead><tr><th>Tên group</th><th style="width:66px">Bid ($)</th><th style="width:62px">+n ngày</th><th style="width:58px">Keyword</th><th style="width:72px" title="Xoá bid sửa tay của mọi keyword trong group → tất cả theo bid group">Bid tay</th><th style="width:34px"></th></tr></thead>
+          <tbody id="gBody"></tbody>
+        </table>
+        <div class="row" style="margin-top:10px"><button class="btn-sm" id="gAdd">➕ Thêm group</button></div>
+      </div>
+
+      <div class="card">
+        <h2>📥 Nạp keyword</h2>
+        <p class="sub">File export Cerebro (csv/xlsx) — lấy <b>Keyword Phrase</b> + <b>Search Volume</b>. Keyword đã có trong list chỉ cập nhật Search Volume, giữ nguyên group/bid đã phân.</p>
+        <div class="row">
+          <div><label>File Cerebro</label><input type="file" id="cbFile" accept=".csv,.xlsx,.xls"></div>
+        </div>
+        <div class="row" style="margin-top:8px">
+          <div><label>Keyword mới vào group</label><select id="impGroup" style="min-width:180px"></select></div>
+          <button class="btn-primary" id="btnImport">📥 Import</button>
+        </div>
+        <div class="msg" id="impMsg" style="margin-top:6px"></div>
+        <label style="margin-top:12px">Hoặc dán — mỗi dòng <span style="font-family:ui-monospace,Menlo,monospace">keyword</span> hoặc <span style="font-family:ui-monospace,Menlo,monospace">keyword | search volume</span> (dán 2 cột Excel cũng được)</label>
+        <textarea id="pasteKw" rows="3" style="width:100%" placeholder="pickle ornament | 12000&#10;funny pickle christmas ornament"></textarea>
+        <div class="row" style="margin-top:6px"><button class="btn-sm" id="btnPaste">➕ Thêm vào list</button></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>🔑 Keyword <span class="hint" id="kwCount"></span></h2>
+      <div class="row" style="margin-bottom:10px">
+        <div><label>Tìm</label><input type="text" id="fQ" placeholder="keyword…" style="width:200px"></div>
+        <div><label>Group</label><select id="fGroup" style="min-width:160px"></select></div>
+        <span style="flex:1"></span>
+        <div><label>Keyword đã tick</label>
+          <div style="display:flex;gap:6px;align-items:center">
+            <select id="bkGroup" style="min-width:150px"></select><button class="btn-sm" id="btnBkGroup">Gán group</button>
+            <input type="text" inputmode="decimal" id="bkBid" placeholder="bid" style="width:70px"><button class="btn-sm" id="btnBkBid">Đặt bid tay</button>
+            <button class="btn-sm" id="btnBkClear" title="Bỏ bid sửa tay → theo bid group">Theo bid group</button>
+            <button class="btn-sm btn-bad" id="btnBkDel">Xoá</button>
+          </div></div>
+      </div>
+      <div class="scroll" id="kwScroll">
+        <table>
+          <thead><tr>
+            <th style="width:34px" class="c"><input type="checkbox" id="tickAll" title="Tick mọi keyword đang hiện"></th>
+            <th data-sort="kw">Keyword</th><th data-sort="sv" style="width:120px">Search Volume</th><th data-sort="group" style="width:190px">Group</th>
+            <th data-sort="bid" style="width:90px">Bid ($)</th><th style="width:80px" title="+n ngày theo group">Launch</th><th style="width:34px"></th>
+          </tr></thead>
+          <tbody id="kBody"></tbody>
+        </table>
+      </div>
+      <div class="row" style="margin-top:8px"><span class="hint" id="moreInfo"></span><button class="btn-sm" id="btnMore" style="display:none">Hiện thêm</button></div>
+    </div>
+  </div>
+  <div class="card" id="emptyArea" style="display:none"><span class="hint">Chưa có list nào — bấm <b>➕ List mới</b> để bắt đầu.</span></div>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+const numOrNull = (v) => { const s = String(v ?? '').trim(); if (!s) return null; const n = parseFloat(s.replace(/[^0-9.,\-]/g, '').replace(',', '.')); return isNaN(n) ? null : n; };
+const svNum = (v) => { const s = String(v ?? '').trim(); if (!s) return null; const n = parseFloat(s.replace(/[^0-9.\-]/g, '')); return isNaN(n) ? null : n; };
+const fmtSv = (n) => n == null ? '' : Number(n).toLocaleString('en-US');
+
+const UI_VERSION = '0.46.0';
+(async () => {
+  try { const v = (await (await fetch('/api/version')).json()).version; if (v !== UI_VERSION) throw new Error(v); }
+  catch (e) { $('verWarn').style.display = 'block'; $('verWarn').textContent = `⚠️ Server phiên bản cũ (${e.message}) — hãy restart (npm start).`; }
+})();
+
+let lists = [];      // tóm tắt [{id, name, kwCount}]
+let cur = null;      // list đang mở {id, name, groups[], keywords[]}
+let dirty = false;
+let sortF = 'sv', sortDir = -1;
+let shown = 300;     // số dòng đang vẽ (list Cerebro có thể vài nghìn keyword)
+const PAGE = 300;
+const sel = new Set(); // keyword đang tick
+
+function setDirty(v) {
+  dirty = v;
+  $('dirtyFlag').textContent = v ? '● Chưa lưu' : '';
+}
+window.addEventListener('beforeunload', (e) => { if (dirty) { e.preventDefault(); e.returnValue = ''; } });
+
+async function api(url, opt = {}) {
+  const r = await fetch(url, opt.body && !(opt.body instanceof FormData)
+    ? { ...opt, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(opt.body) } : opt);
+  const d = await r.json().catch(() => ({ ok: false, message: 'Lỗi ' + r.status }));
+  if (!r.ok || d.ok === false) throw new Error(d.message || ('Lỗi ' + r.status));
+  return d;
+}
+function msg(id, cls, t) { $(id).className = 'msg ' + cls; $(id).textContent = t; }
+
+/* ===== Danh sách list ===== */
+async function loadLists(pickId) {
+  lists = (await api('/api/kwlists')).lists;
+  $('listSel').innerHTML = lists.map((l) => `<option value="${esc(l.id)}">${esc(l.name)} (${l.kwCount})</option>`).join('');
+  $('emptyArea').style.display = lists.length ? 'none' : '';
+  $('listArea').style.display = lists.length ? '' : 'none';
+  if (!lists.length) { cur = null; return; }
+  let id = pickId || cur?.id;
+  try { id = id || localStorage.getItem('ppcw_kwlist_cur'); } catch {}
+  if (!lists.some((l) => l.id === id)) id = lists[0].id;
+  $('listSel').value = id;
+  await openList(id);
+}
+async function openList(id) {
+  cur = (await api('/api/kwlists/' + encodeURIComponent(id))).list;
+  try { localStorage.setItem('ppcw_kwlist_cur', id); } catch {}
+  sel.clear(); shown = PAGE; setDirty(false);
+  renderAll();
+}
+$('listSel').onchange = async () => {
+  if (dirty && !confirm('List hiện tại chưa lưu — bỏ thay đổi và chuyển list?')) { $('listSel').value = cur.id; return; }
+  await openList($('listSel').value);
+};
+$('btnNew').onclick = async () => {
+  if (dirty && !confirm('List hiện tại chưa lưu — bỏ thay đổi?')) return;
+  const name = prompt('Tên list mới (VD: Pickle ornament):');
+  if (!name || !name.trim()) return;
+  const l = (await api('/api/kwlists', { method: 'POST', body: { name } })).list;
+  await loadLists(l.id);
+};
+$('btnRename').onclick = () => {
+  if (!cur) return;
+  const name = prompt('Tên list:', cur.name);
+  if (!name || !name.trim()) return;
+  cur.name = name.trim(); setDirty(true);
+  const o = $('listSel').selectedOptions[0]; if (o) o.textContent = `${cur.name} (${cur.keywords.length})`;
+};
+$('btnDel').onclick = async () => {
+  if (!cur || !confirm(`Xoá list "${cur.name}" (${cur.keywords.length} keyword)? Không hoàn tác được.`)) return;
+  await api('/api/kwlists/' + encodeURIComponent(cur.id), { method: 'DELETE' });
+  cur = null; setDirty(false);
+  await loadLists();
+};
+async function saveList() {
+  const d = await api('/api/kwlists/' + encodeURIComponent(cur.id), { method: 'PUT', body: cur });
+  cur = d.list; setDirty(false);
+  const o = $('listSel').selectedOptions[0]; if (o) o.textContent = `${cur.name} (${cur.keywords.length})`;
+  return cur;
+}
+$('btnSave').onclick = async () => {
+  if (!cur) return;
+  try { await saveList(); msg('saveMsg', 'ok', `✓ Đã lưu ${cur.keywords.length} keyword · ${cur.groups.length} group`); renderAll(); }
+  catch (e) { msg('saveMsg', 'err', '✕ ' + e.message); }
+};
+
+/* ===== Group ===== */
+const groupOf = (name) => cur.groups.find((g) => g.name === name);
+const effBid = (k) => k.bid != null ? k.bid : (groupOf(k.group)?.bid ?? null);
+function renderGroups() {
+  const cnt = {};
+  for (const k of cur.keywords) cnt[k.group] = (cnt[k.group] || 0) + 1;
+  $('gBody').innerHTML = cur.groups.map((g, i) => {
+    const manual = cur.keywords.filter((k) => k.group === g.name && k.bid != null).length;
+    return `<tr>
+      <td><input type="text" value="${esc(g.name)}" data-i="${i}" data-f="name"></td>
+      <td><input type="text" inputmode="decimal" value="${g.bid ?? ''}" placeholder="—" data-i="${i}" data-f="bid"></td>
+      <td><input type="number" min="0" max="365" value="${g.offset || 0}" data-i="${i}" data-f="offset"></td>
+      <td class="num">${cnt[g.name] || 0}</td>
+      <td class="c">${manual ? `<button class="btn-sm" data-reset="${i}" title="Xoá bid sửa tay của ${manual} keyword → theo bid group">↺ ${manual} tay</button>` : '<span class="hint">—</span>'}</td>
+      <td class="del"><button data-del="${i}" title="Xoá group (keyword chuyển về chưa phân group)">✕</button></td></tr>`;
+  }).join('') + (cnt[''] ? `<tr><td class="txt hint">(chưa phân group)</td><td class="txt hint">—</td><td class="txt hint">+0</td><td class="num">${cnt['']}</td><td></td><td></td></tr>` : '');
+  const opts = (blank) => `<option value="">${blank}</option>` + cur.groups.map((g) => `<option value="${esc(g.name)}">${esc(g.name)}</option>`).join('');
+  const keep = (id, html) => { const v = $(id).value; $(id).innerHTML = html; if ([...$(id).options].some((o) => o.value === v)) $(id).value = v; };
+  keep('impGroup', opts('(chưa phân group)'));
+  keep('bkGroup', opts('(chưa phân group)'));
+  keep('fGroup', '<option value="*">Mọi group</option>' + opts('(chưa phân group)'));
+}
+$('gBody').addEventListener('change', (e) => {
+  const el = e.target; const i = +el.dataset.i; const g = cur.groups[i]; if (!g) return;
+  if (el.dataset.f === 'name') {
+    const nv = el.value.trim();
+    if (!nv || cur.groups.some((x, j) => j !== i && x.name.toLowerCase() === nv.toLowerCase())) { alert('Tên group trống hoặc bị trùng'); el.value = g.name; return; }
+    for (const k of cur.keywords) if (k.group === g.name) k.group = nv; // đổi tên → keyword đi theo
+    g.name = nv;
+  } else if (el.dataset.f === 'bid') g.bid = numOrNull(el.value);
+  else g.offset = Math.max(0, Math.min(365, parseInt(el.value, 10) || 0));
+  setDirty(true); renderAll();
+});
+$('gBody').addEventListener('click', (e) => {
+  const d = e.target.closest('[data-del]'), r = e.target.closest('[data-reset]');
+  if (d) {
+    const g = cur.groups[+d.dataset.del];
+    const n = cur.keywords.filter((k) => k.group === g.name).length;
+    if (n && !confirm(`Xoá group "${g.name}"? ${n} keyword chuyển về "chưa phân group".`)) return;
+    for (const k of cur.keywords) if (k.group === g.name) k.group = '';
+    cur.groups.splice(+d.dataset.del, 1);
+    setDirty(true); renderAll();
+  } else if (r) {
+    const g = cur.groups[+r.dataset.reset];
+    for (const k of cur.keywords) if (k.group === g.name) k.bid = null;
+    setDirty(true); renderAll();
+  }
+});
+$('gAdd').onclick = () => {
+  let n = cur.groups.length + 1, name = 'Group ' + n;
+  while (cur.groups.some((g) => g.name === name)) name = 'Group ' + (++n);
+  cur.groups.push({ name, bid: null, offset: 0 });
+  setDirty(true); renderAll();
+  const inp = $('gBody').querySelector(`input[data-i="${cur.groups.length - 1}"][data-f="name"]`);
+  if (inp) { inp.focus(); inp.select(); }
+};
+
+/* ===== Nạp keyword ===== */
+$('btnImport').onclick = async () => {
+  const f = $('cbFile').files[0];
+  if (!f) { msg('impMsg', 'err', '✕ Chưa chọn file'); return; }
+  try {
+    if (dirty) await saveList(); // import gộp ở server — lưu trước để không mất thay đổi đang sửa
+    msg('impMsg', '', '⏳ Đang đọc file…');
+    const fd = new FormData(); fd.append('file', f); fd.append('group', $('impGroup').value);
+    const d = await api(`/api/kwlists/${encodeURIComponent(cur.id)}/import`, { method: 'POST', body: fd });
+    cur = d.list; setDirty(false); shown = PAGE; renderAll();
+    msg('impMsg', 'ok', `✓ ${d.total} dòng trong file · thêm ${d.added} keyword mới · cập nhật SV ${d.updated} keyword đã có`);
+    const o = $('listSel').selectedOptions[0]; if (o) o.textContent = `${cur.name} (${cur.keywords.length})`;
+    $('cbFile').value = '';
+  } catch (e) { msg('impMsg', 'err', '✕ ' + e.message); }
+};
+$('btnPaste').onclick = () => {
+  const byKw = new Map(cur.keywords.map((k) => [k.kw, k]));
+  let add = 0, upd = 0;
+  for (const line of $('pasteKw').value.split('\n')) {
+    const [a, b] = line.split(/\s*[|\t]\s*/);
+    const kw = String(a || '').replace(/\s+/g, ' ').trim().toLowerCase();
+    if (!kw) continue;
+    const sv = svNum(b);
+    const ex = byKw.get(kw);
+    if (ex) { if (sv != null) { ex.sv = sv; upd++; } continue; }
+    const k = { kw, sv, group: $('impGroup').value, bid: null };
+    cur.keywords.push(k); byKw.set(kw, k); add++;
+  }
+  $('pasteKw').value = '';
+  if (add || upd) setDirty(true);
+  msg('impMsg', 'ok', `✓ thêm ${add} keyword · cập nhật SV ${upd} — nhớ bấm 💾 Lưu list`);
+  renderAll();
+};
+
+/* ===== Bảng keyword ===== */
+function filtered() {
+  const q = $('fQ').value.trim().toLowerCase(), g = $('fGroup').value;
+  let out = cur.keywords.filter((k) => (!q || k.kw.includes(q)) && (g === '*' || k.group === g));
+  const val = (k) => sortF === 'bid' ? effBid(k) : k[sortF];
+  out = out.slice().sort((a, b) => {
+    const av = val(a), bv = val(b);
+    if (av == null || av === '') return (bv == null || bv === '') ? 0 : 1; // ô trống luôn cuối
+    if (bv == null || bv === '') return -1;
+    return av < bv ? -sortDir : av > bv ? sortDir : 0;
+  });
+  return out;
+}
+function renderKw() {
+  const rows = filtered();
+  const gOpts = (cv) => `<option value=""${cv ? '' : ' selected'}>(chưa phân group)</option>` + cur.groups.map((g) => `<option value="${esc(g.name)}"${g.name === cv ? ' selected' : ''}>${esc(g.name)}</option>`).join('');
+  $('kBody').innerHTML = rows.slice(0, shown).map((k) => {
+    const g = groupOf(k.group);
+    return `<tr data-kw="${esc(k.kw)}">
+      <td class="c"><input type="checkbox" class="tk" ${sel.has(k.kw) ? 'checked' : ''}></td>
+      <td class="txt">${esc(k.kw)}</td>
+      <td class="num">${fmtSv(k.sv)}</td>
+      <td><select class="kg">${gOpts(k.group)}</select></td>
+      <td><input type="text" inputmode="decimal" class="kb${k.bid != null ? ' manual' : ''}" value="${k.bid ?? ''}" placeholder="${g && g.bid != null ? g.bid : '—'}" title="${k.bid != null ? 'Bid sửa tay — xoá trống để theo bid group' : 'Theo bid group'}"></td>
+      <td class="txt hint">+${g ? g.offset || 0 : 0} ngày</td>
+      <td class="del"><button title="Xoá keyword">✕</button></td></tr>`;
+  }).join('');
+  $('kwCount').textContent = `— ${rows.length} / ${cur.keywords.length} keyword${sel.size ? ` · đã tick ${sel.size}` : ''}`;
+  $('moreInfo').textContent = rows.length > shown ? `Đang hiện ${shown} / ${rows.length}` : '';
+  $('btnMore').style.display = rows.length > shown ? '' : 'none';
+  $('tickAll').checked = rows.length > 0 && rows.slice(0, shown).every((k) => sel.has(k.kw));
+  document.querySelectorAll('th[data-sort]').forEach((th) => {
+    th.classList.toggle('sorted', th.dataset.sort === sortF);
+    th.textContent = th.textContent.replace(/ [▲▼]$/, '') + (th.dataset.sort === sortF ? (sortDir > 0 ? ' ▲' : ' ▼') : '');
+  });
+}
+function renderAll() { if (!cur) return; renderGroups(); renderKw(); }
+const kwOfRow = (el) => cur.keywords.find((k) => k.kw === el.closest('tr').dataset.kw);
+$('kBody').addEventListener('change', (e) => {
+  const k = kwOfRow(e.target); if (!k) return;
+  if (e.target.classList.contains('tk')) { e.target.checked ? sel.add(k.kw) : sel.delete(k.kw); renderKw(); return; }
+  if (e.target.classList.contains('kg')) { k.group = e.target.value; setDirty(true); renderAll(); return; }
+  if (e.target.classList.contains('kb')) { k.bid = numOrNull(e.target.value); setDirty(true); renderKw(); }
+});
+$('kBody').addEventListener('click', (e) => {
+  if (!e.target.closest('td.del button')) return;
+  const k = kwOfRow(e.target); if (!k) return;
+  cur.keywords = cur.keywords.filter((x) => x !== k); sel.delete(k.kw);
+  setDirty(true); renderAll();
+});
+$('tickAll').onchange = () => {
+  const vis = filtered().slice(0, shown);
+  vis.forEach((k) => $('tickAll').checked ? sel.add(k.kw) : sel.delete(k.kw));
+  renderKw();
+};
+document.querySelectorAll('th[data-sort]').forEach((th) => th.onclick = () => {
+  const f = th.dataset.sort;
+  if (sortF === f) sortDir = -sortDir; else { sortF = f; sortDir = (f === 'kw' || f === 'group') ? 1 : -1; }
+  renderKw();
+});
+$('fQ').oninput = () => { shown = PAGE; renderKw(); };
+$('fGroup').onchange = () => { shown = PAGE; renderKw(); };
+$('btnMore').onclick = () => { shown += PAGE; renderKw(); };
+const picked = () => cur.keywords.filter((k) => sel.has(k.kw));
+$('btnBkGroup').onclick = () => {
+  const ks = picked(); if (!ks.length) return alert('Chưa tick keyword nào');
+  ks.forEach((k) => { k.group = $('bkGroup').value; });
+  setDirty(true); renderAll();
+};
+$('btnBkBid').onclick = () => {
+  const ks = picked(); if (!ks.length) return alert('Chưa tick keyword nào');
+  const b = numOrNull($('bkBid').value); if (b == null || b <= 0) return alert('Nhập bid > 0');
+  ks.forEach((k) => { k.bid = b; });
+  setDirty(true); renderAll();
+};
+$('btnBkClear').onclick = () => {
+  const ks = picked(); if (!ks.length) return alert('Chưa tick keyword nào');
+  ks.forEach((k) => { k.bid = null; });
+  setDirty(true); renderAll();
+};
+$('btnBkDel').onclick = () => {
+  const ks = picked(); if (!ks.length) return alert('Chưa tick keyword nào');
+  if (!confirm(`Xoá ${ks.length} keyword khỏi list?`)) return;
+  const rm = new Set(ks.map((k) => k.kw));
+  cur.keywords = cur.keywords.filter((k) => !rm.has(k.kw)); sel.clear();
+  setDirty(true); renderAll();
+};
+
+loadLists().catch((e) => { $('emptyArea').style.display = ''; $('emptyArea').innerHTML = `<span class="msg err">✕ ${esc(e.message)}</span>`; });
+</script>
+<script src="/nav.js"></script>
+</body>
+</html>

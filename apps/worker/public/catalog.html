@@ -30,6 +30,10 @@
   td input, td select { border:none; border-radius:0; width:100%; background:transparent; font-size:12.5px; padding:6px 8px; }
   td input:focus, td select:focus { outline:2px solid #c7d5ff; outline-offset:-2px; }
   td.del { width:34px; text-align:center; }
+  td.type select { padding:6px 0 6px 8px; font-weight:600; }
+  .pfWrap { display:flex; align-items:center; }
+  .pfWrap input { flex:0 0 150px; }
+  .pfName { font-size:12px; color:#2455e6; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; padding-right:8px; }
   td.del button { background:transparent; color:#b7c0cf; padding:4px 8px; }
   td.del button:hover { color:var(--bad); }
   .mono { font-family:ui-monospace,Menlo,monospace; }
@@ -63,15 +67,18 @@
     <p class="sub">
       Mỗi dòng là một sản phẩm. <b>Type</b> quyết định tiền tố tên campaign qua <span class="mono">{Type}</span> — FBA hay FBM.<br>
       <b>Portfolio mặc định gán theo tên list</b>: đổi portfolio ở một dòng là mọi dòng cùng list đổi theo. Sang Tạo Campaign, chọn ASIN thì SKU và portfolio tự điền.<br>
-      Dán thẳng từ Excel được: copy 4 cột <span class="mono">Tên list · ASIN · SKU · Type</span> rồi bấm vào một ô và dán.
+      Dán thẳng từ Excel được: copy 3 cột <span class="mono">ASIN · SKU · Portfolio ID</span> rồi bấm vào ô ASIN và dán (hoặc thêm <span class="mono">Tên list</span> phía trước rồi dán vào ô Tên list).
+      Portfolio ID có trong Danh mục portfolio thì hiện kèm <span class="mono">(tên portfolio)</span>.<br>
+      <b>List keyword</b>: chọn list ở <a href="/kwlists.html">🗂 Danh mục Keyword</a> — sang Tạo Campaign bấm "Kéo keyword từ list" là đổ keyword của ASIN đó vào.
     </p>
     <table>
-      <thead><tr><th style="width:22%">Tên list</th><th style="width:18%">ASIN</th><th style="width:20%">SKU</th><th style="width:11%">Type</th><th style="width:29%">Portfolio mặc định</th><th style="width:34px"></th></tr></thead>
+      <thead><tr><th style="width:74px">Type</th><th style="width:19%">Tên list</th><th style="width:13%">ASIN</th><th style="width:15%">SKU</th><th>Portfolio mặc định</th><th style="width:16%">List keyword</th><th style="width:34px"></th></tr></thead>
       <tbody id="pBody"></tbody>
     </table>
     <div class="row" style="margin-top:10px">
       <button class="btn-sm" id="pAdd">➕ Thêm dòng</button>
       <button class="btn-primary" id="pSave">💾 Lưu danh mục</button>
+      <button class="btn-sm" id="pCopy" title="Copy ASIN · SKU · Portfolio ID của mọi dòng (dán vào Excel được)">📋 Copy ASIN | SKU | Portfolio</button>
       <span class="msg" id="pMsg"></span>
     </div>
   </div>
@@ -98,7 +105,7 @@
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
 
-const UI_VERSION = '0.45.1';
+const UI_VERSION = '0.46.0';
 (async () => {
   try { const v = (await (await fetch('/api/version')).json()).version; if (v !== UI_VERSION) throw new Error(v); }
   catch (e) { $('verWarn').style.display = 'block'; $('verWarn').textContent = `⚠️ Server phiên bản cũ (${e.message}) — hãy restart (npm start).`; }
@@ -117,7 +124,13 @@ function pasteInto(tbody, startTr, startCol, text, addRow) {
     line.split('\t').forEach((val, i) => {
       const c = cells[startCol + i];
       if (!c) return;
-      c.value = c.tagName === 'SELECT' ? (String(val).trim().toUpperCase() === 'FBM' ? 'FBM' : 'FBA') : String(val).trim();
+      const v = String(val).trim();
+      if (c.classList.contains('kwSel')) { // List keyword: dán TÊN list → tìm option theo tên
+        const o = [...c.options].find((x) => x.value && (x.textContent.trim().toLowerCase() === v.toLowerCase() || x.value === v));
+        c.value = o ? o.value : '';
+      } else if (c.tagName === 'SELECT') c.value = v.toUpperCase() === 'FBM' ? 'FBM' : 'FBA';
+      else c.value = v;
+      if (c.classList.contains('pfCell')) normPfCell(c);
     });
     tr = tr.nextElementSibling;
   }
@@ -136,38 +149,62 @@ function wirePaste(tbody, addRow) {
 
 /* ===== Bảng sản phẩm ===== */
 let pfList = [];
-function pfOptions(cur) {
-  const known = pfList.some((p) => p.id === cur);
-  return '<option value="">— chưa gán —</option>'
-    + pfList.map((p) => `<option value="${esc(p.id)}"${p.id === cur ? ' selected' : ''}>${esc(p.name || '(chưa đặt tên)')}</option>`).join('')
-    + (cur && !known ? `<option value="${esc(cur)}" selected>ID cũ · ${esc(cur)}</option>` : '');
+let kwLists = []; // [{id, name}] từ Danh mục Keyword
+/* Ô Portfolio là Ô NHẬP (không còn <select>) để dán được cả cột từ Excel cùng ASIN/SKU.
+   Giá trị lưu là Portfolio ID; có trong Danh mục portfolio thì hiện "(tên)" bên cạnh,
+   chưa có thì để trống — không mở ngoặc. Gõ/dán "ID (tên)" hoặc đúng tên portfolio cũng nhận. */
+const pfNameOf = (id) => (pfList.find((p) => p.id === id) || {}).name || '';
+function normPfCell(inp) {
+  let v = inp.value.trim();
+  const m = v.match(/^(\d{6,})/);
+  if (m) v = m[1];
+  else if (v) { const byName = pfList.find((p) => p.name && p.name.toLowerCase() === v.toLowerCase()); if (byName) v = byName.id; }
+  inp.value = v;
+  const nm = v ? pfNameOf(v) : '';
+  const lb = inp.parentElement.querySelector('.pfName');
+  lb.textContent = nm ? `(${nm})` : '';
+  lb.title = nm;
+}
+function pfDatalist() {
+  let dl = $('pfDl');
+  if (!dl) { dl = document.createElement('datalist'); dl.id = 'pfDl'; document.body.appendChild(dl); }
+  dl.innerHTML = pfList.map((p) => `<option value="${esc(p.id)}">${esc(p.name || '')}</option>`).join('');
+}
+function kwOptions(cur) {
+  const known = kwLists.some((l) => l.id === cur);
+  return '<option value="">—</option>' + kwLists.map((l) => `<option value="${esc(l.id)}"${l.id === cur ? ' selected' : ''}>${esc(l.name)}</option>`).join('')
+    + (cur && !known ? `<option value="${esc(cur)}" selected>(list đã xoá)</option>` : '');
 }
 /** Portfolio là thuộc tính của TÊN LIST, không phải của từng ASIN — nên sửa một dòng là cả
  *  list theo. Không làm vậy thì mỗi lần thêm ASIN mới lại phải nhớ chọn lại portfolio. */
 function applyPfToList(srcTr, value) {
-  const name = cellsOf(srcTr)[0].value.trim().toLowerCase();
+  const name = cellsOf(srcTr)[1].value.trim().toLowerCase();
   if (!name) return;
   let n = 0;
   for (const tr of $('pBody').children) {
     if (tr === srcTr) continue;
     const c = cellsOf(tr);
-    if (c[0].value.trim().toLowerCase() !== name) continue;
-    c[4].value = value; n++;
+    if (c[1].value.trim().toLowerCase() !== name) continue;
+    if (c[4].value === value) continue;
+    c[4].value = value; normPfCell(c[4]); n++;
   }
-  if (n) { $('pMsg').className = 'msg ok'; $('pMsg').textContent = `↻ áp portfolio cho ${n} dòng khác cùng list "${srcTr.querySelector('input').value.trim()}"`; }
+  if (n) { $('pMsg').className = 'msg ok'; $('pMsg').textContent = `↻ áp portfolio cho ${n} dòng khác cùng list "${cellsOf(srcTr)[1].value.trim()}"`; }
 }
 function pRow(r = {}) {
   const tr = document.createElement('tr');
   tr.innerHTML = `
+    <td class="type"><select><option${r.type === 'FBM' ? '' : ' selected'}>FBA</option><option${r.type === 'FBM' ? ' selected' : ''}>FBM</option></select></td>
     <td><input type="text" value="${esc(r.list)}" placeholder="Pickle jar 2026"></td>
     <td><input type="text" class="mono" value="${esc(r.asin)}" placeholder="B0XXXXXXXX" maxlength="10"></td>
     <td><input type="text" class="mono" value="${esc(r.sku)}" placeholder="SKU-ABC-01"></td>
-    <td><select><option${r.type === 'FBM' ? '' : ' selected'}>FBA</option><option${r.type === 'FBM' ? ' selected' : ''}>FBM</option></select></td>
-    <td><select class="pfCell">${pfOptions(r.portfolioId)}</select></td>
+    <td><div class="pfWrap"><input type="text" class="pfCell mono" list="pfDl" value="${esc(r.portfolioId)}" placeholder="Portfolio ID"><span class="pfName"></span></div></td>
+    <td><select class="kwSel">${kwOptions(r.kwList)}</select></td>
     <td class="del"><button title="Xoá dòng">✕</button></td>`;
   tr.querySelector('.del button').onclick = () => tr.remove();
+  const pf = tr.querySelector('.pfCell');
+  normPfCell(pf);
   // Portfolio gán theo TÊN LIST: đổi ở một dòng → mọi dòng cùng list đổi theo
-  tr.querySelector('.pfCell').onchange = (e) => applyPfToList(tr, e.target.value);
+  pf.onchange = () => { normPfCell(pf); applyPfToList(tr, pf.value); };
   $('pBody').appendChild(tr);
 }
 const pAddRow = () => pRow();
@@ -177,9 +214,15 @@ wirePaste($('pBody'), pAddRow);
 function pRead() {
   return [...$('pBody').children].map((tr) => {
     const c = cellsOf(tr);
-    return { list: c[0].value.trim(), asin: c[1].value.trim().toUpperCase(), sku: c[2].value.trim(), type: c[3].value, portfolioId: c[4].value };
+    return { type: c[0].value, list: c[1].value.trim(), asin: c[2].value.trim().toUpperCase(), sku: c[3].value.trim(), portfolioId: c[4].value.trim(), kwList: c[5].value };
   }).filter((r) => r.asin);
 }
+$('pCopy').onclick = async () => {
+  const rows = pRead();
+  const tsv = rows.map((r) => [r.asin, r.sku, r.portfolioId].join('\t')).join('\n');
+  try { await navigator.clipboard.writeText(tsv); $('pMsg').className = 'msg ok'; $('pMsg').textContent = `📋 Đã copy ${rows.length} dòng ASIN | SKU | Portfolio`; }
+  catch { $('pMsg').className = 'msg err'; $('pMsg').textContent = '✕ Trình duyệt chặn copy — bôi đen ô rồi Cmd+C'; }
+};
 
 $('pSave').onclick = async () => {
   const rows = pRead();
@@ -215,7 +258,7 @@ $('fSave').onclick = async () => {
     body: JSON.stringify({ rows }) })).json();
   $('fMsg').className = r.ok ? 'msg ok' : 'msg err';
   $('fMsg').textContent = r.ok ? `✓ Đã lưu ${r.portfolios.length} portfolio` : '✕ ' + (r.message || 'Lỗi');
-  if (r.ok) { pfList = r.portfolios; refreshPfCells(); }
+  if (r.ok) { pfList = r.portfolios; pfDatalist(); refreshPfCells(); }
 };
 
 $('btnMgr').onclick = async () => {
@@ -242,15 +285,17 @@ function render(products, portfolios) {
 (async () => {
   const d = await (await fetch('/api/catalog')).json();
   $('manager').value = d.manager || '';
-  pfList = d.portfolios || [];   // PHẢI có trước khi dựng dòng — ô portfolio cần danh sách option
+  pfList = d.portfolios || [];   // PHẢI có trước khi dựng dòng — ô portfolio cần tên để hiện "(tên)"
+  try { kwLists = (await (await fetch('/api/kwlists')).json()).lists || []; } catch { kwLists = []; }
+  pfDatalist();
   render(d.products, d.portfolios);
 })();
 
-// Lưu portfolio xong thì dựng lại ô chọn ở bảng sản phẩm, giữ nguyên lựa chọn đang có
+// Lưu portfolio xong thì cập nhật "(tên)" ở bảng sản phẩm, giữ nguyên ID đang có
 function refreshPfCells() {
   for (const tr of $('pBody').children) {
-    const sel = tr.querySelector('.pfCell');
-    if (sel) sel.innerHTML = pfOptions(sel.value);
+    const inp = tr.querySelector('.pfCell');
+    if (inp) normPfCell(inp);
   }
 }
 </script>

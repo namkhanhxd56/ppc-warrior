@@ -138,7 +138,7 @@ export function addDays(d, days) {
  *                    broad:{...}, wordCountLimit, pbOffsetDays}
  * input.pt:         {on, bid, step, levels, note}
  * input.auto:       {on, adTypes[], bids[], note}
- * input.keywords:   [{text, bid|null, bids:{sugg,min,max}|null}]
+ * input.keywords:   [{text, bid|null, bids:{sugg,min,max}|null, offset?:n}]  — offset = +n ngày Start Date
  * input.targetAsins:[string]
  * input.naming:     {kw, pt, auto}
  * input.camp:       {dailyBudget, autoDailyBudget, ...}
@@ -229,8 +229,15 @@ export function planCampaigns(input) {
   const asin = String(info.asin || head.asin).toUpperCase();
   const exactDate = toBulkDate(info.startDate);
   // Offset ngày RIÊNG cho Phrase và Broad (16/07: tách khỏi cài đặt chung, fallback pbOffsetDays)
-  const phraseDate = toBulkDate(addDays(info.startDate, Number(phrase.offsetDays ?? pbOffsetDays)));
-  const broadDate = toBulkDate(addDays(info.startDate, Number(broad.offsetDays ?? pbOffsetDays)));
+  const phraseOff = Number(phrase.offsetDays ?? pbOffsetDays);
+  const broadOff = Number(broad.offsetDays ?? pbOffsetDays);
+  const phraseDate = toBulkDate(addDays(info.startDate, phraseOff));
+  const broadDate = toBulkDate(addDays(info.startDate, broadOff));
+  /* +n NGÀY THEO KEYWORD (Danh mục Keyword, dòng "kw | bid | +n"): group launch sau ngày
+     launch chính n ngày → Start Date của MỌI campaign của keyword đó lùi n ngày (cộng dồn với
+     offset riêng của Phrase/Broad). Không có +n thì y như cũ. */
+  const kwOff = (kw) => Math.max(0, Math.min(365, Math.round(Number(kw.offset) || 0)));
+  const dateFor = (base, kw) => (kwOff(kw) ? toBulkDate(addDays(info.startDate, base + kwOff(kw))) : null);
 
   /* NHIỀU SẢN PHẨM TRONG 1 CAMPAIGN: info.products = [{asin, sku, type}] lấy từ Danh mục,
      phần tử ĐẦU là sản phẩm chính. Mỗi sản phẩm thành 1 dòng Product Ad trong cùng ad group.
@@ -311,13 +318,13 @@ export function planCampaigns(input) {
     const kwLabel = (kws, portfolio) => (kws.length > 1
       ? ["keywords", pfLabel(portfolio)].filter(Boolean).join(" - ")
       : kws[0].text);
-    const mkMulti = (matchType, kws, date, portfolio, note) => {
+    const mkMultiOne = (matchType, kws, date, portfolio, note, suffix) => {
       if (!kws.length) return;
       // Nhiều keyword trong 1 campaign → {Keyword} = "keywords - <tên portfolio>"
-      const label = kwLabel(kws, portfolio);
+      const label = kwLabel(kws, portfolio) + suffix;
       // {Bid} trong tên campaign = bid ĐÚNG match type của keyword đầu (không lấy bid Exact cho campaign Phrase/Broad)
       const headBid = bidFor(matchType, kws[0]);
-      const name = renderName(naming.kw, { ...ctx(portfolio), Keyword: kwLabel(kws, portfolio),
+      const name = renderName(naming.kw, { ...ctx(portfolio), Keyword: label,
         MatchType: matchType[0].toUpperCase() + matchType.slice(1),
         Bid: headBid.toFixed(2), StartDate: date, Note: note });
       push({
@@ -329,6 +336,17 @@ export function planCampaigns(input) {
           targets: [{ kind: "kw", text: kw.text, mt: matchType, bid: bidFor(matchType, kw) }], negatives: [], negPt: []
         }))
       });
+    };
+    // 1 campaign chỉ có 1 Start Date → keyword khác +n tách thành campaign riêng theo từng
+    // mốc ngày; tên thêm " +n" để không trùng (push() bỏ qua tên trùng — sẽ mất campaign).
+    const mkMulti = (matchType, kws, date, portfolio, note) => {
+      const base = matchType === "exact" ? 0 : matchType === "phrase" ? phraseOff : broadOff;
+      const byOff = new Map();
+      for (const kw of kws) { const o = kwOff(kw); if (!byOff.has(o)) byOff.set(o, []); byOff.get(o).push(kw); }
+      const many = byOff.size > 1;
+      for (const [o, group] of [...byOff].sort((a, b) => a[0] - b[0])) {
+        mkMultiOne(matchType, group, o ? toBulkDate(addDays(info.startDate, base + o)) : date, portfolio, note, many && o ? ` +${o}` : "");
+      }
     };
     if (exact.on) mkMulti("exact", kwListClean, exactDate, pf("exact"), exact.note || "");
     const phraseLimit = Number(phrase.wordLimit ?? wordCountLimit);
@@ -343,7 +361,7 @@ export function planCampaigns(input) {
 
     if (exact.on) {
       for (const bid of ladderBids(base, exact.step, exact.levels, bidRule.minBid)) {
-        push(kwPlan(text, "exact", bid, exactDate, naming.kw, pf("exact"), exact.note || ""));
+        push(kwPlan(text, "exact", bid, dateFor(0, kw) || exactDate, naming.kw, pf("exact"), exact.note || ""));
       }
     }
     // Giới hạn số từ RIÊNG cho Phrase và Broad (16/07: tách khỏi cài đặt chung)
@@ -351,12 +369,12 @@ export function planCampaigns(input) {
     const broadLimit = Number(broad.wordLimit ?? wordCountLimit);
     if (phrase.on && words <= phraseLimit) {
       for (const bid of ladderBids(derived(phrase, base), phrase.step, phrase.levels, bidRule.minBid)) {
-        push(kwPlan(text, "phrase", bid, phraseDate, naming.kw, pf("phrase"), phrase.note || ""));
+        push(kwPlan(text, "phrase", bid, dateFor(phraseOff, kw) || phraseDate, naming.kw, pf("phrase"), phrase.note || ""));
       }
     }
     if (broad.on && words <= broadLimit) {
       for (const bid of ladderBids(derived(broad, base), broad.step, broad.levels, bidRule.minBid)) {
-        push(kwPlan(text, "broad", bid, broadDate, naming.kw, pf("broad"), broad.note || ""));
+        push(kwPlan(text, "broad", bid, dateFor(broadOff, kw) || broadDate, naming.kw, pf("broad"), broad.note || ""));
       }
     }
   }
@@ -506,12 +524,13 @@ export function planCampaigns(input) {
       const text = String(kw.text || "").trim().toLowerCase();
       if (!text) continue;
       const base = r2(kw.bid ?? sbKw.bid);
+      const sbDate = dateFor(0, kw) || exactDate;
       for (const bid of ladderBids(base, sbKw.step, sbKw.levels, bidRule.minBid)) {
         push({
           type: "SB_KW",
-          name: renderName(naming.sbKw, { ...ctx(pf("sbKw") || pf("global")), Keyword: text, MatchType: "Exact", Bid: bid.toFixed(2), StartDate: exactDate, Note: sbKw.note || "" }),
+          name: renderName(naming.sbKw, { ...ctx(pf("sbKw") || pf("global")), Keyword: text, MatchType: "Exact", Bid: bid.toFixed(2), StartDate: sbDate, Note: sbKw.note || "" }),
           keyword: text, matchType: "exact", bid, budget: Number(sbKw.budget) || d.sbBudgetKw,
-          portfolioId: pf("sbKw") || pf("global"), startDateBulk: exactDate, note: sbKw.note || "",
+          portfolioId: pf("sbKw") || pf("global"), startDateBulk: sbDate, note: sbKw.note || "",
           ...sbShared, ...productLevel
         });
       }
