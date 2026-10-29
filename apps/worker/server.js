@@ -10,7 +10,7 @@ import { setZipLocation, ensureZipLocation } from "./src/scraper/set-location.js
 import { runBatch } from "./src/jobs/run-batch.js";
 import { planCampaigns, buildRowsFromPlans, buildSdRows, buildSbRows, BULK_HEADER, SD_HEADER, SB_HEADER, DEFAULTS as LAUNCH_DEFAULTS } from "./src/launching/bulk-builder.js";
 import { parseH10 } from "./src/launching/h10-parser.js";
-import { parseCerebroExport } from "./src/keywords/cerebro.js";
+import { parseKeywordFile } from "./src/keywords/kw-import.js";
 import { etlBulk, queryRows, buildUpdateRows, rowKey, groupTerms, listPortfolios, stampAsins, AD_TYPES, AD_PRODUCT, assertBidCap } from "./src/adjust/bulk-etl.js";
 import { evaluate as evaluateRules } from "./src/adjust/rule-engine.js";
 import { DEFAULT_RULES } from "./src/adjust/default-rules.js";
@@ -966,7 +966,7 @@ app.post("/api/catalog/manager", (req, res) => {
 });
 
 /* ===================== DANH MỤC KEYWORD (list → group → keyword) =====================
-   Độc lập với "Phân tích Keyword": chỉ dùng chung bộ đọc file export Cerebro. */
+   Độc lập với "Phân tích Keyword". Nạp từ file H10 / Amazon SQP / csv-xlsx tự làm (tự nhận dạng). */
 const uploadKw = multer({ dest: "./data/uploads", limits: { fileSize: 40 * 1024 * 1024 } });
 app.get("/api/kwlists", (req, res) => res.json({ ok: true, lists: store.listKwLists() }));
 app.get("/api/kwlists/:id", (req, res) => {
@@ -985,16 +985,15 @@ app.put("/api/kwlists/:id", (req, res) => {
   res.json({ ok: true, list: l });
 });
 app.delete("/api/kwlists/:id", (req, res) => res.json({ ok: store.deleteKwList(req.params.id) }));
-// Import file export Cerebro (csv/xlsx) → chỉ lấy Keyword Phrase + Search Volume, gộp vào list
+// Import file (H10 Cerebro/Magnet, Amazon SQP, csv/xlsx tự làm) → keyword + search volume, gộp vào list
 app.post("/api/kwlists/:id/import", (req, res, next) => uploadKw.single("file")(req, res, next), (req, res) => {
   try {
     if (!req.file) throw new Error("Chưa chọn file");
     let parsed;
-    try { parsed = parseCerebroExport(fs.readFileSync(req.file.path)); } finally { fs.unlink(req.file.path, () => {}); }
-    const rows = parsed.rows.map((r) => ({ kw: r.text, sv: r.searchVolume ?? null }));
-    const out = store.mergeKwIntoList(req.params.id, rows, String(req.body?.group || ""));
+    try { parsed = parseKeywordFile(fs.readFileSync(req.file.path)); } finally { fs.unlink(req.file.path, () => {}); }
+    const out = store.mergeKwIntoList(req.params.id, parsed.rows, String(req.body?.group || ""));
     if (!out) return res.status(404).json({ ok: false, message: "Không tìm thấy list" });
-    res.json({ ok: true, ...out, total: rows.length });
+    res.json({ ok: true, ...out, total: parsed.total, source: parsed.source, hasVolume: parsed.hasVolume });
   } catch (e) { res.status(400).json({ ok: false, message: e.message }); }
 });
 
