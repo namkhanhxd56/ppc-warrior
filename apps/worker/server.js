@@ -10,7 +10,7 @@ import { setZipLocation, ensureZipLocation } from "./src/scraper/set-location.js
 import { runBatch } from "./src/jobs/run-batch.js";
 import { planCampaigns, buildRowsFromPlans, buildSdRows, buildSbRows, BULK_HEADER, SD_HEADER, SB_HEADER, DEFAULTS as LAUNCH_DEFAULTS } from "./src/launching/bulk-builder.js";
 import { parseH10 } from "./src/launching/h10-parser.js";
-import { etlBulk, queryRows, buildUpdateRows, rowKey, groupTerms, listPortfolios, stampAsins, AD_TYPES, AD_PRODUCT } from "./src/adjust/bulk-etl.js";
+import { etlBulk, queryRows, buildUpdateRows, rowKey, groupTerms, listPortfolios, stampAsins, AD_TYPES, AD_PRODUCT, assertBidCap } from "./src/adjust/bulk-etl.js";
 import { evaluate as evaluateRules } from "./src/adjust/rule-engine.js";
 import { DEFAULT_RULES } from "./src/adjust/default-rules.js";
 import { buildMetrics, summarize, cellOf, buildAsinDaily } from "./src/data/consolidate.js";
@@ -1208,7 +1208,7 @@ app.post("/api/adjust/query", (req, res) => {
   if (!ds) return res.status(404).json({ ok: false, message: "Chưa có dataset — upload file bulk trước" });
   const list = tab === "terms" ? ds.terms : ds.records;
   const q = { ...req.body };
-  if (q.filters?.edited) {
+  if (q.filters?.edited || (q.filters?.chips || []).some((c) => c && c.f === "edited")) {
     // "Đã sửa" = đang chờ trong tab Thay đổi (client gửi khoá) + đã xuất file trong 7 ngày qua
     q.editedKeys = new Set([...recentExportedKeys(), ...(Array.isArray(q.pendingKeys) ? q.pendingKeys : [])]);
   }
@@ -1259,6 +1259,7 @@ function buildUpdateSheets(ds, edits, negatives) {
 
 /** Dựng workbook Update (dòng thay đổi + Negative) + ghi audit. Trả {buf, rowCount}. */
 function writeUpdateWorkbook(ds, edits, negatives, id, source) {
+  assertBidCap(ds.byKey, edits);
   const sheets = buildUpdateSheets(ds, edits, negatives).filter((x) => x.rows.length);
   const rowCount = sheets.reduce((n, x) => n + x.rows.length, 0);
   if (!rowCount) throw new Error("Không có thay đổi nào để xuất");
@@ -1308,6 +1309,7 @@ app.post("/api/adjust/export-all", (req, res) => {
     const { id, edits, negatives, creates } = req.body || {};
     const ds = loadDataset(id);
     if (!ds) throw new Error("Dataset không tồn tại");
+    assertBidCap(ds.byKey, edits);
     const sheets = buildUpdateSheets(ds, edits, negatives);
     const updateRows = sheets.flatMap((x) => x.rows);
     let createRows = [], campaigns = 0, missing = [];

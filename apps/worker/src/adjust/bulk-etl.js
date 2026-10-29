@@ -316,6 +316,8 @@ export function queryRows(list, q = {}) {
     });
   }
 
+  out = applyChips(out, list, f.chips, q.editedKeys);
+
   const total = out.length;
   // Tổng hợp KHÔNG cộng dồn trùng cấp: chỉ cộng dòng Campaign (đã là tổng campaign).
   // Nếu tập lọc không có dòng Campaign (vd lọc riêng Keyword) → cộng chính tập đó (cùng cấp).
@@ -364,6 +366,67 @@ export function queryRows(list, q = {}) {
   const pageSize = Math.min(500, q.pageSize || 100);
   const page = Math.max(1, q.page || 1);
   return { total, agg, page, pageSize, rows: out.slice((page - 1) * pageSize, page * pageSize) };
+}
+
+/* ============================================================
+   FILTER DẠNG CHIP (kiểu Amazon Ads console): nhiều điều kiện cùng lúc, AND với nhau.
+   Mỗi chip { lvl, f, op, v, v2, in } — lvl giống 3 trang của Amazon:
+   - "camp": xét dòng Campaign → giữ/bỏ CẢ CÂY campaign (campaign + ad group + target...)
+   - "ag":   xét dòng Ad Group → giữ/bỏ cả nhánh ad group (dòng Campaign/Placement giữ nếu
+             campaign còn ít nhất 1 ad group khớp)
+   - "row":  xét từng dòng theo chỉ số của chính nó (trang Targets)
+   Số % (ACoS/CTR/CR) client đã đổi về tỷ lệ trước khi gửi.
+   ============================================================ */
+const CHIP_NUM_OPS = {
+  gt: (a, b) => a > b, gte: (a, b) => a >= b, lt: (a, b) => a < b, lte: (a, b) => a <= b,
+  eq: (a, b) => Math.abs(a - b) < 1e-9
+};
+function chipValue(r, f) {
+  if (f === "ad") return r.ad || "SP";
+  if (f === "cpm") return r.imp > 0 ? r.sp / r.imp * 1000 : null;
+  if (f === "acos") return r.acos === null ? (r.sp > 0 ? Infinity : null) : r.acos; // spend không sales = ∞
+  return r[f];
+}
+function chipMatch(r, c, editedKeys) {
+  if (c.f === "edited") {
+    const has = editedKeys instanceof Set && editedKeys.has(rowKey(r));
+    return c.v === "only" ? has : !has;
+  }
+  if (c.f === "pf") {
+    const vals = Array.isArray(c.in) ? c.in : [];
+    if (!vals.length) return true;
+    if (!r.pfid && !r.pfname) return vals.includes("__none__");
+    return vals.includes(r.pfid) || vals.includes(r.pfname);
+  }
+  if (Array.isArray(c.in)) {
+    if (!c.in.length) return true;
+    const v = String(chipValue(r, c.f) ?? "").toLowerCase();
+    return c.in.some((x) => String(x).toLowerCase() === v);
+  }
+  const v = chipValue(r, c.f);
+  if (v === null || v === undefined || v === "") return false;
+  const a = Number(c.v);
+  if (c.op === "between") return v >= a && v <= Number(c.v2);
+  const fn = CHIP_NUM_OPS[c.op];
+  return fn ? fn(Number(v), a) : true;
+}
+function applyChips(out, list, chips, editedKeys) {
+  if (!Array.isArray(chips) || !chips.length) return out;
+  const by = { camp: [], ag: [], row: [] };
+  for (const c of chips) if (c && by[c.lvl]) by[c.lvl].push(c);
+  const all = (r, cs) => cs.every((c) => chipMatch(r, c, editedKeys));
+  if (by.camp.length) {
+    const ok = new Set();
+    for (const r of list) if (r.e === "Campaign" && all(r, by.camp)) ok.add(r.cid);
+    out = out.filter((r) => ok.has(r.cid));
+  }
+  if (by.ag.length) {
+    const okAg = new Set(), okCid = new Set();
+    for (const r of list) if (r.e === "Ad Group" && all(r, by.ag)) { okAg.add(r.agid); okCid.add(r.cid); }
+    out = out.filter((r) => (r.agid ? okAg.has(r.agid) : okCid.has(r.cid)));
+  }
+  if (by.row.length) out = out.filter((r) => all(r, by.row));
+  return out;
 }
 
 /** Cột được phép sắp xếp (bấm tiêu đề cột) — chặn sort theo khoá lạ. */
@@ -448,6 +511,39 @@ export function groupTerms(terms, q = {}) {
   const pageSize = Math.min(200, q.pageSize || 60);
   const page = Math.max(1, q.page || 1);
   return { total, agg, asinTotals, page, pageSize, groups: groups.slice((page - 1) * pageSize, page * pageSize) };
+}
+
+/* ============================================================
+   TRẦN TĂNG BID: bid mới tối đa +100% so với bid GỐC trong file bulk (giá trị của record,
+   KHÔNG phải giá đã sửa dần trong ledger). Giảm bid không giới hạn ở đây.
+   Client chặn ngay lúc nhập; server kiểm lại lúc xuất (ledger cũ trong localStorage,
+   client cũ còn cache...). Áp cho Bid (keyword/target) và Ad Group Default Bid.
+   ============================================================ */
+export const MAX_BID_UP_PCT = 100;
+export function bidCapOf(orig) {
+  const o = Number(orig);
+  return o > 0 ? Math.round(o * (1 + MAX_BID_UP_PCT / 100) * 100) / 100 : null;
+}
+/** Các edit vượt trần → [{ k, field, orig, cap, value, label }] */
+export function bidCapViolations(recordsByKey, edits) {
+  const out = [];
+  for (const ed of edits || []) {
+    if (ed.field !== "bid" && ed.field !== "agbid") continue;
+    const rec = recordsByKey.get(ed.k);
+    if (!rec) continue;
+    const orig = ed.field === "bid" ? rec.bid : rec.agbid;
+    const cap = bidCapOf(orig);
+    const v = parseFloat(String(ed.value).replace(",", "."));
+    if (cap !== null && v > cap + 1e-9) out.push({ k: ed.k, field: ed.field, orig, cap, value: v, label: ed.label || rec.kw || rec.ex || rec.name });
+  }
+  return out;
+}
+export function assertBidCap(recordsByKey, edits) {
+  const bad = bidCapViolations(recordsByKey, edits);
+  if (!bad.length) return;
+  const m = (x) => Number(x).toFixed(2);
+  const list = bad.slice(0, 5).map((b) => `${b.label || b.k}: $${m(b.orig)} → $${m(b.value)} (tối đa $${m(b.cap)})`).join("; ");
+  throw new Error(`${bad.length} bid tăng quá ${MAX_BID_UP_PCT}% so với bid gốc — sửa lại trong tab Thay đổi rồi xuất: ${list}${bad.length > 5 ? "; ..." : ""}`);
 }
 
 /* ============================================================

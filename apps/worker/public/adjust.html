@@ -66,6 +66,19 @@
   .rule-row { display:flex; align-items:center; gap:10px; padding:7px 4px; border-bottom:1px solid #eef1f7; font-size:12.5px; }
   .rule-row.off { opacity:.5; }
   .badge { font-size:10.5px; padding:2px 7px; border-radius:10px; background:#eef1f7; color:#556; font-weight:600; }
+  .chip { display:inline-flex; align-items:center; gap:4px; border:1px solid #98a2b3; border-radius:7px; padding:3px 4px 3px 9px; font-size:12px; background:#fff; cursor:pointer; }
+  .chip:hover { border-color:var(--b); }
+  .chip .x { color:#667; font-weight:700; padding:0 5px; border-radius:4px; }
+  .chip .x:hover { background:#fde8e8; color:#c0392b; }
+  .chip-clear { font-size:12px; color:var(--b); cursor:pointer; font-weight:600; }
+  #fPop { position:absolute; left:0; top:112%; z-index:40; background:#fff; border:1px solid #ccd3e0; border-radius:10px; padding:8px 10px; box-shadow:0 8px 24px rgba(0,0,0,.18); min-width:290px; max-height:440px; overflow:auto; font-size:12.5px; }
+  .fm-grp { font-size:11px; font-weight:700; color:#556; text-transform:uppercase; margin:10px 0 2px; letter-spacing:.3px; }
+  .fm-grp:first-child { margin-top:2px; }
+  .fm-grp span { text-transform:none; font-weight:500; color:#98a2b3; letter-spacing:0; }
+  .fm-it { padding:5px 8px; border-radius:6px; cursor:pointer; }
+  .fm-it:hover { background:#eef2f9; }
+  .fm-it.on::before { content:'✓ '; color:var(--ok); font-weight:700; }
+  #fPop label { display:block; font-size:12.5px; color:#1b2330; font-weight:500; margin:4px 0; }
   th[data-sort]:hover { background:#e4e9f4; }
   th.sorted { color:#2455e6; }
   .badge.ad-SB { background:#fff3e0; color:#b45f06; } .badge.ad-SD { background:#e8f4fd; color:#1565a8; }
@@ -130,46 +143,14 @@
     <div class="bulkbar" id="filterBar">
       <b style="font-size:12px">🔎</b>
       <input type="text" id="fQ" placeholder="Tên campaign / keyword / ASIN / term" style="width:230px">
-      <select id="fAd" style="max-width:120px" title="Loại ads — mỗi loại là 1 sheet trong file bulk">
-        <option value="">Mọi loại ads</option><option value="SP">SP · Products</option>
-        <option value="SB">SB · Brands</option><option value="SD">SD · Display</option>
-      </select>
-      <span style="position:relative;display:inline-block">
-        <button type="button" class="btn-sm" id="fEntityBtn" onclick="toggleEntityDD(event)" style="min-width:130px;text-align:left;background:#fff;border:1px solid #ccd3e0">Mọi Entity ▾</button>
-        <div id="fEntityDD" style="display:none;position:absolute;left:0;top:112%;z-index:40;background:#fff;border:1px solid #ccd3e0;border-radius:8px;padding:6px 10px;box-shadow:0 8px 24px rgba(0,0,0,.18);min-width:175px">
-          <span id="fEntity" style="display:block;font-size:12.5px" title="Chọn nhiều Entity (bỏ trống = tất cả)">
-            <label style="display:block;margin:4px 0;font-weight:500"><input type="checkbox" value="Campaign"> Campaign</label>
-            <label style="display:block;margin:4px 0;font-weight:500"><input type="checkbox" value="Ad Group"> Ad Group</label>
-            <label style="display:block;margin:4px 0;font-weight:500"><input type="checkbox" value="Product Ad"> Product Ad</label>
-            <label style="display:block;margin:4px 0;font-weight:500"><input type="checkbox" value="Keyword"> Keyword</label>
-            <label style="display:block;margin:4px 0;font-weight:500"><input type="checkbox" value="Product Targeting"> Product Targeting</label>
-            <label style="display:block;margin:4px 0;font-weight:500"><input type="checkbox" value="Bidding Adjustment"> Bidding Adjustment (Placement)</label>
-          </span>
-        </div>
+      <button class="btn-sm" id="btnFilter">Tìm</button>
+      <span id="chipCtl" style="display:contents">
+        <span style="position:relative;display:inline-block">
+          <button type="button" class="btn-sm" id="btnAddFilter" style="background:#fff;border:1px solid #ccd3e0">＋ Thêm filter ▾</button>
+          <div id="fPop" style="display:none"></div>
+        </span>
+        <span id="chipArea" style="display:contents"></span>
       </span>
-      <span style="position:relative;display:inline-block">
-        <input type="text" id="fPfInput" placeholder="🔎 Mọi Portfolio" autocomplete="off" style="width:200px"
-          oninput="renderPfDD(this.value);openPfDD()" onfocus="renderPfDD(this.value);openPfDD()" title="Gõ để tìm portfolio (theo tên hoặc ID)">
-        <input type="hidden" id="fPortfolio">
-        <div id="fPfDD" style="display:none;position:absolute;left:0;top:112%;z-index:40;background:#fff;border:1px solid #ccd3e0;border-radius:8px;max-height:300px;overflow:auto;box-shadow:0 8px 24px rgba(0,0,0,.18);min-width:280px;font-size:12.5px"></div>
-      </span>
-      <select id="fState" style="max-width:110px">
-        <option value="">Mọi State</option><option>enabled</option><option>paused</option>
-      </select>
-      <select id="fEdited" style="max-width:150px" title="Dòng đã sửa = đang chờ trong tab 📋 Thay đổi + đã xuất file trong 7 ngày qua (khớp theo ID Amazon, nên vẫn nhận ra khi import file bulk mới)">
-        <option value="">Mọi dòng</option><option value="hide">Ẩn dòng đã sửa</option><option value="only">Chỉ dòng đã sửa</option>
-      </select>
-      <select id="fMetric" style="max-width:110px">
-        <option value="">— Chỉ số —</option>
-        <option value="sp">Spend</option><option value="sa">Sales</option><option value="or">Orders</option>
-        <option value="clk">Clicks</option><option value="imp">Impressions</option>
-        <option value="acos">ACoS</option><option value="ctr">CTR</option><option value="cr">CR</option>
-      </select>
-      <input type="text" inputmode="decimal" id="fMin" placeholder="từ" style="width:64px">
-      <span class="hint">–</span>
-      <input type="text" inputmode="decimal" id="fMax" placeholder="đến" style="width:64px">
-      <button class="btn-sm" id="btnFilter">Lọc</button>
-      <button class="btn-sm" id="btnClearFilter">✕</button>
       <span class="hint" id="cntInfo"></span>
     </div>
 
@@ -363,13 +344,14 @@ async function loadDatasets(pickId) {
 let pfList = [];
 let pfRaw = [];  // portfolio thật của dataset: {pfid, pfname, count} — dùng cho popup Tạo Campaign
 async function loadPortfolios() {
-  $('fPortfolio').value = ''; $('fPfInput').value = ''; pfList = []; pfRaw = [];
+  pfList = []; pfRaw = [];
   if (!dsId) return;
   const r = await (await fetch('/api/adjust/portfolios', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: dsId }) })).json();
   if (!r.ok) return;
   pfRaw = r.portfolios || [];
   pfList = pfRaw.map((p) => ({ value: p.pfid || p.pfname, label: `${p.pfname || '(không tên)'}${p.pfid ? ' · ' + p.pfid : ''} (${p.count})` }));
   if (r.none) pfList.push({ value: '__none__', label: `— Không có portfolio (${r.none}) —` });
+  renderChips(); // nhãn chip Portfolio cần tên portfolio
 }
 // File bulk Create cần Portfolio ID. Dataset cũ không lưu cột "Portfolio ID" → lấy dãy số dài
 // trong TÊN portfolio (quy ước đặt tên "... - 113687439046910"). Không tìm được thì để trống, gõ tay.
@@ -403,21 +385,6 @@ $('pmPfInput').addEventListener('change', () => {
   else if (!v) $('pmPortfolio').value = '';
 });
 document.addEventListener('click', (e) => { if (!e.target.closest('#pmPfDD') && e.target !== $('pmPfInput')) $('pmPfDD').style.display = 'none'; });
-window.openPfDD = () => { $('fPfDD').style.display = 'block'; };
-window.closePfDD = () => { $('fPfDD').style.display = 'none'; };
-window.renderPfDD = (q) => {
-  q = (q || '').toLowerCase();
-  const items = [{ value: '', label: 'Mọi Portfolio' }, ...pfList.filter((p) => !q || p.label.toLowerCase().includes(q))].slice(0, 300);
-  $('fPfDD').innerHTML = items.map((p) => `<div class="pf-item" data-val="${esc(p.value)}">${esc(p.label)}</div>`).join('')
-    || '<div style="padding:6px 10px;color:#98a2b3">Không có kết quả</div>';
-};
-$('fPfDD').addEventListener('click', (e) => {
-  const it = e.target.closest('.pf-item'); if (!it) return;
-  const val = it.dataset.val;
-  $('fPortfolio').value = val;
-  $('fPfInput').value = val === '' ? '' : it.textContent;
-  closePfDD(); page = 1; refresh();
-});
 $('dsSelect').onchange = () => { dsId = $('dsSelect').value; page = 1; sel.clear(); restoreLedger(); renderChanges(); loadPortfolios(); refresh(); };
 $('btnRenameDs').onclick = async () => {
   if (!dsId) { alertBox('Chưa có dataset nào — hãy import file bulk trước.', '✎ Đặt tên dataset'); return; }
@@ -443,18 +410,13 @@ $('btnImport').onclick = async () => {
 
 /* ===== Query + render ===== */
 function filters() {
-  const ranges = {};
-  if ($('fMetric').value && ($('fMin').value !== '' || $('fMax').value !== '')) {
-    let mn = $('fMin').value.replace(',', '.'), mx = $('fMax').value.replace(',', '.');
-    // ACoS/CTR/CR nhập theo %, đổi về tỷ lệ
-    if (['acos','ctr','cr'].includes($('fMetric').value)) {
-      mn = mn === '' ? '' : Number(mn) / 100;
-      mx = mx === '' ? '' : Number(mx) / 100;
-    }
-    ranges[$('fMetric').value] = [mn, mx];
-  }
-  const entity = [...$('fEntity').querySelectorAll('input:checked')].map((c) => c.value);
-  return { q: $('fQ').value.trim(), entity, portfolio: $('fPortfolio').value, state: $('fState').value, ad: $('fAd').value, edited: $('fEdited').value, ranges };
+  // Chip lưu số theo đơn vị hiển thị (% cho ACoS/CTR/CR) → đổi về tỷ lệ khi gửi server
+  const toServer = (c) => {
+    const d = defOf(c); if (!d) return null;
+    if (d.kind !== 'num' || d.unit !== '%') return c;
+    return { ...c, v: Number(c.v) / 100, v2: c.v2 === undefined ? undefined : Number(c.v2) / 100 };
+  };
+  return { q: $('fQ').value.trim(), chips: chips.map(toServer).filter(Boolean) };
 }
 
 const pageSizeFor = () => tab === 'terms' ? 60 : 500;
@@ -462,7 +424,7 @@ async function queryPage(p) {
   const url = tab === 'terms' ? '/api/adjust/terms-grouped' : '/api/adjust/query';
   const body = { id: dsId, filters: filters(), sort: $('sortField').value, dir: $('sortDir').value, page: p, pageSize: pageSizeFor() };
   if (tab !== 'terms') body.tab = tab;
-  if (body.filters.edited) body.pendingKeys = [...new Set(edits.map(e => e.k))];
+  if (chips.some(c => c.f === 'edited')) body.pendingKeys = [...new Set(edits.map(e => e.k))];
   const r = await (await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })).json();
   if (!r.ok) { $('tableArea').innerHTML = `<span class="msg err">❌ ${esc(r.message)}</span>`; return null; }
   return r;
@@ -482,7 +444,7 @@ function appendBatch(r) {
 async function refresh() {
   const plainMode = tab === 'rules' || tab === 'changes'; // 2 tab không dùng bảng dữ liệu bulk
   $('filterBar').style.display = plainMode ? 'none' : '';
-  $('fEdited').style.display = tab === 'terms' ? 'none' : ''; // "đã sửa" chỉ áp cho Campaigns & Targets
+  $('chipCtl').style.display = tab === 'terms' ? 'none' : 'contents'; // filter chip chỉ áp cho Campaigns & Targets
   $('actionBar').style.display = plainMode ? 'none' : '';
   $('pgnBar').style.display = plainMode ? 'none' : '';
   $('tableArea').style.maxHeight = plainMode ? 'none' : '';
@@ -676,8 +638,17 @@ function validateEdit(field, value) {
   return '';
 }
 const STR_FIELDS = ['st', 'name', 'agname'];
+// Trần tăng bid: tối đa +100% so với bid GỐC trong file bulk. `old` luôn là giá trị gốc của
+// dòng (data-old / x.bid từ server), không phải giá đã sửa dần → sửa 1.1→2→2.2→3 vẫn bị chặn ở 2.2.
+// Server kiểm lại lần nữa lúc xuất (assertBidCap trong bulk-etl.js).
+const BID_FIELDS = ['bid', 'agbid'];
+const MAX_BID_UP_PCT = 100;
+const bidCap = (old) => { const o = Number(old); return o > 0 ? Math.round(o * (1 + MAX_BID_UP_PCT / 100) * 100) / 100 : null; };
+const overBidCap = (field, value, old) => BID_FIELDS.includes(field) && bidCap(old) !== null && Number(value) > bidCap(old) + 1e-9;
+const bidCapMsg = (old, v) => `Không được tăng quá <b>${MAX_BID_UP_PCT}%</b> mức bid hiện tại.<br>Bid gốc <b>$${Number(old).toFixed(2)}</b> → tối đa <b>$${bidCap(old).toFixed(2)}</b> (đang nhập $${Number(v).toFixed(2)}).`;
 window.edit = (k, field, value, label, old) => {
   value = STR_FIELDS.includes(field) ? value : (parseFloat(String(value).replace(',', '.')) || 0);
+  if (overBidCap(field, value, old)) return false; // chặn ở đây để mọi đường sửa (tay/bulk) đều qua
   edits = edits.filter(e => !(e.k === k && e.field === field));
   if (String(value) !== String(old)) edits.push({ k, field, old, value, label, warn: validateEdit(field, value) });
   renderChanges();
@@ -685,6 +656,12 @@ window.edit = (k, field, value, label, old) => {
 // Handler chung cho input/select (đọc data-* → tránh lỗi dấu nháy trong tên campaign)
 window.editEl = (el) => {
   const d = el.dataset;
+  const v = parseFloat(String(el.value).replace(',', '.')) || 0;
+  if (overBidCap(d.field, v, d.old)) {
+    el.value = editedVal(d.k, d.field, d.old); // trả ô về giá trị trước khi gõ
+    alertBox(bidCapMsg(d.old, v), '⛔ Vượt trần tăng bid');
+    return;
+  }
   window.edit(d.k, d.field, el.value, d.label || '', d.old);
   const td = el.closest('td'); // tô viền đỏ ô ngay (không cần render lại cả bảng)
   if (td) td.classList.toggle('edited', edits.some(e => e.k === d.k && e.field === d.field));
@@ -696,6 +673,7 @@ window.applyBulkAdjust = () => {
   const targets = lastRows.filter(x => sel.has(x.k));
   if (!targets.length) { alertBox('Chưa tick dòng nào.', 'Bulk edit'); return; }
   bulkUndo.push(JSON.parse(JSON.stringify(edits))); // snapshot để Undo
+  const capped = [];
   for (const x of targets) {
     let old, applicable;
     if (field === 'bid') { old = x.bid; applicable = x.e === 'Keyword' || x.e === 'Product Targeting'; }
@@ -710,9 +688,12 @@ window.applyBulkAdjust = () => {
     else if (mode === 'pctDown') value = Math.round(old * (1 - raw / 100) * 100) / 100;
     else if (mode === 'addUp') value = Math.round((old + raw) * 100) / 100;
     else value = Math.round((old - raw) * 100) / 100;
+    if (overBidCap(field, value, old)) { capped.push(`${esc(x.kw || x.ex || x.name || x.k)}: $${old} → $${value} (tối đa $${bidCap(old)})`); continue; }
     window.edit(x.k, field, value, (x.name || '').slice(0, 40), old);
   }
   refresh();
+  if (capped.length) alertBox(`<b>${capped.length}</b> dòng KHÔNG được đổi vì tăng quá ${MAX_BID_UP_PCT}% so với bid gốc:<br>`
+    + capped.slice(0, 8).join('<br>') + (capped.length > 8 ? `<br>… và ${capped.length - 8} dòng khác` : ''), '⛔ Vượt trần tăng bid');
 };
 const pickedTerms = () => [...sel].map(k => termByKey.get(k)).filter(Boolean);
 const uncheckTerms = () => { document.querySelectorAll('#tbMain input[type=checkbox]').forEach(cb => cb.checked = false); sel.clear(); };
@@ -1105,19 +1086,129 @@ $('tabTerms').onclick = () => setTab('terms');
 $('tabChanges').onclick = () => setTab('changes');
 $('tabRules').onclick = () => setTab('rules');
 $('btnFilter').onclick = () => { page = 1; refresh(); };
-$('btnClearFilter').onclick = () => { $('fQ').value = ''; $('fEntity').querySelectorAll('input').forEach(c => c.checked = false); updateEntityLabel(); $('fPortfolio').value = ''; $('fPfInput').value = ''; $('fState').value = ''; $('fAd').value = ''; $('fEdited').value = ''; $('fMetric').value = ''; $('fMin').value = ''; $('fMax').value = ''; page = 1; refresh(); };
 $('fQ').addEventListener('keydown', (e) => { if (e.key === 'Enter') { page = 1; refresh(); } });
-window.toggleEntityDD = (e) => { const dd = $('fEntityDD'); dd.style.display = dd.style.display === 'none' ? 'block' : 'none'; if (e) e.stopPropagation(); };
-function updateEntityLabel() {
-  const selv = [...$('fEntity').querySelectorAll('input:checked')].map(c => c.value);
-  $('fEntityBtn').textContent = (selv.length ? `${selv.length} entity` : 'Mọi Entity') + ' ▾';
+
+/* ===== FILTER DẠNG CHIP (kiểu Amazon Ads console) =====
+   Chỉ giữ filter có số liệu trong file bulk. Bỏ các filter Amazon tính từ báo cáo khác:
+   vCTR/vCPM/viewable, video quartile, new-to-brand, detail page/brand store views, branded
+   searches, add to cart, user reach, long-term sales/ROAS, top-of-search IS, out of budget.
+   3 nhóm giống 3 trang của Amazon — server xử lý theo lvl (xem applyChips trong bulk-etl.js). */
+const ST_OPTS = [['enabled', 'Enabled'], ['paused', 'Paused'], ['archived', 'Archived']];
+const NF = (f, label, unit) => ({ f, label, kind: 'num', unit });
+const MF = { imp: NF('imp', 'Impressions', ''), clk: NF('clk', 'Clicks', ''), ctr: NF('ctr', 'CTR', '%'), cpc: NF('cpc', 'CPC', '$'),
+  sp: NF('sp', 'Total cost (Spend)', '$'), or: NF('or', 'Purchases (Orders)', ''), sa: NF('sa', 'Sales', '$'),
+  acos: NF('acos', 'ACoS', '%'), roas: NF('roas', 'ROAS', 'x'), cr: NF('cr', 'Purchase rate (CR)', '%') };
+const FILTER_GROUPS = [
+  { lvl: 'camp', title: 'Campaign', hint: 'xét dòng Campaign, giữ cả cây', items: [
+    { f: 'st', label: 'Active status', kind: 'enum', opts: ST_OPTS },
+    { f: 'ad', label: 'Loại ads', kind: 'enum', opts: [['SP', 'SP · Products'], ['SB', 'SB · Brands'], ['SD', 'SD · Display']] },
+    { f: 'pf', label: 'Portfolio name', kind: 'pf' },
+    { f: 'tt', label: 'Targeting type', kind: 'enum', opts: [['Auto', 'Auto'], ['Manual', 'Manual']] },
+    NF('bud', 'Campaign budget amount', '$'),
+    MF.imp, MF.clk, MF.ctr, MF.cpc, NF('cpm', 'CPM', '$'), MF.sp, MF.or, MF.sa, MF.acos, MF.roas, MF.cr] },
+  { lvl: 'ag', title: 'Ad group', hint: 'xét dòng Ad Group, giữ cả nhánh', items: [
+    { f: 'st', label: 'Active status', kind: 'enum', opts: ST_OPTS },
+    NF('agbid', 'Default bid', '$'), MF.imp, MF.clk, MF.ctr, MF.cpc, MF.sp, MF.or, MF.sa, MF.acos, MF.roas] },
+  { lvl: 'row', title: 'Targets', hint: 'xét từng dòng theo số của chính nó', items: [
+    { f: 'e', label: 'Entity', kind: 'enum', opts: [['Campaign', 'Campaign'], ['Ad Group', 'Ad Group'], ['Product Ad', 'Product Ad'], ['Keyword', 'Keyword'], ['Product Targeting', 'Product Targeting'], ['Bidding Adjustment', 'Placement']] },
+    { f: 'st', label: 'Active status', kind: 'enum', opts: ST_OPTS },
+    { f: 'cst', label: 'Campaign active status', kind: 'enum', opts: ST_OPTS },
+    { f: 'mt', label: 'Match type', kind: 'enum', opts: [['Exact', 'Exact'], ['Phrase', 'Phrase'], ['Broad', 'Broad']] },
+    NF('bid', 'Target bid', '$'), MF.roas, MF.cr, MF.imp, MF.clk, MF.ctr, MF.sp, MF.cpc, MF.or, MF.sa, MF.acos,
+    { f: 'edited', label: 'Đã sửa (đang chờ + đã xuất 7 ngày)', kind: 'edited' }] }
+];
+const OPS = [['gt', '>'], ['gte', '≥'], ['lt', '<'], ['lte', '≤'], ['eq', '='], ['between', 'trong khoảng']];
+let chips = [];
+try { chips = JSON.parse(localStorage.getItem('ppcw_adj_chips') || '[]'); if (!Array.isArray(chips)) chips = []; } catch { chips = []; }
+const saveChips = () => { try { localStorage.setItem('ppcw_adj_chips', JSON.stringify(chips)); } catch {} };
+const grpOf = (lvl) => FILTER_GROUPS.find(g => g.lvl === lvl);
+const defOf = (c) => grpOf(c.lvl)?.items.find(i => i.f === c.f);
+chips = chips.filter(defOf);
+const fmtUnit = (d, x) => d.unit === '$' ? '$' + x : d.unit === '%' ? x + '%' : d.unit === 'x' ? x + 'x' : String(x);
+function chipText(c) {
+  const d = defOf(c); let val;
+  if (d.kind === 'edited') val = c.v === 'only' ? 'chỉ dòng đã sửa' : 'ẩn dòng đã sửa';
+  else if (d.kind === 'pf') val = c.in.length === 1 ? (pfList.find(p => p.value === c.in[0])?.label || c.in[0]) : `${c.in.length} portfolio`;
+  else if (d.kind === 'enum') {
+    val = (c.f.endsWith('st') && c.in.length === 2 && c.in.includes('enabled') && c.in.includes('paused')) ? 'All but archived'
+      : c.in.map(v => (d.opts.find(o => o[0] === v) || [v, v])[1]).join(', ');
+  } else val = c.op === 'between' ? `${fmtUnit(d, c.v)} – ${fmtUnit(d, c.v2)}` : `${OPS.find(o => o[0] === c.op)[1]} ${fmtUnit(d, c.v)}`;
+  return `<span class="hint">${esc(grpOf(c.lvl).title)} ·</span> <b>${esc(d.label)}:</b> ${esc(val)}`;
 }
-document.addEventListener('click', (e) => { const dd = $('fEntityDD'); if (dd && dd.style.display !== 'none' && !e.target.closest('#fEntityDD') && e.target !== $('fEntityBtn')) dd.style.display = 'none'; });
-$('fEntity').addEventListener('change', () => { updateEntityLabel(); page = 1; refresh(); });
-$('fState').addEventListener('change', () => { page = 1; refresh(); });
-$('fAd').addEventListener('change', () => { page = 1; refresh(); });
-$('fEdited').addEventListener('change', () => { page = 1; refresh(); });
-document.addEventListener('click', (e) => { if (!e.target.closest('#fPfDD') && e.target !== $('fPfInput')) closePfDD(); });
+function renderChips() {
+  $('chipArea').innerHTML = chips.map((c, i) =>
+    `<span class="chip" onclick="openChipEditor('${c.lvl}','${c.f}',${i})" title="Bấm để sửa">${chipText(c)}<span class="x" onclick="event.stopPropagation();removeChip(${i})" title="Bỏ filter">✕</span></span>`).join('')
+    + (chips.length ? '<span class="chip-clear" onclick="clearChips()">Xoá tất cả</span>' : '');
+}
+const applyChipsChange = () => { saveChips(); renderChips(); closeFPop(); page = 1; refresh(); };
+window.removeChip = (i) => { chips.splice(i, 1); applyChipsChange(); };
+window.clearChips = () => { chips = []; $('fQ').value = ''; applyChipsChange(); };
+const closeFPop = () => { $('fPop').style.display = 'none'; };
+function openFilterMenu() {
+  $('fPop').innerHTML = FILTER_GROUPS.map(g => `<div class="fm-grp">${g.title} <span>— ${g.hint}</span></div>` +
+    g.items.map(it => `<div class="fm-it ${chips.some(c => c.lvl === g.lvl && c.f === it.f) ? 'on' : ''}" onclick="openChipEditor('${g.lvl}','${it.f}')">${esc(it.label)}</div>`).join('')).join('');
+  $('fPop').style.display = 'block';
+}
+$('btnAddFilter').onclick = (e) => { e.stopPropagation(); $('fPop').style.display === 'block' ? closeFPop() : openFilterMenu(); };
+// composedPath chốt đường đi lúc bấm — mục menu bị thay innerHTML ngay trong onclick thì
+// e.target đã rời DOM, closest('#fPop') sẽ ra null và đóng nhầm popup.
+document.addEventListener('click', (e) => {
+  const inside = e.composedPath().some(el => el.id === 'fPop' || el.id === 'btnAddFilter' || (el.classList && el.classList.contains('chip')));
+  if (!inside) closeFPop();
+});
+
+// Khung sửa 1 chip (thêm mới hoặc sửa chip đã có — cùng lvl+f thì sửa chip cũ thay vì thêm trùng)
+window.openChipEditor = (lvl, f, idx) => {
+  const d = grpOf(lvl).items.find(i => i.f === f);
+  if (idx === undefined) { const j = chips.findIndex(c => c.lvl === lvl && c.f === f); if (j !== -1) idx = j; }
+  const cur = idx !== undefined ? chips[idx] : null;
+  let body;
+  if (d.kind === 'num') {
+    const op = cur?.op || 'gt';
+    body = `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+      <select id="ceOp" onchange="$('ceV2w').style.display = this.value === 'between' ? '' : 'none'">${OPS.map(o => `<option value="${o[0]}" ${o[0] === op ? 'selected' : ''}>${o[1]}</option>`).join('')}</select>
+      <input type="text" inputmode="decimal" id="ceV" style="width:80px" value="${cur ? esc(cur.v) : ''}">
+      <span id="ceV2w" style="display:${op === 'between' ? '' : 'none'}">– <input type="text" inputmode="decimal" id="ceV2" style="width:80px" value="${cur?.v2 !== undefined ? esc(cur.v2) : ''}"></span>
+      <span class="hint">${d.unit === '%' ? 'nhập %, vd 30' : d.unit === '$' ? 'USD' : d.unit === 'x' ? 'lần' : ''}</span></div>`;
+  } else if (d.kind === 'enum') {
+    const on = cur?.in || [];
+    body = d.opts.map(o => `<label><input type="checkbox" class="ceIn" value="${esc(o[0])}" ${on.includes(o[0]) ? 'checked' : ''}> ${esc(o[1])}</label>`).join('')
+      + (d.opts === ST_OPTS ? `<span class="chip-clear" onclick="document.querySelectorAll('.ceIn').forEach(x => x.checked = x.value !== 'archived')">All but archived</span>` : '');
+  } else if (d.kind === 'pf') {
+    const on = new Set(cur?.in || []);
+    body = `<input type="text" id="cePfQ" placeholder="Tìm portfolio (tên hoặc ID)" style="width:100%;margin-bottom:6px" oninput="filterPfList(this.value)">
+      <div id="cePfList" style="max-height:230px;overflow:auto">${pfList.map(p => `<label data-lb="${esc(p.label.toLowerCase())}"><input type="checkbox" class="ceIn" value="${esc(p.value)}" ${on.has(p.value) ? 'checked' : ''}> ${esc(p.label)}</label>`).join('') || '<span class="hint">Dataset không có portfolio</span>'}</div>`;
+  } else {
+    const v = cur?.v || 'hide';
+    body = `<label><input type="radio" name="ceEd" value="hide" ${v === 'hide' ? 'checked' : ''}> Ẩn dòng đã sửa</label>
+      <label><input type="radio" name="ceEd" value="only" ${v === 'only' ? 'checked' : ''}> Chỉ hiện dòng đã sửa</label>
+      <span class="hint">Đã sửa = đang chờ trong tab 📋 Thay đổi + đã xuất file 7 ngày qua (khớp theo ID Amazon)</span>`;
+  }
+  $('fPop').innerHTML = `<div class="fm-grp">${esc(grpOf(lvl).title)} · <b style="text-transform:none;color:#1b2330">${esc(d.label)}</b></div>
+    <div style="margin:8px 0">${body}</div><span class="msg err" id="ceErr"></span>
+    <div style="display:flex;gap:6px;justify-content:flex-end;margin-top:8px">
+      <button class="btn-sm" onclick="openFilterMenu()">← Danh sách</button>
+      <button class="btn-primary" style="padding:5px 14px" onclick="saveChip('${lvl}','${f}',${idx === undefined ? 'undefined' : idx})">Áp dụng</button></div>`;
+  $('fPop').style.display = 'block';
+  const first = $('fPop').querySelector('#ceV, #cePfQ'); if (first) first.focus();
+  $('fPop').querySelectorAll('#ceV, #ceV2').forEach(el => el.addEventListener('keydown', (e) => { if (e.key === 'Enter') saveChip(lvl, f, idx); }));
+};
+window.filterPfList = (q) => { q = q.toLowerCase(); document.querySelectorAll('#cePfList label').forEach(l => { l.style.display = !q || l.dataset.lb.includes(q) ? '' : 'none'; }); };
+window.saveChip = (lvl, f, idx) => {
+  const d = grpOf(lvl).items.find(i => i.f === f);
+  const err = (m) => { $('ceErr').textContent = m; };
+  let c = { lvl, f };
+  if (d.kind === 'num') {
+    const num = (id) => { const x = parseFloat(String($(id)?.value || '').replace(',', '.')); return isNaN(x) ? null : x; };
+    c.op = $('ceOp').value; c.v = num('ceV');
+    if (c.v === null) return err('Nhập giá trị số');
+    if (c.op === 'between') { c.v2 = num('ceV2'); if (c.v2 === null) return err('Nhập giá trị thứ 2'); if (c.v2 < c.v) [c.v, c.v2] = [c.v2, c.v]; }
+  } else if (d.kind === 'edited') c.v = document.querySelector('input[name="ceEd"]:checked')?.value || 'hide';
+  else { c.in = [...document.querySelectorAll('.ceIn:checked')].map(x => x.value); if (!c.in.length) return err('Chọn ít nhất 1 mục'); }
+  if (idx !== undefined && chips[idx]) chips[idx] = c; else chips.push(c);
+  applyChipsChange();
+};
+renderChips();
 $('sortField').onchange = $('sortDir').onchange = () => { refresh(); };
 
 /* ===== Sắp xếp bằng cách bấm tiêu đề cột =====
