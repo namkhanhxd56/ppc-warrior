@@ -70,6 +70,9 @@
   .chip:hover { border-color:var(--b); }
   .chip .x { color:#667; font-weight:700; padding:0 5px; border-radius:4px; }
   .chip .x:hover { background:#fde8e8; color:#c0392b; }
+  .ent-pill { padding:4px 12px; border:1px solid #ccd3e0; border-radius:16px; background:#fff; font-size:12px; font-weight:600; color:#445; }
+  .ent-pill:hover { border-color:var(--b); }
+  .ent-pill.on { background:var(--b); border-color:var(--b); color:#fff; }
   .chip-clear { font-size:12px; color:var(--b); cursor:pointer; font-weight:600; }
   #fPop { position:absolute; left:0; top:112%; z-index:40; background:#fff; border:1px solid #ccd3e0; border-radius:10px; padding:8px 10px; box-shadow:0 8px 24px rgba(0,0,0,.18); min-width:290px; max-height:440px; overflow:auto; font-size:12.5px; }
   .fm-grp { font-size:11px; font-weight:700; color:#556; text-transform:uppercase; margin:10px 0 2px; letter-spacing:.3px; }
@@ -140,6 +143,11 @@
       </span>
     </div>
 
+    <div class="bulkbar" id="entBar">
+      <b style="font-size:12px">Entity:</b>
+      <span id="entPills" style="display:inline-flex;gap:4px;flex-wrap:wrap"></span>
+      <span class="hint">bấm nhiều nút để gộp · Target = Keyword + Product Targeting</span>
+    </div>
     <div class="bulkbar" id="filterBar">
       <b style="font-size:12px">🔎</b>
       <input type="text" id="fQ" placeholder="Tên campaign / keyword / ASIN / term" style="width:230px">
@@ -416,7 +424,8 @@ function filters() {
     if (d.kind !== 'num' || d.unit !== '%') return c;
     return { ...c, v: Number(c.v) / 100, v2: c.v2 === undefined ? undefined : Number(c.v2) / 100 };
   };
-  return { q: $('fQ').value.trim(), chips: chips.map(toServer).filter(Boolean) };
+  const entity = [...new Set(entSel.flatMap(id => ENT_PILLS.find(p => p.id === id)?.ents || []))];
+  return { q: $('fQ').value.trim(), entity, chips: chips.map(toServer).filter(Boolean) };
 }
 
 const pageSizeFor = () => tab === 'terms' ? 60 : 500;
@@ -445,6 +454,7 @@ async function refresh() {
   const plainMode = tab === 'rules' || tab === 'changes'; // 2 tab không dùng bảng dữ liệu bulk
   $('filterBar').style.display = plainMode ? 'none' : '';
   $('chipCtl').style.display = tab === 'terms' ? 'none' : 'contents'; // filter chip chỉ áp cho Campaigns & Targets
+  $('entBar').style.display = plainMode || tab === 'terms' ? 'none' : '';
   $('actionBar').style.display = plainMode ? 'none' : '';
   $('pgnBar').style.display = plainMode ? 'none' : '';
   $('tableArea').style.maxHeight = plainMode ? 'none' : '';
@@ -1142,7 +1152,7 @@ function renderChips() {
 }
 const applyChipsChange = () => { saveChips(); renderChips(); closeFPop(); page = 1; refresh(); };
 window.removeChip = (i) => { chips.splice(i, 1); applyChipsChange(); };
-window.clearChips = () => { chips = []; $('fQ').value = ''; applyChipsChange(); };
+window.clearChips = () => { chips = []; entSel = []; saveEnt(); renderEntPills(); $('fQ').value = ''; applyChipsChange(); };
 const closeFPop = () => { $('fPop').style.display = 'none'; };
 function openFilterMenu() {
   $('fPop').innerHTML = FILTER_GROUPS.map(g => `<div class="fm-grp">${g.title} <span>— ${g.hint}</span></div>` +
@@ -1209,6 +1219,33 @@ window.saveChip = (lvl, f, idx) => {
   applyChipsChange();
 };
 renderChips();
+
+/* ===== Lọc Entity nhanh (hàng nút trên thanh lọc) — chọn nhiều nút = gộp (OR) =====
+   "Target" giống tab Targets của Amazon: Keyword + Product Targeting (SD Audience/Contextual
+   Targeting đã quy về Product Targeting). AND với các chip filter. */
+const ENT_PILLS = [
+  { id: 'camp', label: 'Campaign', ents: ['Campaign'] },
+  { id: 'ag', label: 'Ad Group', ents: ['Ad Group'] },
+  { id: 'target', label: 'Target', ents: ['Keyword', 'Product Targeting'] },
+  { id: 'pt', label: 'Product Targeting', ents: ['Product Targeting'] },
+  { id: 'kw', label: 'Keyword', ents: ['Keyword'] },
+  { id: 'ad', label: 'Product Ad', ents: ['Product Ad'] },
+  { id: 'pl', label: 'Placement', ents: ['Bidding Adjustment'] }
+];
+let entSel = [];
+try { entSel = JSON.parse(localStorage.getItem('ppcw_adj_ent') || '[]'); if (!Array.isArray(entSel)) entSel = []; } catch { entSel = []; }
+entSel = entSel.filter(id => ENT_PILLS.some(p => p.id === id));
+const saveEnt = () => { try { localStorage.setItem('ppcw_adj_ent', JSON.stringify(entSel)); } catch {} };
+function renderEntPills() {
+  $('entPills').innerHTML = `<button type="button" class="ent-pill ${entSel.length ? '' : 'on'}" onclick="pickEnt('')">Tất cả</button>`
+    + ENT_PILLS.map(p => `<button type="button" class="ent-pill ${entSel.includes(p.id) ? 'on' : ''}" onclick="pickEnt('${p.id}')">${p.label}</button>`).join('');
+}
+window.pickEnt = (id) => {
+  if (!id) entSel = [];
+  else entSel = entSel.includes(id) ? entSel.filter(x => x !== id) : [...entSel, id];
+  saveEnt(); renderEntPills(); page = 1; refresh();
+};
+renderEntPills();
 $('sortField').onchange = $('sortDir').onchange = () => { refresh(); };
 
 /* ===== Sắp xếp bằng cách bấm tiêu đề cột =====
