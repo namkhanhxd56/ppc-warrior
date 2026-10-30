@@ -41,7 +41,8 @@
   .hint { font-size:11.5px; color:var(--mut); }
   .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
   @media (max-width:860px) { .grid2 { grid-template-columns:1fr; } }
-  .dirty { color:var(--warn); font-weight:700; font-size:12.5px; }
+  .dirty { color:var(--warn); font-weight:700; font-size:12.5px; white-space:nowrap; }
+  .dirty.ok { color:var(--ok); font-weight:600; } .dirty.err { color:var(--bad); }
   .pill { display:inline-block; font-size:11px; padding:1px 8px; border-radius:10px; background:#eef1f7; color:#556; font-weight:600; }
   #verWarn { display:none; background:#b45309; color:#fff; padding:8px 16px; font-size:13px; text-align:center; }
   .bar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
@@ -74,7 +75,7 @@
       Keyword theo bid của group, sửa tay từng keyword được. Cùng một keyword nằm ở nhiều list được.<br>
       Mỗi list còn có <b>Target ASIN</b> (đối thủ / ASIN chạy Product Targeting).<br>
       Gán list cho ASIN ở <a href="/catalog.html">📋 Danh mục Tài sản</a> (cột List keyword) → sang <a href="/launching.html">🚀 Tạo Campaign</a> bấm "Kéo từ list" là ra <span style="font-family:ui-monospace,Menlo,monospace">keyword | bid | +n</span> (không kéo volume) vào ô Keywords và Target ASIN vào ô Target ASINs.
-      Phần này độc lập với 🔑 Phân tích Keyword.
+      Phần này độc lập với 🔑 Phân tích Keyword. <b>Mọi thay đổi tự lưu</b> (không cần bấm Lưu).
     </p>
     <div class="row">
       <div><label>List</label><select id="listSel" style="min-width:260px"></select></div>
@@ -82,9 +83,8 @@
       <button class="btn-sm" id="btnRename">✎ Đổi tên</button>
       <button class="btn-sm btn-bad" id="btnDel">🗑 Xoá list</button>
       <span style="flex:1"></span>
-      <span class="dirty" id="dirtyFlag"></span>
-      <button class="btn-primary" id="btnSave">💾 Lưu list</button>
       <span class="msg" id="saveMsg"></span>
+      <span class="dirty" id="dirtyFlag" title="Danh mục Target tự lưu sau mỗi thay đổi"></span>
     </div>
   </div>
 
@@ -176,17 +176,47 @@ const UI_VERSION = '0.46.0';
 
 let lists = [];      // tóm tắt [{id, name, kwCount}]
 let cur = null;      // list đang mở {id, name, groups[], keywords[]}
-let dirty = false;
 let sortF = 'sv', sortDir = -1;
 let shown = 300;     // số dòng đang vẽ (list Cerebro có thể vài nghìn keyword)
 const PAGE = 300;
 const sel = new Set(); // keyword đang tick
 
-function setDirty(v) {
-  dirty = v;
-  $('dirtyFlag').textContent = v ? '● Chưa lưu' : '';
+/* ===== TỰ LƯU =====
+   Mỗi thay đổi tăng `ver` và hẹn lưu sau 700ms (gõ/kéo liên tục chỉ lưu 1 lần). Gửi bản chụp
+   của list; trong lúc đang gửi mà sửa tiếp thì lưu xong sẽ tự lưu thêm lượt nữa. KHÔNG thay
+   `cur` bằng bản server trả về — sẽ đè mất thay đổi vừa gõ trong lúc chờ. Lỗi mạng: báo và
+   tự thử lại sau 5 giây. */
+let ver = 0, savedVer = 0, saving = null, saveTimer = null, saveErr = '';
+const isDirty = () => ver !== savedVer;
+function updateFlag() {
+  const f = $('dirtyFlag');
+  f.className = 'dirty' + (saveErr ? ' err' : (!saving && !isDirty() && cur ? ' ok' : ''));
+  f.textContent = saveErr ? `✕ Chưa lưu được (${saveErr}) — đang thử lại`
+    : saving ? '⏳ Đang lưu…' : isDirty() ? '● Đang chờ lưu' : cur ? '✓ Đã tự lưu' : '';
 }
-window.addEventListener('beforeunload', (e) => { if (dirty) { e.preventDefault(); e.returnValue = ''; } });
+function setDirty(v) {
+  if (v) { ver++; clearTimeout(saveTimer); saveTimer = setTimeout(flushSave, 700); }
+  else { clearTimeout(saveTimer); savedVer = ver; saveErr = ''; }
+  updateFlag();
+}
+async function flushSave() {
+  clearTimeout(saveTimer);
+  if (!cur || !isDirty()) return;
+  if (saving) { await saving.catch(() => {}); return flushSave(); }
+  const sentVer = ver, id = cur.id, body = JSON.parse(JSON.stringify(cur));
+  saving = api('/api/kwlists/' + encodeURIComponent(id), { method: 'PUT', body })
+    .then(() => {
+      if (cur && cur.id === id) savedVer = Math.max(savedVer, sentVer);
+      saveErr = '';
+      const o = $('listSel').selectedOptions[0]; if (o && cur && cur.id === id) o.textContent = listLabel(cur);
+    })
+    .catch((e) => { saveErr = e.message; saveTimer = setTimeout(flushSave, 5000); throw e; })
+    .finally(() => { saving = null; updateFlag(); if (cur && cur.id === id && isDirty() && !saveErr) { clearTimeout(saveTimer); saveTimer = setTimeout(flushSave, 300); } });
+  updateFlag();
+  await saving;
+}
+// Đóng tab khi còn thay đổi chưa kịp lưu → hỏi lại (lưu chỉ mất ~1 giây)
+window.addEventListener('beforeunload', (e) => { if (isDirty() || saving) { flushSave().catch(() => {}); e.preventDefault(); e.returnValue = ''; } });
 
 async function api(url, opt = {}) {
   const r = await fetch(url, opt.body && !(opt.body instanceof FormData)
@@ -222,11 +252,12 @@ async function openList(id) {
   renderAll();
 }
 $('listSel').onchange = async () => {
-  if (dirty && !confirm('List hiện tại chưa lưu — bỏ thay đổi và chuyển list?')) { $('listSel').value = cur.id; return; }
-  await openList($('listSel').value);
+  const to = $('listSel').value;
+  try { await flushSave(); } catch { if (!confirm('List hiện tại chưa lưu được — vẫn chuyển list (mất thay đổi chưa lưu)?')) { $('listSel').value = cur.id; return; } }
+  await openList(to);
 };
 $('btnNew').onclick = async () => {
-  if (dirty && !confirm('List hiện tại chưa lưu — bỏ thay đổi?')) return;
+  try { await flushSave(); } catch { if (!confirm('List hiện tại chưa lưu được — vẫn tạo list mới?')) return; }
   const name = prompt('Tên list mới (VD: Pickle ornament):');
   if (!name || !name.trim()) return;
   const l = (await api('/api/kwlists', { method: 'POST', body: { name } })).list;
@@ -241,21 +272,12 @@ $('btnRename').onclick = () => {
 };
 $('btnDel').onclick = async () => {
   if (!cur || !confirm(`Xoá list "${cur.name}" (${cur.keywords.length} keyword)? Không hoàn tác được.`)) return;
+  clearTimeout(saveTimer); if (saving) await saving.catch(() => {});
   await api('/api/kwlists/' + encodeURIComponent(cur.id), { method: 'DELETE' });
   cur = null; setDirty(false);
   await loadLists();
 };
-async function saveList() {
-  const d = await api('/api/kwlists/' + encodeURIComponent(cur.id), { method: 'PUT', body: cur });
-  cur = d.list; setDirty(false);
-  const o = $('listSel').selectedOptions[0]; if (o) o.textContent = listLabel(cur);
-  return cur;
-}
-$('btnSave').onclick = async () => {
-  if (!cur) return;
-  try { await saveList(); msg('saveMsg', 'ok', `✓ Đã lưu ${cur.keywords.length} keyword · ${cur.groups.length} group`); renderAll(); }
-  catch (e) { msg('saveMsg', 'err', '✕ ' + e.message); }
-};
+async function saveList() { await flushSave(); return cur; }
 
 /* ===== Group: thanh nhỏ — mỗi group 1 chip "tên | $bid mặc định | +n ngày" ===== */
 const groupOf = (name) => cur.groups.find((g) => g.name === name);
@@ -325,7 +347,7 @@ $('btnImport').onclick = async () => {
   const f = $('cbFile').files[0];
   if (!f) { msg('impMsg', 'err', '✕ Chưa chọn file'); return; }
   try {
-    if (dirty) await saveList(); // import gộp ở server — lưu trước để không mất thay đổi đang sửa
+    await flushSave(); // import gộp ở server — lưu nốt thay đổi đang chờ trước để không mất
     msg('impMsg', '', '⏳ Đang đọc file…');
     const fd = new FormData(); fd.append('file', f); fd.append('group', $('impGroup').value);
     const d = await api(`/api/kwlists/${encodeURIComponent(cur.id)}/import`, { method: 'POST', body: fd });
@@ -352,7 +374,7 @@ $('btnPaste').onclick = () => {
   }
   $('pasteKw').value = '';
   if (add || upd) setDirty(true);
-  msg('impMsg', 'ok', `✓ thêm ${add} keyword · cập nhật SV ${upd} — nhớ bấm 💾 Lưu list`);
+  msg('impMsg', 'ok', `✓ thêm ${add} keyword · cập nhật SV ${upd}`);
   renderAll();
 };
 
@@ -416,7 +438,7 @@ $('btnAsinAdd').onclick = () => {
   cur.asins.push(...add);
   $('asinText').value = '';
   if (add.length) setDirty(true);
-  msg('asinMsg', 'ok', `✓ thêm ${add.length} ASIN${found.length > add.length ? ` · bỏ ${found.length - add.length} trùng` : ''} — nhớ 💾 Lưu list`);
+  msg('asinMsg', 'ok', `✓ thêm ${add.length} ASIN${found.length > add.length ? ` · bỏ ${found.length - add.length} trùng` : ''}`);
   renderAsins();
 };
 $('asinChips').addEventListener('click', (e) => {
@@ -543,7 +565,7 @@ $('btnBkGroup').onclick = () => {
   if (!r) { $('bkGroup').focus(); return alert('Gõ hoặc chọn tên group'); }
   ks.forEach((k) => { k.group = r.g.name; });
   setDirty(true); renderAll();
-  msg('saveMsg', 'ok', `✓ Gán ${ks.length} keyword vào "${r.g.name}"${r.created ? ' (group mới — nhập bid / +n ngày ở thanh Group)' : ''} — nhớ 💾 Lưu list`);
+  msg('saveMsg', 'ok', `✓ Gán ${ks.length} keyword vào "${r.g.name}"${r.created ? ' (group mới — nhập bid / +n ngày ở thanh Group)' : ''}`);
 };
 $('bkGroup').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('btnBkGroup').click(); });
 $('btnBkUngroup').onclick = () => {

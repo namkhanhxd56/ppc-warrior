@@ -44,7 +44,8 @@
   /* ===== 1. Co kéo cột ===== */
   function addHandles(table) {
     for (const th of table.querySelectorAll("thead th")) {
-      if (th.querySelector(".tt-rz") || th === th.parentElement.lastElementChild) continue; // cột cuối (nút ✕) khỏi kéo
+      // bỏ qua cột trống (nút ✕) và cột ô tick chọn dòng
+      if (th.querySelector(".tt-rz") || !th.textContent.trim() || th.querySelector("input[type=checkbox]")) continue;
       if (getComputedStyle(th).position === "static") th.style.position = "relative";
       const h = document.createElement("span"); h.className = "tt-rz"; h.title = "Kéo để đổi độ rộng cột";
       h.addEventListener("click", (e) => e.stopPropagation()); // kéo xong không tính là bấm tiêu đề (sắp xếp)
@@ -295,7 +296,7 @@
   function addCopyBtns(table) {
     const ths = [...table.querySelectorAll("thead th")];
     ths.forEach((th, i) => {
-      if (th.querySelector(".tt-cp") || i === ths.length - 1 || th.querySelector("input[type=checkbox]")) return;
+      if (th.querySelector(".tt-cp") || !th.textContent.trim() || th.querySelector("input[type=checkbox]")) return;
       if (getComputedStyle(th).position === "static") th.style.position = "relative";
       const b = document.createElement("span"); b.className = "tt-cp"; b.textContent = "⧉"; b.title = "Copy cả cột";
       b.addEventListener("mousedown", (e) => e.stopPropagation());
