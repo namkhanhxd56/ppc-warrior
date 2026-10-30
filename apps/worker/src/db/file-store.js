@@ -703,10 +703,13 @@ export function saveLaunchSettings(s) {
 
 export function listCatalog() {
   const s = getLaunchSettings();
+  const pfDir = readJson(PORTFOLIOS_FILE(), {});
   return Object.entries(s.products || {})
     .map(([asin, p]) => ({
       asin,
-      acc: p.acc || "",                  // tài khoản seller — xuất bulk không được trộn ASIN của nhiều acc
+      // tài khoản seller — xuất bulk không được trộn ASIN của nhiều acc. Portfolio thuộc đúng 1
+      // tài khoản: Danh mục portfolio có ghi Acc thì Acc của portfolio THẮNG Acc gõ tay ở sản phẩm.
+      acc: pfDir[String(p.portfolioId || "").trim()]?.acc || p.acc || "",
       list: p.list || "", sku: p.sku || "", type: p.type === "FBM" ? "FBM" : "FBA",
       portfolioId: p.portfolioId || "",  // portfolio mặc định — gán theo TÊN LIST, tự điền khi chọn ASIN
       kwList: p.kwList || "",            // id list trong Danh mục Target — Tạo Campaign kéo keyword + Target ASIN từ đây
@@ -756,7 +759,7 @@ const PORTFOLIOS_FILE = () => path.join(userDataDir(), "portfolios.json");
 export function listPortfolioDir() {
   const all = readJson(PORTFOLIOS_FILE(), {});
   return Object.entries(all)
-    .map(([id, v]) => ({ id, name: v.name || "" }))
+    .map(([id, v]) => ({ id, name: v.name || "", acc: v.acc || "" }))
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 export function savePortfolioDir(rows) {
@@ -765,7 +768,7 @@ export function savePortfolioDir(rows) {
   for (const r of rows || []) {
     const id = String(r.id || "").trim();
     if (!id) continue;
-    next[id] = { name: String(r.name || "").trim().slice(0, 80), updatedAt: new Date().toISOString() };
+    next[id] = { name: String(r.name || "").trim().slice(0, 80), acc: String(r.acc || "").trim().slice(0, 40), updatedAt: new Date().toISOString() };
   }
   writeJsonAtomic(PORTFOLIOS_FILE(), next, 1);
   return listPortfolioDir();
