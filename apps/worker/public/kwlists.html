@@ -137,6 +137,7 @@
         <span class="hint" id="asinCount"></span>
         <button class="btn-sm" id="btnAsinToggle">📋 Dán ASIN</button>
         <button class="btn-sm" id="btnAsinCopy" title="Copy toàn bộ ASIN (mỗi dòng 1 ASIN)">Copy</button>
+        <button class="btn-sm" id="btnDlAsin" title="Tải toàn bộ Target ASIN của list về file">⬇ Tải ASIN</button>
         <button class="btn-sm btn-bad" id="btnAsinClear">Xoá hết</button>
         <span class="msg" id="asinMsg"></span>
       </div>
@@ -152,6 +153,7 @@
       <div class="row" style="margin-bottom:10px">
         <div><label>Tìm</label><input type="text" id="fQ" placeholder="keyword…" style="width:200px"></div>
         <div><label>Group</label><select id="fGroup" style="min-width:160px"></select></div>
+        <div><label>&nbsp;</label><button class="btn-sm" id="btnDlKw" title="Có tick → tải keyword đã tick; không tick → tải keyword đang lọc (mặc định tất cả)">⬇ Tải keyword</button></div>
         <span style="flex:1"></span>
         <div><label>Keyword đã tick</label>
           <div style="display:flex;gap:6px;align-items:center">
@@ -327,6 +329,37 @@ $('histModal').addEventListener('click', async (e) => {
     msg('saveMsg', 'ok', `✓ Đã khôi phục: ${cur.keywords.length} keyword · ${cur.groups.length} group`);
   } catch (err) { msg('saveMsg', 'err', '✕ ' + err.message); }
 });
+
+/* ===== Tải keyword / ASIN về file CSV =====
+   CSV có BOM UTF-8 để Excel mở đúng tiếng Việt. Keyword: có tick → các dòng đã tick, không
+   thì các dòng đang lọc (tìm + group). Bid = bid hiệu lực (sửa tay, không thì bid group). */
+const csvCell = (v) => { const t = String(v ?? ''); return /[",\n\r]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t; };
+function downloadCsv(name, header, rows) {
+  const text = '\ufeff' + [header, ...rows].map((r) => r.map(csvCell).join(',')).join('\r\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([text], { type: 'text/csv;charset=utf-8' }));
+  a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+const fileSafe = (s) => String(s || 'list').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').replace(/[^\w.-]+/g, '_').slice(0, 60);
+const today = () => new Date().toISOString().slice(0, 10);
+$('btnDlKw').onclick = () => {
+  if (!cur) return;
+  const ticked = cur.keywords.filter((k) => sel.has(k.kw));
+  const rows = ticked.length ? ticked : filtered();
+  if (!rows.length) { msg('saveMsg', 'err', '✕ Không có keyword nào để tải'); return; }
+  const g = $('fGroup').value;
+  const scope = ticked.length ? 'da-tick' : (g === '*' && !$('fQ').value.trim() ? 'tat-ca' : 'dang-loc');
+  downloadCsv(`${fileSafe(cur.name)}-keyword-${scope}-${today()}.csv`, ['Keyword', 'Search Volume', 'Group', 'Bid', '+n ngày'],
+    rows.map((k) => [k.kw, k.sv ?? '', k.group || '', effBid(k) ?? '', (groupOf(k.group) || {}).offset || 0]));
+  msg('saveMsg', 'ok', `⬇ Đã tải ${rows.length} keyword (${ticked.length ? 'đã tick' : scope === 'tat-ca' ? 'tất cả' : 'đang lọc'})`);
+};
+$('btnDlAsin').onclick = () => {
+  if (!cur) return;
+  if (!cur.asins.length) { msg('asinMsg', 'err', '✕ List chưa có Target ASIN'); return; }
+  downloadCsv(`${fileSafe(cur.name)}-target-asin-${today()}.csv`, ['Target ASIN'], cur.asins.map((a) => [a]));
+  msg('asinMsg', 'ok', `⬇ Đã tải ${cur.asins.length} ASIN`);
+};
 
 /* ===== Xuất / nạp file list ===== */
 $('btnExport').onclick = async () => {
