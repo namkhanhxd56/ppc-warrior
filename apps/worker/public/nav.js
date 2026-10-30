@@ -5,8 +5,8 @@
 (function () {
   const PAGES = [
     ["/", "📊 Check Ranking"],
-    ["/catalog.html", "📋 Danh mục"],
-    ["/kwlists.html", "🗂 Danh mục Keyword"],
+    ["/catalog.html", "📋 Danh mục Tài sản"],
+    ["/kwlists.html", "🗂 Danh mục Target"],
     ["/keywords.html", "🔑 Phân tích Keyword"],
     ["/launching.html", "🚀 Tạo Campaign"],
     ["/adjust.html", "⚙️ Điều chỉnh Campaign"],

@@ -2,7 +2,7 @@
 <html lang="vi">
 <head>
 <meta charset="UTF-8">
-<title>PPC Warrior — Danh mục Keyword</title>
+<title>PPC Warrior — Danh mục Target</title>
 <style>
   :root { --b:#2455e6; --ok:#1a9e50; --bad:#e04545; --warn:#d98a00; --mut:#667; }
   * { box-sizing:border-box; }
@@ -52,6 +52,9 @@
   .gchip .gn { width:130px; font-weight:600; } .gchip .gb { width:48px; text-align:right; } .gchip .go { width:34px; text-align:right; }
   .gchip .u { color:var(--mut); } .gchip .cnt { color:var(--mut); font-size:11px; margin:0 2px; }
   .gchip button { background:transparent; color:#b7c0cf; padding:2px 5px; font-size:12px; } .gchip button:hover { color:var(--bad); }
+  #asinChips { margin:8px 0 0 112px; display:flex; flex-wrap:wrap; gap:4px; max-height:150px; overflow:auto; }
+  .achip { display:inline-flex; align-items:center; gap:2px; font-family:ui-monospace,Menlo,monospace; font-size:12px; border:1px solid #ccd3e0; border-radius:6px; padding:1px 2px 1px 7px; background:#fafbfd; }
+  .achip button { background:transparent; color:#b7c0cf; padding:1px 5px; font-size:11px; } .achip button:hover { color:var(--bad); }
   .scroll { max-height:620px; overflow:auto; border:1px solid #e3e8f0; border-radius:8px; }
   .scroll table { border:none; } .scroll th { position:sticky; top:0; z-index:2; }
 </style>
@@ -65,11 +68,12 @@
 
 <main>
   <div class="card">
-    <h2>🗂 Danh mục Keyword</h2>
+    <h2>🗂 Danh mục Target</h2>
     <p class="sub">
       Mỗi <b>list</b> (VD "Pickle ornament") gồm nhiều <b>group</b> (keyword product, keyword gift, keyword decor…). Mỗi group (đặt tên tuỳ ý: nhóm root, phân loại…) có <b>bid mặc định</b> và <b>+n ngày</b> so với ngày launch chính (trống = chạy theo Ngày tạo).
       Keyword theo bid của group, sửa tay từng keyword được. Cùng một keyword nằm ở nhiều list được.<br>
-      Gán list cho ASIN ở <a href="/catalog.html">📋 Danh mục</a> (cột List keyword) → sang <a href="/launching.html">🚀 Tạo Campaign</a> bấm "Kéo keyword từ list" là ra <span style="font-family:ui-monospace,Menlo,monospace">keyword | bid | +n</span> (không kéo volume).
+      Mỗi list còn có <b>Target ASIN</b> (đối thủ / ASIN chạy Product Targeting).<br>
+      Gán list cho ASIN ở <a href="/catalog.html">📋 Danh mục Tài sản</a> (cột List keyword) → sang <a href="/launching.html">🚀 Tạo Campaign</a> bấm "Kéo từ list" là ra <span style="font-family:ui-monospace,Menlo,monospace">keyword | bid | +n</span> (không kéo volume) vào ô Keywords và Target ASIN vào ô Target ASINs.
       Phần này độc lập với 🔑 Phân tích Keyword.
     </p>
     <div class="row">
@@ -106,6 +110,22 @@
         <textarea id="pasteKw" rows="4" style="width:100%" placeholder="keyword | search volume — hoặc chỉ keyword (dán 2 cột Excel cũng được)&#10;pickle ornament | 12000&#10;funny pickle christmas ornament"></textarea>
         <button class="btn-sm" id="btnPaste" style="margin-top:4px">➕ Thêm vào list</button>
       </div>
+    </div>
+
+    <div class="card" style="padding:12px 16px">
+      <div class="bar">
+        <b class="barT">🎯 Target ASIN</b>
+        <span class="hint" id="asinCount"></span>
+        <button class="btn-sm" id="btnAsinToggle">📋 Dán ASIN</button>
+        <button class="btn-sm" id="btnAsinCopy" title="Copy toàn bộ ASIN (mỗi dòng 1 ASIN)">Copy</button>
+        <button class="btn-sm btn-bad" id="btnAsinClear">Xoá hết</button>
+        <span class="msg" id="asinMsg"></span>
+      </div>
+      <div id="asinPaste" style="display:none;margin:8px 0 0 112px">
+        <textarea id="asinText" rows="3" style="width:100%" placeholder="Dán ASIN — mỗi dòng 1 ASIN, hoặc dán lẫn cả link/bảng Excel: tự lọc ra mã B0…&#10;B0DTQ34TKQ&#10;https://www.amazon.com/dp/B0F39TY6P6"></textarea>
+        <button class="btn-sm" id="btnAsinAdd" style="margin-top:4px">➕ Thêm ASIN</button>
+      </div>
+      <div id="asinChips"></div>
     </div>
 
     <div class="card">
@@ -177,9 +197,14 @@ async function api(url, opt = {}) {
 function msg(id, cls, t) { $(id).className = 'msg ' + cls; $(id).textContent = t; }
 
 /* ===== Danh sách list ===== */
+// Nhãn dropdown: tên (n kw · m ASIN) — nhận cả bản tóm tắt (kwCount/asinCount) lẫn list đầy đủ
+const listLabel = (l) => {
+  const nk = l.kwCount ?? (l.keywords || []).length, na = l.asinCount ?? (l.asins || []).length;
+  return `${l.name} (${nk} kw${na ? ' · ' + na + ' ASIN' : ''})`;
+};
 async function loadLists(pickId) {
   lists = (await api('/api/kwlists')).lists;
-  $('listSel').innerHTML = lists.map((l) => `<option value="${esc(l.id)}">${esc(l.name)} (${l.kwCount})</option>`).join('');
+  $('listSel').innerHTML = lists.map((l) => `<option value="${esc(l.id)}">${esc(listLabel(l))}</option>`).join('');
   $('emptyArea').style.display = lists.length ? 'none' : '';
   $('listArea').style.display = lists.length ? '' : 'none';
   if (!lists.length) { cur = null; return; }
@@ -211,7 +236,7 @@ $('btnRename').onclick = () => {
   const name = prompt('Tên list:', cur.name);
   if (!name || !name.trim()) return;
   cur.name = name.trim(); setDirty(true);
-  const o = $('listSel').selectedOptions[0]; if (o) o.textContent = `${cur.name} (${cur.keywords.length})`;
+  const o = $('listSel').selectedOptions[0]; if (o) o.textContent = listLabel(cur);
 };
 $('btnDel').onclick = async () => {
   if (!cur || !confirm(`Xoá list "${cur.name}" (${cur.keywords.length} keyword)? Không hoàn tác được.`)) return;
@@ -222,7 +247,7 @@ $('btnDel').onclick = async () => {
 async function saveList() {
   const d = await api('/api/kwlists/' + encodeURIComponent(cur.id), { method: 'PUT', body: cur });
   cur = d.list; setDirty(false);
-  const o = $('listSel').selectedOptions[0]; if (o) o.textContent = `${cur.name} (${cur.keywords.length})`;
+  const o = $('listSel').selectedOptions[0]; if (o) o.textContent = listLabel(cur);
   return cur;
 }
 $('btnSave').onclick = async () => {
@@ -306,7 +331,7 @@ $('btnImport').onclick = async () => {
     cur = d.list; setDirty(false); shown = PAGE; renderAll();
     const SRC = { H10: 'file H10', SQP: 'file SQP', file: 'file' };
     msg('impMsg', 'ok', `✓ ${SRC[d.source] || 'file'}: ${d.total} keyword${d.hasVolume ? '' : ' (không có cột volume)'} · thêm ${d.added} mới · cập nhật volume ${d.updated}`);
-    const o = $('listSel').selectedOptions[0]; if (o) o.textContent = `${cur.name} (${cur.keywords.length})`;
+    const o = $('listSel').selectedOptions[0]; if (o) o.textContent = listLabel(cur);
     $('cbFile').value = '';
   } catch (e) { msg('impMsg', 'err', '✕ ' + e.message); }
 };
@@ -367,7 +392,41 @@ function renderKw() {
     th.textContent = th.textContent.replace(/ [▲▼]$/, '') + (th.dataset.sort === sortF ? (sortDir > 0 ? ' ▲' : ' ▼') : '');
   });
 }
-function renderAll() { if (!cur) return; renderGroups(); renderKw(); }
+function renderAll() { if (!cur) return; renderGroups(); renderAsins(); renderKw(); }
+
+/* ===== Target ASIN của list — Tạo Campaign kéo vào ô Target ASINs (Product Targeting) ===== */
+function renderAsins() {
+  if (!Array.isArray(cur.asins)) cur.asins = [];
+  $('asinCount').textContent = `${cur.asins.length} ASIN`;
+  $('asinChips').innerHTML = cur.asins.map((a, i) => `<span class="achip">${esc(a)}<button data-i="${i}" title="Bỏ ASIN">✕</button></span>`).join('');
+  $('asinChips').style.display = cur.asins.length ? '' : 'none';
+}
+// Lọc mã ASIN ra khỏi mọi thứ dán vào: dòng trơn, link /dp/…, bảng Excel nhiều cột
+const extractAsins = (txt) => [...new Set((String(txt).toUpperCase().match(/\b(B0[A-Z0-9]{8}|\d{9}[\dX])\b/g) || []))];
+$('btnAsinToggle').onclick = () => { const b = $('asinPaste'); b.style.display = b.style.display === 'none' ? '' : 'none'; if (b.style.display === '') $('asinText').focus(); };
+$('btnAsinAdd').onclick = () => {
+  const found = extractAsins($('asinText').value);
+  if (!found.length) { msg('asinMsg', 'err', '✕ Không thấy mã ASIN nào (B0… 10 ký tự)'); return; }
+  const have = new Set(cur.asins);
+  const add = found.filter((a) => !have.has(a));
+  cur.asins.push(...add);
+  $('asinText').value = '';
+  if (add.length) setDirty(true);
+  msg('asinMsg', 'ok', `✓ thêm ${add.length} ASIN${found.length > add.length ? ` · bỏ ${found.length - add.length} trùng` : ''} — nhớ 💾 Lưu list`);
+  renderAsins();
+};
+$('asinChips').addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-i]'); if (!b) return;
+  cur.asins.splice(+b.dataset.i, 1); setDirty(true); renderAsins();
+});
+$('btnAsinClear').onclick = () => {
+  if (!cur.asins.length || !confirm(`Xoá cả ${cur.asins.length} Target ASIN của list này?`)) return;
+  cur.asins = []; setDirty(true); renderAsins();
+};
+$('btnAsinCopy').onclick = async () => {
+  try { await navigator.clipboard.writeText(cur.asins.join('\n')); msg('asinMsg', 'ok', `📋 Đã copy ${cur.asins.length} ASIN`); }
+  catch { msg('asinMsg', 'err', '✕ Trình duyệt chặn copy'); }
+};
 const kwOfRow = (el) => cur.keywords.find((k) => k.kw === el.closest('tr').dataset.kw);
 $('kBody').addEventListener('change', (e) => {
   const k = kwOfRow(e.target); if (!k) return;

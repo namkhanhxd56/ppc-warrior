@@ -2,7 +2,7 @@
 <html lang="vi">
 <head>
 <meta charset="UTF-8">
-<title>PPC Warrior — Danh mục</title>
+<title>PPC Warrior — Danh mục Tài sản</title>
 <style>
   :root { --b:#2455e6; --ok:#1a9e50; --bad:#e04545; --warn:#d98a00; --mut:#667; }
   * { box-sizing:border-box; }
@@ -67,12 +67,13 @@
     <p class="sub">
       Mỗi dòng là một sản phẩm. <b>Type</b> quyết định tiền tố tên campaign qua <span class="mono">{Type}</span> — FBA hay FBM.<br>
       <b>Portfolio mặc định gán theo tên list</b>: đổi portfolio ở một dòng là mọi dòng cùng list đổi theo. Sang Tạo Campaign, chọn ASIN thì SKU và portfolio tự điền.<br>
+      <b>Acc</b> = tài khoản seller của ASIN — Tạo Campaign <b>không cho xuất</b> file bulk trộn ASIN của nhiều acc.<br>
       Dán thẳng từ Excel được: copy 3 cột <span class="mono">ASIN · SKU · Portfolio ID</span> rồi bấm vào ô ASIN và dán (hoặc thêm <span class="mono">Tên list</span> phía trước rồi dán vào ô Tên list).
       Portfolio ID có trong Danh mục portfolio thì hiện kèm <span class="mono">(tên portfolio)</span>.<br>
-      <b>List keyword</b>: chọn list ở <a href="/kwlists.html">🗂 Danh mục Keyword</a> — sang Tạo Campaign bấm "Kéo keyword từ list" là đổ keyword của ASIN đó vào.
+      <b>List keyword</b>: chọn list ở <a href="/kwlists.html">🗂 Danh mục Target</a> — sang Tạo Campaign bấm "Kéo từ list" là đổ keyword và Target ASIN của list đó vào.
     </p>
     <table>
-      <thead><tr><th style="width:74px">Type</th><th style="width:19%">Tên list</th><th style="width:13%">ASIN</th><th style="width:15%">SKU</th><th>Portfolio mặc định</th><th style="width:16%">List keyword</th><th style="width:34px"></th></tr></thead>
+      <thead><tr><th style="width:11%">Acc</th><th style="width:74px">Type</th><th style="width:16%">Tên list</th><th style="width:12%">ASIN</th><th style="width:13%">SKU</th><th>Portfolio mặc định</th><th style="width:14%">List keyword</th><th style="width:34px"></th></tr></thead>
       <tbody id="pBody"></tbody>
     </table>
     <div class="row" style="margin-top:10px">
@@ -149,7 +150,7 @@ function wirePaste(tbody, addRow) {
 
 /* ===== Bảng sản phẩm ===== */
 let pfList = [];
-let kwLists = []; // [{id, name}] từ Danh mục Keyword
+let kwLists = []; // [{id, name}] từ Danh mục Target
 /* Ô Portfolio là Ô NHẬP (không còn <select>) để dán được cả cột từ Excel cùng ASIN/SKU.
    Giá trị lưu là Portfolio ID; có trong Danh mục portfolio thì hiện "(tên)" bên cạnh,
    chưa có thì để trống — không mở ngoặc. Gõ/dán "ID (tên)" hoặc đúng tên portfolio cũng nhận. */
@@ -178,21 +179,24 @@ function kwOptions(cur) {
 /** Portfolio là thuộc tính của TÊN LIST, không phải của từng ASIN — nên sửa một dòng là cả
  *  list theo. Không làm vậy thì mỗi lần thêm ASIN mới lại phải nhớ chọn lại portfolio. */
 function applyPfToList(srcTr, value) {
-  const name = cellsOf(srcTr)[1].value.trim().toLowerCase();
+  const name = cellsOf(srcTr)[2].value.trim().toLowerCase();
+  const acc = cellsOf(srcTr)[0].value.trim().toLowerCase();
   if (!name) return;
   let n = 0;
   for (const tr of $('pBody').children) {
     if (tr === srcTr) continue;
     const c = cellsOf(tr);
-    if (c[1].value.trim().toLowerCase() !== name) continue;
-    if (c[4].value === value) continue;
-    c[4].value = value; normPfCell(c[4]); n++;
+    // cùng TÊN LIST và cùng ACC — portfolio là của 1 tài khoản, list trùng tên ở acc khác không đụng tới
+    if (c[2].value.trim().toLowerCase() !== name || c[0].value.trim().toLowerCase() !== acc) continue;
+    if (c[5].value === value) continue;
+    c[5].value = value; normPfCell(c[5]); n++;
   }
-  if (n) { $('pMsg').className = 'msg ok'; $('pMsg').textContent = `↻ áp portfolio cho ${n} dòng khác cùng list "${cellsOf(srcTr)[1].value.trim()}"`; }
+  if (n) { $('pMsg').className = 'msg ok'; $('pMsg').textContent = `↻ áp portfolio cho ${n} dòng khác cùng list "${cellsOf(srcTr)[2].value.trim()}"`; }
 }
 function pRow(r = {}) {
   const tr = document.createElement('tr');
   tr.innerHTML = `
+    <td><input type="text" class="accCell" list="accDl" value="${esc(r.acc)}" placeholder="Acc"></td>
     <td class="type"><select><option${r.type === 'FBM' ? '' : ' selected'}>FBA</option><option${r.type === 'FBM' ? ' selected' : ''}>FBM</option></select></td>
     <td><input type="text" value="${esc(r.list)}" placeholder="Pickle jar 2026"></td>
     <td><input type="text" class="mono" value="${esc(r.asin)}" placeholder="B0XXXXXXXX" maxlength="10"></td>
@@ -214,7 +218,7 @@ wirePaste($('pBody'), pAddRow);
 function pRead() {
   return [...$('pBody').children].map((tr) => {
     const c = cellsOf(tr);
-    return { type: c[0].value, list: c[1].value.trim(), asin: c[2].value.trim().toUpperCase(), sku: c[3].value.trim(), portfolioId: c[4].value.trim(), kwList: c[5].value };
+    return { acc: c[0].value.trim(), type: c[1].value, list: c[2].value.trim(), asin: c[3].value.trim().toUpperCase(), sku: c[4].value.trim(), portfolioId: c[5].value.trim(), kwList: c[6].value };
   }).filter((r) => r.asin);
 }
 $('pCopy').onclick = async () => {
@@ -289,7 +293,17 @@ function render(products, portfolios) {
   try { kwLists = (await (await fetch('/api/kwlists')).json()).lists || []; } catch { kwLists = []; }
   pfDatalist();
   render(d.products, d.portfolios);
+  accDatalist();
 })();
+
+// Gợi ý Acc đã dùng (gõ đúng y một tên cho cùng tài khoản — "LumenJar" và "lumenjar " là 2 acc khác nhau)
+function accDatalist() {
+  let dl = $('accDl');
+  if (!dl) { dl = document.createElement('datalist'); dl.id = 'accDl'; document.body.appendChild(dl); }
+  const accs = [...new Set([...$('pBody').querySelectorAll('.accCell')].map((i) => i.value.trim()).filter(Boolean))].sort();
+  dl.innerHTML = accs.map((a) => `<option value="${esc(a)}"></option>`).join('');
+}
+$('pBody').addEventListener('change', (e) => { if (e.target.classList.contains('accCell')) { e.target.value = e.target.value.trim(); accDatalist(); } });
 
 // Lưu portfolio xong thì cập nhật "(tên)" ở bảng sản phẩm, giữ nguyên ID đang có
 function refreshPfCells() {

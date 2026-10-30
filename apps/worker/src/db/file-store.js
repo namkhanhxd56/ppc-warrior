@@ -706,12 +706,13 @@ export function listCatalog() {
   return Object.entries(s.products || {})
     .map(([asin, p]) => ({
       asin,
+      acc: p.acc || "",                  // tài khoản seller — xuất bulk không được trộn ASIN của nhiều acc
       list: p.list || "", sku: p.sku || "", type: p.type === "FBM" ? "FBM" : "FBA",
       portfolioId: p.portfolioId || "",  // portfolio mặc định — gán theo TÊN LIST, tự điền khi chọn ASIN
-      kwList: p.kwList || "",            // id list trong Danh mục Keyword — Tạo Campaign kéo keyword từ đây
+      kwList: p.kwList || "",            // id list trong Danh mục Target — Tạo Campaign kéo keyword + Target ASIN từ đây
       category: p.category || ""
     }))
-    .sort((a, b) => (a.list || "~").localeCompare(b.list || "~") || a.asin.localeCompare(b.asin));
+    .sort((a, b) => (a.acc || "~").localeCompare(b.acc || "~") || (a.list || "~").localeCompare(b.list || "~") || a.asin.localeCompare(b.asin));
 }
 
 /** Ghi đè danh sách sản phẩm (bảng nhập liệu gửi nguyên bảng lên).
@@ -726,6 +727,7 @@ export function saveCatalog(rows) {
     if (!/^[A-Z0-9]{10}$/.test(asin)) continue;
     next[asin] = {
       ...(old[asin] || {}),
+      acc: String(r.acc ?? old[asin]?.acc ?? "").trim().slice(0, 40),
       list: String(r.list || "").trim().slice(0, 60),
       sku: String(r.sku || "").trim().slice(0, 60),
       type: String(r.type || "").toUpperCase() === "FBM" ? "FBM" : "FBA",
@@ -768,7 +770,7 @@ export function savePortfolioDir(rows) {
   writeJsonAtomic(PORTFOLIOS_FILE(), next, 1);
   return listPortfolioDir();
 }
-/* ===== DANH MỤC KEYWORD (độc lập với "Phân tích Keyword") =====
+/* ===== DANH MỤC TARGET (tên cũ: Danh mục Keyword — độc lập với "Phân tích Keyword") =====
    List (VD "Pickle ornament") → nhiều group (keyword product / gift / decor...), mỗi group có
    bid riêng và offset +n ngày so với ngày launch chính (ô "Ngày tạo" ở Tạo Campaign).
    Keyword: {kw, sv, group, bid} — bid null = theo bid của group, có số = chỉnh tay.
@@ -796,17 +798,21 @@ function cleanKwList(l) {
     kSeen.add(kw);
     keywords.push({ kw, sv: numOrNull(k.sv), group: gNames.has(k.group) ? k.group : "", bid: numOrNull(k.bid) });
   }
-  return { id: l.id, name: String(l.name || "").trim().slice(0, 80) || "List không tên", groups, keywords,
+  // Target ASIN của list (đối thủ / ASIN muốn chạy Product Targeting) — Tạo Campaign kéo vào ô Target ASINs
+  const asins = [...new Set((Array.isArray(l.asins) ? l.asins : [])
+    .map((a) => String(a || "").trim().toUpperCase()).filter((a) => /^[A-Z0-9]{10}$/.test(a)))].slice(0, 5000);
+  return { id: l.id, name: String(l.name || "").trim().slice(0, 80) || "List không tên", groups, keywords, asins,
     updatedAt: new Date().toISOString() };
 }
 export function listKwLists() {
-  return kwListsAll().map((l) => ({ id: l.id, name: l.name, groups: l.groups || [], kwCount: (l.keywords || []).length, updatedAt: l.updatedAt }))
+  return kwListsAll().map((l) => ({ id: l.id, name: l.name, groups: l.groups || [], kwCount: (l.keywords || []).length,
+    asinCount: (l.asins || []).length, updatedAt: l.updatedAt }))
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 export function getKwList(id) { return kwListsAll().find((l) => l.id === id) || null; }
 export function createKwList(name) {
   const lists = kwListsAll();
-  const l = cleanKwList({ id: "kl" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), name, groups: [], keywords: [] });
+  const l = cleanKwList({ id: "kl" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), name, groups: [], keywords: [], asins: [] });
   lists.push(l); kwListsWrite(lists);
   return l;
 }

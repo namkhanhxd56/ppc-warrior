@@ -233,7 +233,7 @@ export function planCampaigns(input) {
   const broadOff = Number(broad.offsetDays ?? pbOffsetDays);
   const phraseDate = toBulkDate(addDays(info.startDate, phraseOff));
   const broadDate = toBulkDate(addDays(info.startDate, broadOff));
-  /* +n NGÀY THEO KEYWORD (Danh mục Keyword, dòng "kw | bid | +n"): group launch sau ngày
+  /* +n NGÀY THEO KEYWORD (Danh mục Target, dòng "kw | bid | +n"): group launch sau ngày
      launch chính n ngày → Start Date của MỌI campaign của keyword đó lùi n ngày (cộng dồn với
      offset riêng của Phrase/Broad). Không có +n thì y như cũ. */
   const kwOff = (kw) => Math.max(0, Math.min(365, Math.round(Number(kw.offset) || 0)));

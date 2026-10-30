@@ -175,7 +175,7 @@
   <!-- ===== 1. Thông tin sản phẩm ===== -->
   <div class="card">
     <h2>1️⃣ Thông tin sản phẩm</h2>
-    <p class="sub">ASIN lấy từ <a href="/catalog.html">📋 Danh mục</a>. Chọn ASIN là <b>SKU</b> và <b>Portfolio</b> tự điền — SKU khoá (sửa ở Danh mục), Portfolio sửa được tại đây cho riêng lượt này. Tên phân loại và mã cá nhân cũng lấy từ Danh mục.</p>
+    <p class="sub">ASIN lấy từ <a href="/catalog.html">📋 Danh mục Tài sản</a>. Chọn ASIN là <b>SKU</b> và <b>Portfolio</b> tự điền — SKU khoá (sửa ở Danh mục), Portfolio sửa được tại đây cho riêng lượt này. Tên phân loại và mã cá nhân cũng lấy từ Danh mục.</p>
     <div class="row fields">
       <div style="flex:0 0 268px"><label>ASIN <span class="req">*</span></label>
         <div class="ms" id="asinMs">
@@ -208,9 +208,9 @@
         <label>Keywords — mỗi dòng: <code>keyword</code> · <code>keyword | bid</code> · <code>keyword | bid | +n</code> <span class="hint">(+n = campaign bắt đầu sau Ngày tạo n ngày)</span></label>
         <textarea id="keywords" rows="9" placeholder="positive pickle jar&#10;pickle affirmation cards | 0.62&#10;pickle gift for her | 0.55 | +7"></textarea>
         <div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-          <span style="font-size:11.5px;font-weight:600;color:var(--mut);flex:0 0 auto" title="Danh mục Keyword: list → group (bid + n ngày)">🗂 List keyword</span>
+          <span style="font-size:11.5px;font-weight:600;color:var(--mut);flex:0 0 auto" title="Danh mục Target: list → group (bid + n ngày) + Target ASIN">🗂 List target</span>
           <select id="kwlSel" data-nopersist="1" style="flex:0 0 auto;max-width:200px"></select>
-          <button class="btn-sm" id="btnKwl" style="flex:0 0 auto;background:var(--b);color:#fff">⬇ Kéo keyword từ list</button>
+          <button class="btn-sm" id="btnKwl" style="flex:0 0 auto;background:var(--b);color:#fff" title="Đổ keyword (kw | bid | +n) vào ô Keywords và Target ASIN vào ô Target ASINs">⬇ Kéo từ list</button>
           <a href="/kwlists.html" class="hint" style="flex:0 0 auto">sửa list ↗</a>
         </div>
         <div id="kwlGroups" style="margin-top:4px;display:flex;gap:10px;flex-wrap:wrap;font-size:12px"></div>
@@ -760,14 +760,14 @@ function buildAsinPop() {
   const pop = $('asinPop');
   if (!pop) return;
   if (!catalog.length) {
-    pop.innerHTML = '<div class="ms-empty">Danh mục trống — nạp ASIN ở tab 📋 Danh mục trước</div>';
+    pop.innerHTML = '<div class="ms-empty">Danh mục trống — nạp ASIN ở tab 📋 Danh mục Tài sản trước</div>';
     asinSummary(); return;
   }
   const chosen = new Set([...$('asin').selectedOptions].map((o) => o.value));
   pop.innerHTML = '<div class="ms-search"><input type="text" id="asinFind" placeholder="Tìm theo ASIN, SKU hoặc tên list…" autocomplete="off"></div>'
-    + catalog.map((c) => `<label class="ms-opt" data-find="${esc(((c.list || '') + ' ' + c.asin + ' ' + (c.sku || '') + ' ' + c.type).toLowerCase())}">
+    + catalog.map((c) => `<label class="ms-opt" data-find="${esc(((c.acc || '') + ' ' + (c.list || '') + ' ' + c.asin + ' ' + (c.sku || '') + ' ' + c.type).toLowerCase())}">
     <input type="checkbox" value="${c.asin}"${chosen.has(c.asin) ? ' checked' : ''}>
-    <span>${c.list ? c.list + ' · ' : ''}<b>${c.asin}</b> · ${c.sku || '(chưa có SKU)'} · ${c.type}</span></label>`).join('')
+    <span>${c.acc ? '<b style="color:#2455e6">' + esc(c.acc) + '</b> · ' : ''}${c.list ? c.list + ' · ' : ''}<b>${c.asin}</b> · ${c.sku || '(chưa có SKU)'} · ${c.type}</span></label>`).join('')
     + '<div class="ms-empty" id="asinNone" style="display:none">Không có ASIN nào khớp</div>'
     + '<div class="ms-foot"><a id="asinClear">Bỏ chọn hết</a><a id="asinAllShown">Chọn hết đang hiện</a></div>';
 
@@ -858,7 +858,10 @@ async function loadCatalogPick() {
     if (kl && $('kwlSel') && [...$('kwlSel').options].some((o) => o.value === kl)) { $('kwlSel').value = kl; loadKwlGroups(); }
     $('prodMsg').textContent = ps.length > 1
       ? `${ps.length} sản phẩm · tên campaign dùng "ASINs - <tên portfolio>" · chọn portfolio bên cạnh`
-      : `1 sản phẩm · ${ps[0].type}${ps[0].portfolioId ? ' · portfolio mặc định đã điền' : ' · chưa gán portfolio trong Danh mục'}`;
+      : `1 sản phẩm · ${ps[0].acc ? 'acc ' + ps[0].acc + ' · ' : ''}${ps[0].type}${ps[0].portfolioId ? ' · portfolio mặc định đã điền' : ' · chưa gán portfolio trong Danh mục'}`;
+    // Chọn ASIN của nhiều acc trong 1 campaign → báo ngay (lúc xuất server cũng chặn)
+    const accs = [...new Set(ps.map((p) => p.acc).filter(Boolean))];
+    if (accs.length > 1) $('prodMsg').innerHTML = `<b style="color:#e04545">⚠️ Đang chọn ASIN của ${accs.length} acc (${accs.map(esc).join(', ')}) — 1 file bulk chỉ được 1 acc, sẽ không xuất được.</b>`;
     asinSummary();
   };
 }
@@ -971,13 +974,13 @@ receiveAdjustCampaigns();
   } catch {}
 })();
 
-/* ===== Kéo keyword từ Danh mục Keyword (list → group: bid + n ngày) ===== */
+/* ===== Kéo từ Danh mục Target (list → group: bid + n ngày, + Target ASIN) ===== */
 let kwlCache = null; // list đang chọn (đầy đủ)
 async function loadKwlOptions() {
   let lists = [];
   try { lists = (await (await fetch('/api/kwlists')).json()).lists || []; } catch {}
   $('kwlSel').innerHTML = '<option value="">— chọn list —</option>'
-    + lists.map((l) => `<option value="${esc(l.id)}">${esc(l.name)} (${l.kwCount})</option>`).join('');
+    + lists.map((l) => `<option value="${esc(l.id)}">${esc(l.name)} (${l.kwCount} kw${l.asinCount ? ' · ' + l.asinCount + ' ASIN' : ''})</option>`).join('');
   const ps = pickedProducts().map((p) => catalog.find((c) => c.asin === p.asin)).filter(Boolean);
   const kl = (ps.find((p) => p.kwList) || {}).kwList || '';
   if (kl && lists.some((l) => l.id === kl)) $('kwlSel').value = kl;
@@ -993,8 +996,10 @@ async function loadKwlGroups() {
   for (const k of kwlCache.keywords) cnt[k.group] = (cnt[k.group] || 0) + 1;
   const gs = [...kwlCache.groups.map((g) => ({ name: g.name, label: `${g.name} · ${g.bid != null ? '$' + g.bid : 'bid —'} · +${g.offset || 0} ngày` })),
     ...(cnt[''] ? [{ name: '', label: '(chưa phân group)' }] : [])];
-  $('kwlGroups').innerHTML = gs.map((g) => `<label class="chk" style="margin:0;white-space:nowrap"><input type="checkbox" class="kwlG" value="${esc(g.name)}" checked> ${esc(g.label)} <span class="hint">(${cnt[g.name] || 0})</span></label>`).join('')
-    || '<span class="hint">List chưa có group/keyword</span>';
+  const nA = (kwlCache.asins || []).length;
+  $('kwlGroups').innerHTML = (gs.map((g) => `<label class="chk" style="margin:0;white-space:nowrap"><input type="checkbox" class="kwlG" value="${esc(g.name)}" checked> ${esc(g.label)} <span class="hint">(${cnt[g.name] || 0})</span></label>`).join('')
+    + (nA ? `<label class="chk" style="margin:0;white-space:nowrap"><input type="checkbox" id="kwlAsin" checked> 🎯 Target ASIN <span class="hint">(${nA})</span></label>` : ''))
+    || '<span class="hint">List chưa có keyword / Target ASIN</span>';
 }
 $('kwlSel').onchange = loadKwlGroups;
 $('btnKwl').onclick = () => {
@@ -1004,18 +1009,30 @@ $('btnKwl').onclick = () => {
   const gOf = (n) => kwlCache.groups.find((g) => g.name === n);
   const ks = kwlCache.keywords.filter((k) => on.has(k.group))
     .sort((a, b) => (order.get(a.group) ?? 999) - (order.get(b.group) ?? 999) || (b.sv || 0) - (a.sv || 0));
-  if (!ks.length) { $('kwlMsg').textContent = '✕ Không có keyword nào trong các group đã chọn'; return; }
+  const asins = $('kwlAsin') && $('kwlAsin').checked ? (kwlCache.asins || []) : [];
+  if (!ks.length && !asins.length) { $('kwlMsg').textContent = '✕ Không có keyword / ASIN nào trong phần đã chọn'; return; }
   const line = (k) => {
     const g = gOf(k.group), bid = k.bid != null ? k.bid : (g ? g.bid : null), off = g ? (g.offset || 0) : 0;
     return [k.kw, bid != null ? bid : '', off ? '+' + off : ''].filter((x, i) => i === 0 || x !== '').join(' | ');
   };
   // Keyword đã có trong ô → thay bằng dòng mới từ list (bid/ngày mới nhất); dòng khác giữ nguyên
   const fresh = new Map(ks.map((k) => [k.kw, line(k)]));
-  const kept = $('keywords').value.split('\n').map((l) => l.trim()).filter(Boolean)
-    .filter((l) => !fresh.has(l.split(/\s*[|\t]\s*/)[0].toLowerCase()));
-  $('keywords').value = [...kept, ...fresh.values()].join('\n');
+  if (ks.length) {
+    const kept = $('keywords').value.split('\n').map((l) => l.trim()).filter(Boolean)
+      .filter((l) => !fresh.has(l.split(/\s*[|\t]\s*/)[0].toLowerCase()));
+    $('keywords').value = [...kept, ...fresh.values()].join('\n');
+  }
+  // Target ASIN: gộp vào ô Target ASINs, bỏ trùng, giữ ASIN đã có
+  let addA = 0;
+  if (asins.length) {
+    const curA = $('targetAsins').value.split('\n').map((l) => l.trim().toUpperCase()).filter(Boolean);
+    const have = new Set(curA);
+    const add = asins.filter((a) => !have.has(a)); addA = add.length;
+    $('targetAsins').value = [...curA, ...add].join('\n');
+  }
   persistForm();
-  $('kwlMsg').textContent = `✅ Kéo ${ks.length} keyword từ "${kwlCache.name}" (${on.size} group) — sửa thoải mái trong ô trước khi tạo campaign`;
+  $('kwlMsg').textContent = `✅ Kéo từ "${kwlCache.name}": ${ks.length} keyword (${[...on].filter((g) => ks.some((k) => k.group === g)).length} group)`
+    + (asins.length ? ` · ${addA} Target ASIN mới${asins.length > addA ? ` (${asins.length - addA} đã có)` : ''}` : '') + ' — sửa thoải mái trước khi tạo campaign';
 };
 
 /* ===== Import Helium10 ===== */
@@ -2032,7 +2049,8 @@ $('btnExport').onclick = async () => {
   a.download = (res.headers.get('Content-Disposition') || '').match(/filename="(.+)"/)?.[1] || 'bulk-create.xlsx';
   a.click();
   $('exportMsg').className = 'msg ok';
-  $('exportMsg').textContent = `✅ ${info.campaigns} campaign` + (info.asins > 1 ? ` · ${info.asins} ASIN` : '') +
+  $('exportMsg').textContent = `✅ ${info.acc ? 'acc ' + info.acc + ' · ' : ''}${info.campaigns} campaign` + (info.asins > 1 ? ` · ${info.asins} ASIN` : '') +
+    (info.noAcc ? ` · ⚠️ ${info.noAcc} ASIN chưa gán Acc ở Danh mục Tài sản` : '') +
     (payload.saveToBank ? ` · kho keyword +${info.bank?.added ?? 0} (tag PPC)` : '') +
     (info.bank?.kept ? ` · ${info.bank.kept} giữ tag removal` : '') + ' · đã lưu snapshot';
 };

@@ -816,6 +816,32 @@ app.post("/api/launch/preview", (req, res) => {
   }
 });
 
+/** 1 file bulk chỉ upload được vào 1 tài khoản seller. Gom ASIN của mọi plan (cả Product Ad
+ *  trong campaign nhiều sản phẩm) → tra cột Acc ở Danh mục Tài sản; quá 1 acc thì CHẶN xuất —
+ *  upload nhầm acc là campaign tạo ra trỏ vào ASIN không thuộc tài khoản đó. ASIN chưa gán acc
+ *  không chặn (chưa biết) nhưng trả về để cảnh báo. */
+function accCheck(plans, info) {
+  const cat = store.catalogMap();
+  const asins = new Set();
+  for (const p of plans || []) {
+    if (p?.asin) asins.add(String(p.asin).toUpperCase());
+    for (const ag of p?.adGroups || []) for (const pa of ag.productAds || []) if (pa?.asin) asins.add(String(pa.asin).toUpperCase());
+  }
+  for (const x of info?.products || []) if (x?.asin) asins.add(String(x.asin).toUpperCase());
+  const byAcc = {}, noAcc = [];
+  for (const a of asins) {
+    const acc = cat[a]?.acc || "";
+    if (!acc) { noAcc.push(a); continue; }
+    (byAcc[acc] = byAcc[acc] || []).push(a);
+  }
+  const accs = Object.keys(byAcc);
+  if (accs.length > 1) {
+    throw new Error(`File đang trộn ${accs.length} tài khoản: ` + accs.map((k) => `${k} (${byAcc[k].slice(0, 4).join(", ")}${byAcc[k].length > 4 ? "…" : ""})`).join(" · ")
+      + " — mỗi file bulk chỉ được 1 acc. Bỏ campaign của acc kia (dấu −) rồi xuất từng acc.");
+  }
+  return { acc: accs[0] || "", noAcc };
+}
+
 // Export: nhận plans ĐÃ CHỈNH từ preview (có thể gom NHIỀU ASIN) → xlsx bulk + snapshot
 // + kho keyword tag PPC (tùy chọn saveToBank, mặc định bật)
 app.post("/api/launch/export", (req, res) => {
@@ -827,6 +853,7 @@ app.post("/api/launch/export", (req, res) => {
     const plans = Array.isArray(body.plans) && body.plans.length
       ? body.plans
       : planCampaigns(withPf).plans;
+    const accInfo = accCheck(plans, body.info);           // chặn trộn tài khoản trước khi dựng file
     const rows = buildRowsFromPlans(plans, withPf);       // SP → sheet "Sponsored Products Campaigns" (kèm Negative Keyword đính kèm)
     const sdRows = buildSdRows(plans, body);             // SD → sheet "Sponsored Display Campaigns" (22 cột)
     const sbRows = buildSbRows(plans, body);             // SB Video → sheet "Sponsored Brands Campaigns" (32 cột)
@@ -862,14 +889,15 @@ app.post("/api/launch/export", (req, res) => {
     }
 
     const asins = [...new Set(campaigns.map((p) => p.asin).filter(Boolean))];
-    const label = asins.length === 1 ? asins[0] : `${asins.length}asin`;
+    const label = (accInfo.acc ? accInfo.acc.replace(/[^\w.-]+/g, "_") + "-" : "") + (asins.length === 1 ? asins[0] : `${asins.length}asin`);
     const snapId = store.saveExportSnapshot(
       { asin: label, asins, campaigns: campaigns.length, rows: rows.length + sdRows.length + sbRows.length, stats }, buf);
 
     res.setHeader("Content-Disposition",
       `attachment; filename="bulk-create-${label}-${new Date().toISOString().slice(0, 10)}.xlsx"`);
     res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-    res.setHeader("X-Launch-Info", JSON.stringify({ snapId, campaigns: campaigns.length, bank, saveToBank, asins: asins.length }));
+    res.setHeader("X-Launch-Info", JSON.stringify({ snapId, campaigns: campaigns.length, bank, saveToBank, asins: asins.length,
+      acc: accInfo.acc, noAcc: accInfo.noAcc.length }));
     res.send(buf);
   } catch (e) {
     res.status(400).json({ ok: false, message: e.message });
@@ -965,7 +993,7 @@ app.post("/api/catalog/manager", (req, res) => {
   res.json({ ok: true, manager });
 });
 
-/* ===================== DANH MỤC KEYWORD (list → group → keyword) =====================
+/* ===================== DANH MỤC TARGET (list → group → keyword, + Target ASIN) =====================
    Độc lập với "Phân tích Keyword". Nạp từ file H10 / Amazon SQP / csv-xlsx tự làm (tự nhận dạng). */
 const uploadKw = multer({ dest: "./data/uploads", limits: { fileSize: 40 * 1024 * 1024 } });
 app.get("/api/kwlists", (req, res) => res.json({ ok: true, lists: store.listKwLists() }));

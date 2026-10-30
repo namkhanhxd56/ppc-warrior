@@ -1,4 +1,4 @@
-// kw-import.js — Đọc file keyword cho Danh mục Keyword: tự nhận dạng nguồn.
+// kw-import.js — Đọc file keyword cho Danh mục Target: tự nhận dạng nguồn.
 //
 // Nhận mọi file csv/xlsx có cột keyword (+ tuỳ chọn cột volume):
 //   - H10 (Cerebro / Magnet):  "Keyword Phrase" + "Search Volume"
@@ -6,7 +6,7 @@
 //     ("Brand=...","Reporting Range=..."), header thật ở dòng 2: "Search Query" + "Search Query Volume"
 //   - File tự làm: "Keyword"/"Search Term"/"Query" + "Volume"/"SV"…; không có header thì
 //     cột 1 = keyword, cột 2 = volume (nếu là số).
-// Chỉ lấy keyword + search volume — Danh mục Keyword không cần các cột khác.
+// Chỉ lấy keyword + search volume — Danh mục Target không cần các cột khác.
 
 import * as XLSX from "xlsx";
 
