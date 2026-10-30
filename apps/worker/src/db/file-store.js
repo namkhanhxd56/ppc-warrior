@@ -806,32 +806,79 @@ function cleanKwList(l) {
   const asins = [...new Set((Array.isArray(l.asins) ? l.asins : [])
     .map((a) => String(a || "").trim().toUpperCase()).filter((a) => /^[A-Z0-9]{10}$/.test(a)))].slice(0, 5000);
   return { id: l.id, name: String(l.name || "").trim().slice(0, 80) || "List không tên", groups, keywords, asins,
-    updatedAt: new Date().toISOString() };
+    rev: Number(l.rev) || 0, updatedAt: new Date().toISOString() };
 }
+
+/* ===== LỊCH SỬ PHIÊN BẢN (30/10/2026 — sau vụ mất cập nhật list "beer ornament") =====
+   Trước đây mỗi lần lưu GHI ĐÈ bản trước, không giữ gì → mất là mất hẳn. Giờ:
+   - Mỗi list có `rev` tăng sau mỗi lần ghi. PUT phải gửi `baseRev` = rev mà trang đang cầm;
+     lệch (tab/máy khác đã lưu sau đó) → TỪ CHỐI (409) thay vì âm thầm ghi đè. Đây là nguyên
+     nhân mất cập nhật: tab mở từ trước tự lưu bản cũ đè lên bản mới.
+   - Trước khi ghi, chụp bản ĐANG CÓ vào kw-lists-history/<id>.json: tự lưu thì tối đa 1 bản
+     mỗi 10 phút (một đợt sửa liên tục = 1 bản); nạp file / khôi phục / ghi đè / xoá thì luôn chụp.
+     Giữ 50 bản gần nhất mỗi list. Xoá list vẫn giữ file lịch sử (cứu được bằng tay). */
+const KWHIST_DIR = () => path.join(userDataDir(), "kw-lists-history");
+const KWHIST_FILE = (id) => path.join(KWHIST_DIR(), String(id).replace(/[^\w-]/g, "") + ".json");
+const KWHIST_KEEP = 50, KWHIST_GAP_MS = 10 * 60 * 1000;
+const kwHistRead = (id) => { const h = readJson(KWHIST_FILE(id), []); return Array.isArray(h) ? h : []; };
+function kwSnapshot(l, kind, force) {
+  if (!l) return;
+  const h = kwHistRead(l.id);
+  const last = h[h.length - 1];
+  if (!force && last && Date.now() - Date.parse(last.at) < KWHIST_GAP_MS) return;
+  h.push({ at: new Date().toISOString(), kind, rev: Number(l.rev) || 0, name: l.name,
+    kwCount: (l.keywords || []).length, groupCount: (l.groups || []).length, asinCount: (l.asins || []).length,
+    grouped: (l.keywords || []).filter((k) => k.group).length, data: l });
+  fs.mkdirSync(KWHIST_DIR(), { recursive: true });
+  writeJsonAtomic(KWHIST_FILE(l.id), h.slice(-KWHIST_KEEP));
+}
+export function listKwHistory(id) {
+  return kwHistRead(id).map(({ data, ...meta }) => meta).reverse(); // mới nhất trước
+}
+export function getKwVersion(id, at) { return kwHistRead(id).find((v) => v.at === at)?.data || null; }
+
 export function listKwLists() {
   return kwListsAll().map((l) => ({ id: l.id, name: l.name, groups: l.groups || [], kwCount: (l.keywords || []).length,
-    asinCount: (l.asins || []).length, updatedAt: l.updatedAt }))
+    asinCount: (l.asins || []).length, updatedAt: l.updatedAt, rev: Number(l.rev) || 0 }))
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 export function getKwList(id) { return kwListsAll().find((l) => l.id === id) || null; }
-export function createKwList(name) {
+export function createKwList(name, data) {
   const lists = kwListsAll();
-  const l = cleanKwList({ id: "kl" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), name, groups: [], keywords: [], asins: [] });
+  const l = cleanKwList({ groups: [], keywords: [], asins: [], ...(data || {}), id: "kl" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), name, rev: 1 });
   lists.push(l); kwListsWrite(lists);
   return l;
 }
-export function saveKwList(id, data) {
+/**
+ * Ghi list. opts.baseRev: rev trang đang cầm — lệch với server thì trả {conflict} (không ghi).
+ * opts.force: ghi đè dù lệch (người dùng chủ động chọn) — luôn chụp bản hiện có trước.
+ * opts.kind: nhãn cho bản chụp lịch sử ("tự lưu" | "nạp file" | "khôi phục" | "ghi đè").
+ */
+export function saveKwList(id, data, opts = {}) {
   const lists = kwListsAll();
   const i = lists.findIndex((l) => l.id === id);
   if (i === -1) return null;
-  lists[i] = cleanKwList({ ...data, id });
+  const cur = lists[i], curRev = Number(cur.rev) || 0;
+  if (!opts.force && opts.baseRev !== undefined && Number(opts.baseRev) !== curRev) {
+    return { conflict: true, rev: curRev, updatedAt: cur.updatedAt };
+  }
+  const kind = opts.kind || (opts.force ? "ghi đè" : "tự lưu");
+  kwSnapshot(cur, kind, kind !== "tự lưu");
+  lists[i] = cleanKwList({ ...data, id, rev: curRev + 1 });
   kwListsWrite(lists);
   return lists[i];
 }
+export function restoreKwVersion(id, at) {
+  const v = getKwVersion(id, at);
+  if (!v || !getKwList(id)) return null;
+  return saveKwList(id, { ...v, id }, { force: true, kind: "trước khi khôi phục" });
+}
 export function deleteKwList(id) {
   const lists = kwListsAll();
+  const gone = lists.find((l) => l.id === id);
   const next = lists.filter((l) => l.id !== id);
-  if (next.length === lists.length) return false;
+  if (!gone) return false;
+  kwSnapshot(gone, "trước khi xoá", true);
   kwListsWrite(next);
   return true;
 }
@@ -850,7 +897,8 @@ export function mergeKwIntoList(id, rows, group) {
     const k = { kw, sv: r.sv ?? null, group: group || "", bid: null };
     l.keywords.push(k); byKw.set(kw, k); added++;
   }
-  const saved = saveKwList(id, l);
+  // gộp vào bản MỚI NHẤT trên server (không cần baseRev) — chụp bản trước khi nạp
+  const saved = saveKwList(id, l, { force: true, kind: "trước khi nạp file" });
   return { list: saved, added, updated };
 }
 

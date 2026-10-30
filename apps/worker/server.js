@@ -22,7 +22,7 @@ import * as auth from "./src/auth.js";
 import { als, runAsUser, userDataDir } from "./src/db/user-context.js";
 
 dotenv.config();
-export const APP_VERSION = "0.46.0"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
+export const APP_VERSION = "0.47.0"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
 
 // RUN_MODE:
 // - "local" (mặc định): bấm Kiểm tra là scrape NGAY trên máy này (dùng 1 người, chạy local)
@@ -1008,9 +1008,64 @@ app.post("/api/kwlists", (req, res) => {
   res.json({ ok: true, list: store.createKwList(name) });
 });
 app.put("/api/kwlists/:id", (req, res) => {
-  const l = store.saveKwList(req.params.id, req.body || {});
+  const { baseRev, force, ...data } = req.body || {};
+  // Không gửi baseRev = trang bản cũ (trước khi có kiểm phiên bản) → coi như lệch, không cho ghi đè mù
+  const l = store.saveKwList(req.params.id, data, { baseRev: baseRev ?? -1, force: force === true });
   if (!l) return res.status(404).json({ ok: false, message: "Không tìm thấy list" });
+  if (l.conflict) return res.status(409).json({ ok: false, conflict: true, rev: l.rev, updatedAt: l.updatedAt,
+    message: "List đã được sửa ở tab/máy khác — tải lại để lấy bản mới nhất" });
+  res.json({ ok: true, list: { id: l.id, rev: l.rev, updatedAt: l.updatedAt } });
+});
+// Lịch sử phiên bản: danh sách (không kèm dữ liệu) · khôi phục 1 bản (chụp bản hiện tại trước)
+app.get("/api/kwlists/:id/history", (req, res) => res.json({ ok: true, versions: store.listKwHistory(req.params.id) }));
+app.post("/api/kwlists/:id/restore", (req, res) => {
+  const l = store.restoreKwVersion(req.params.id, String(req.body?.at || ""));
+  if (!l) return res.status(404).json({ ok: false, message: "Không tìm thấy bản này" });
   res.json({ ok: true, list: l });
+});
+// Xuất list (bản hiện tại, hoặc 1 bản trong lịch sử ?at=) ra Excel 3 sheet — tự cất giữ / nạp lại
+app.get("/api/kwlists/:id/export", (req, res) => {
+  const l = req.query.at ? store.getKwVersion(req.params.id, String(req.query.at)) : store.getKwList(req.params.id);
+  if (!l) return res.status(404).json({ ok: false, message: "Không tìm thấy list/bản" });
+  const gOf = (n) => (l.groups || []).find((g) => g.name === n);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet((l.keywords || []).map((k) => ({
+    "Keyword": k.kw, "Search Volume": k.sv ?? "", "Group": k.group || "", "Bid": k.bid ?? "",
+    "Bid group": gOf(k.group)?.bid ?? "", "+n ngày": gOf(k.group)?.offset || 0
+  })), { header: ["Keyword", "Search Volume", "Group", "Bid", "Bid group", "+n ngày"] }), "Keywords");
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet((l.groups || []).map((g) => ({
+    "Group": g.name, "Bid mặc định": g.bid ?? "", "+n ngày": g.offset || 0
+  })), { header: ["Group", "Bid mặc định", "+n ngày"] }), "Groups");
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet((l.asins || []).map((a) => ({ "Target ASIN": a })), { header: ["Target ASIN"] }), "Target ASIN");
+  const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
+  const safe = String(l.name || "list").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d").replace(/Đ/g, "D").replace(/[^\w.-]+/g, "_").slice(0, 60);
+  const stamp = (req.query.at ? String(req.query.at) : new Date().toISOString()).slice(0, 16).replace(/[:T]/g, "-");
+  res.setHeader("Content-Disposition", `attachment; filename="danh-muc-target-${safe}-${stamp}.xlsx"`);
+  res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+  res.send(buf);
+});
+// Nạp lại file đã xuất ở trên → tạo LIST MỚI (không đụng list đang có)
+app.post("/api/kwlists/import-file", (req, res, next) => uploadKw.single("file")(req, res, next), (req, res) => {
+  try {
+    if (!req.file) throw new Error("Chưa chọn file");
+    let wb;
+    try { wb = XLSX.read(fs.readFileSync(req.file.path), { type: "buffer" }); } finally { fs.unlink(req.file.path, () => {}); }
+    const sheet = (n) => wb.Sheets[wb.SheetNames.find((x) => x.toLowerCase() === n.toLowerCase())];
+    if (!sheet("Keywords") && !sheet("Groups") && !sheet("Target ASIN")) throw new Error('File không phải file xuất từ Danh mục Target (cần sheet "Keywords" / "Groups" / "Target ASIN")');
+    const rows = (n) => (sheet(n) ? XLSX.utils.sheet_to_json(sheet(n), { defval: "" }) : []);
+    const num = (v) => { const x = parseFloat(String(v).replace(",", ".")); return isNaN(x) ? null : x; };
+    const groups = rows("Groups").map((r) => ({ name: r["Group"], bid: num(r["Bid mặc định"]), offset: num(r["+n ngày"]) || 0 }));
+    const keywords = rows("Keywords").map((r) => ({ kw: r["Keyword"], sv: num(r["Search Volume"]), group: String(r["Group"] || ""), bid: num(r["Bid"]) }));
+    // group có trong Keywords mà thiếu ở Groups (file sửa tay) → vẫn giữ, lấy bid/+n từ cột phụ
+    for (const r of rows("Keywords")) {
+      const gn = String(r["Group"] || "").trim();
+      if (gn && !groups.some((g) => String(g.name).trim() === gn)) groups.push({ name: gn, bid: num(r["Bid group"]), offset: num(r["+n ngày"]) || 0 });
+    }
+    const asins = rows("Target ASIN").map((r) => r["Target ASIN"]);
+    const base = String(req.body?.name || req.file.originalname.replace(/\.[^.]+$/, "")).trim().slice(0, 70) || "List từ file";
+    const l = store.createKwList(base + " (từ file)", { groups, keywords, asins });
+    res.json({ ok: true, list: l });
+  } catch (e) { res.status(400).json({ ok: false, message: e.message }); }
 });
 app.delete("/api/kwlists/:id", (req, res) => res.json({ ok: store.deleteKwList(req.params.id) }));
 // Import file (H10 Cerebro/Magnet, Amazon SQP, csv/xlsx tự làm) → keyword + search volume, gộp vào list

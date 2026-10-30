@@ -82,9 +82,28 @@
       <button class="btn-sm" id="btnNew">➕ List mới</button>
       <button class="btn-sm" id="btnRename">✎ Đổi tên</button>
       <button class="btn-sm btn-bad" id="btnDel">🗑 Xoá list</button>
+      <button class="btn-sm" id="btnHist" title="Các bản đã lưu trước đây — xem và khôi phục">🕘 Lịch sử</button>
+      <button class="btn-sm" id="btnExport" title="Tải list ra Excel (Keywords · Groups · Target ASIN) để tự cất giữ">⬇ Xuất file</button>
+      <button class="btn-sm" id="btnImportList" title="Nạp file đã xuất ở trên → tạo list mới">📤 Nạp list từ file</button>
+      <input type="file" id="listFile" accept=".xlsx,.xls" style="display:none">
       <span style="flex:1"></span>
       <span class="msg" id="saveMsg"></span>
       <span class="dirty" id="dirtyFlag" title="Danh mục Target tự lưu sau mỗi thay đổi"></span>
+    </div>
+  </div>
+
+  <div class="card" id="conflictBox" style="display:none;align-items:center;gap:10px;flex-wrap:wrap;background:#fff4e5;border-color:#f5c26b;padding:12px 16px">
+    <span id="conflictTxt" style="font-size:13px"></span>
+    <button class="btn-primary" id="btnReload" style="padding:6px 14px">⟳ Tải bản mới nhất</button>
+    <button class="btn-sm btn-bad" id="btnForce" title="Bản ở tab/máy kia vẫn được giữ trong 🕘 Lịch sử">Ghi đè bằng bản ở đây</button>
+  </div>
+  <div id="histModal" style="display:none;position:fixed;inset:0;background:rgba(16,24,40,.45);z-index:100;align-items:flex-start;justify-content:center;padding-top:60px">
+    <div class="card" style="width:min(760px,94vw);max-height:80vh;overflow:auto;margin:0">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><h2 style="margin:0">🕘 Lịch sử phiên bản — <span id="histName"></span></h2>
+        <button class="btn-sm" id="histClose" style="margin-left:auto">✕ Đóng</button></div>
+      <p class="sub">Tự lưu: tối đa 1 bản mỗi 10 phút (một đợt sửa = 1 bản). Trước khi nạp file, khôi phục, ghi đè, xoá: luôn giữ 1 bản. Giữ 50 bản gần nhất.
+        <b>Khôi phục</b> đưa list về bản đó (bản hiện tại cũng được giữ lại trong lịch sử, nên khôi phục nhầm vẫn quay lại được).</p>
+      <table><thead><tr><th>Lúc lưu</th><th>Loại</th><th>Keyword</th><th>Đã phân group</th><th>Group</th><th>ASIN</th><th></th></tr></thead><tbody id="histBody"></tbody></table>
     </div>
   </div>
 
@@ -168,7 +187,7 @@ const numOrNull = (v) => { const s = String(v ?? '').trim(); if (!s) return null
 const svNum = (v) => { const s = String(v ?? '').trim(); if (!s) return null; const n = parseFloat(s.replace(/[^0-9.\-]/g, '')); return isNaN(n) ? null : n; };
 const fmtSv = (n) => n == null ? '' : Number(n).toLocaleString('en-US');
 
-const UI_VERSION = '0.46.0';
+const UI_VERSION = '0.47.0';
 (async () => {
   try { const v = (await (await fetch('/api/version')).json()).version; if (v !== UI_VERSION) throw new Error(v); }
   catch (e) { $('verWarn').style.display = 'block'; $('verWarn').textContent = `⚠️ Server phiên bản cũ (${e.message}) — hãy restart (npm start).`; }
@@ -190,8 +209,8 @@ let ver = 0, savedVer = 0, saving = null, saveTimer = null, saveErr = '';
 const isDirty = () => ver !== savedVer;
 function updateFlag() {
   const f = $('dirtyFlag');
-  f.className = 'dirty' + (saveErr ? ' err' : (!saving && !isDirty() && cur ? ' ok' : ''));
-  f.textContent = saveErr ? `✕ Chưa lưu được (${saveErr}) — đang thử lại`
+  f.className = 'dirty' + (saveErr || conflict ? ' err' : (!saving && !isDirty() && cur ? ' ok' : ''));
+  f.textContent = conflict ? '✕ Chưa lưu — xung đột bản' : saveErr ? `✕ Chưa lưu được (${saveErr}) — đang thử lại`
     : saving ? '⏳ Đang lưu…' : isDirty() ? '● Đang chờ lưu' : cur ? '✓ Đã tự lưu' : '';
 }
 function setDirty(v) {
@@ -203,18 +222,35 @@ async function flushSave() {
   clearTimeout(saveTimer);
   if (!cur || !isDirty()) return;
   if (saving) { await saving.catch(() => {}); return flushSave(); }
-  const sentVer = ver, id = cur.id, body = JSON.parse(JSON.stringify(cur));
+  if (conflict) throw new Error('conflict'); // đang xung đột: chờ người dùng chọn tải lại / ghi đè
+  const sentVer = ver, id = cur.id, body = { ...JSON.parse(JSON.stringify(cur)), baseRev: cur.rev ?? 0 };
   saving = api('/api/kwlists/' + encodeURIComponent(id), { method: 'PUT', body })
-    .then(() => {
-      if (cur && cur.id === id) savedVer = Math.max(savedVer, sentVer);
+    .then((d) => {
+      if (cur && cur.id === id) { savedVer = Math.max(savedVer, sentVer); cur.rev = d.list.rev; }
       saveErr = '';
       const o = $('listSel').selectedOptions[0]; if (o && cur && cur.id === id) o.textContent = listLabel(cur);
     })
-    .catch((e) => { saveErr = e.message; saveTimer = setTimeout(flushSave, 5000); throw e; })
+    .catch((e) => {
+      if (e.status === 409) { showConflict(e.data); throw e; } // tab/máy khác đã lưu sau bản mình cầm → KHÔNG thử lại
+      saveErr = e.message; saveTimer = setTimeout(flushSave, 5000); throw e;
+    })
     .finally(() => { saving = null; updateFlag(); if (cur && cur.id === id && isDirty() && !saveErr) { clearTimeout(saveTimer); saveTimer = setTimeout(flushSave, 300); } });
   updateFlag();
   await saving;
 }
+/* ===== Xung đột: list đã được lưu ở tab/máy khác sau bản trang này đang cầm =====
+   Trước đây tab cũ tự lưu là ĐÈ MẤT cập nhật của tab kia (mất list "beer ornament").
+   Giờ server từ chối; người dùng chọn: tải bản mới nhất (bỏ sửa ở đây) hoặc ghi đè (bản kia
+   vẫn được chụp vào Lịch sử nên không mất hẳn). */
+let conflict = false;
+function showConflict(d) {
+  conflict = true; clearTimeout(saveTimer);
+  const t = d?.updatedAt ? new Date(d.updatedAt).toLocaleString('vi-VN') : '';
+  $('conflictBox').style.display = 'flex';
+  $('conflictTxt').innerHTML = `⚠️ List này đã được lưu ở <b>tab/máy khác</b>${t ? ' lúc ' + t : ''}. Thay đổi ở trang này <b>chưa được lưu</b> (để không đè mất bản kia).`;
+  updateFlag();
+}
+function clearConflict() { conflict = false; $('conflictBox').style.display = 'none'; }
 // Đóng tab khi còn thay đổi chưa kịp lưu → hỏi lại (lưu chỉ mất ~1 giây)
 window.addEventListener('beforeunload', (e) => { if (isDirty() || saving) { flushSave().catch(() => {}); e.preventDefault(); e.returnValue = ''; } });
 
@@ -222,7 +258,7 @@ async function api(url, opt = {}) {
   const r = await fetch(url, opt.body && !(opt.body instanceof FormData)
     ? { ...opt, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(opt.body) } : opt);
   const d = await r.json().catch(() => ({ ok: false, message: 'Lỗi ' + r.status }));
-  if (!r.ok || d.ok === false) throw new Error(d.message || ('Lỗi ' + r.status));
+  if (!r.ok || d.ok === false) { const e = new Error(d.message || ('Lỗi ' + r.status)); e.status = r.status; e.data = d; throw e; }
   return d;
 }
 function msg(id, cls, t) { $(id).className = 'msg ' + cls; $(id).textContent = t; }
@@ -248,9 +284,68 @@ async function loadLists(pickId) {
 async function openList(id) {
   cur = (await api('/api/kwlists/' + encodeURIComponent(id))).list;
   try { localStorage.setItem('ppcw_kwlist_cur', id); } catch {}
-  sel.clear(); shown = PAGE; curIdx = anchorIdx = -1; setDirty(false);
+  sel.clear(); shown = PAGE; curIdx = anchorIdx = -1; clearConflict(); setDirty(false);
   renderAll();
 }
+$('btnReload').onclick = async () => {
+  if (!confirm('Tải bản mới nhất từ server? Thay đổi chưa lưu ở trang này sẽ bỏ đi.')) return;
+  await openList(cur.id); msg('saveMsg', 'ok', '✓ Đã tải bản mới nhất');
+};
+$('btnForce').onclick = async () => {
+  if (!confirm('Ghi đè bằng bản đang sửa ở trang này?\nBản ở tab/máy kia vẫn được giữ trong 🕘 Lịch sử — khôi phục lại được.')) return;
+  try {
+    const d = await api('/api/kwlists/' + encodeURIComponent(cur.id), { method: 'PUT', body: { ...cur, force: true } });
+    cur.rev = d.list.rev; clearConflict(); setDirty(false); msg('saveMsg', 'ok', '✓ Đã ghi đè (bản cũ nằm trong Lịch sử)');
+  } catch (e) { msg('saveMsg', 'err', '✕ ' + e.message); }
+};
+
+/* ===== Lịch sử phiên bản ===== */
+async function openHistory() {
+  if (!cur) return;
+  try { await flushSave(); } catch {}
+  const d = await api(`/api/kwlists/${encodeURIComponent(cur.id)}/history`);
+  $('histName').textContent = cur.name;
+  $('histBody').innerHTML = d.versions.length ? d.versions.map((v) => `<tr>
+      <td class="txt">${esc(new Date(v.at).toLocaleString('vi-VN'))}</td><td class="txt">${esc(v.kind)}</td>
+      <td class="num">${v.kwCount}</td><td class="num">${v.grouped ?? '—'}</td><td class="num">${v.groupCount}</td><td class="num">${v.asinCount}</td>
+      <td class="txt" style="white-space:nowrap"><button class="btn-sm" data-restore="${esc(v.at)}">↩ Khôi phục</button>
+        <a class="btn-sm" style="text-decoration:none;color:inherit" href="/api/kwlists/${encodeURIComponent(cur.id)}/export?at=${encodeURIComponent(v.at)}">⬇ Tải</a></td></tr>`).join('')
+    : '<tr><td colspan="7" class="txt hint">Chưa có bản nào — lịch sử bắt đầu ghi từ lần lưu kế tiếp.</td></tr>';
+  $('histModal').style.display = 'flex';
+}
+$('btnHist').onclick = () => openHistory().catch((e) => msg('saveMsg', 'err', '✕ ' + e.message));
+$('histClose').onclick = () => { $('histModal').style.display = 'none'; };
+$('histModal').addEventListener('click', async (e) => {
+  if (e.target === $('histModal')) { $('histModal').style.display = 'none'; return; }
+  const b = e.target.closest('[data-restore]'); if (!b) return;
+  if (!confirm(`Khôi phục list về bản lúc ${new Date(b.dataset.restore).toLocaleString('vi-VN')}?\nBản hiện tại được giữ lại trong Lịch sử.`)) return;
+  try {
+    const d = await api(`/api/kwlists/${encodeURIComponent(cur.id)}/restore`, { method: 'POST', body: { at: b.dataset.restore } });
+    cur = d.list; clearConflict(); setDirty(false); sel.clear(); renderAll();
+    const o = $('listSel').selectedOptions[0]; if (o) o.textContent = listLabel(cur);
+    $('histModal').style.display = 'none';
+    msg('saveMsg', 'ok', `✓ Đã khôi phục: ${cur.keywords.length} keyword · ${cur.groups.length} group`);
+  } catch (err) { msg('saveMsg', 'err', '✕ ' + err.message); }
+});
+
+/* ===== Xuất / nạp file list ===== */
+$('btnExport').onclick = async () => {
+  if (!cur) return;
+  try { await flushSave(); } catch {}
+  const a = document.createElement('a'); a.href = `/api/kwlists/${encodeURIComponent(cur.id)}/export`; a.click();
+};
+$('btnImportList').onclick = () => $('listFile').click();
+$('listFile').onchange = async () => {
+  const f = $('listFile').files[0]; if (!f) return;
+  try {
+    try { await flushSave(); } catch {}
+    const fd = new FormData(); fd.append('file', f);
+    const d = await api('/api/kwlists/import-file', { method: 'POST', body: fd });
+    await loadLists(d.list.id);
+    msg('saveMsg', 'ok', `✓ Đã tạo list "${d.list.name}": ${d.list.keywords.length} keyword · ${d.list.groups.length} group · ${d.list.asins.length} ASIN`);
+  } catch (e) { msg('saveMsg', 'err', '✕ ' + e.message); }
+  $('listFile').value = '';
+};
 $('listSel').onchange = async () => {
   const to = $('listSel').value;
   try { await flushSave(); } catch { if (!confirm('List hiện tại chưa lưu được — vẫn chuyển list (mất thay đổi chưa lưu)?')) { $('listSel').value = cur.id; return; } }
