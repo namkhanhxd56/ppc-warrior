@@ -209,11 +209,18 @@
         <textarea id="keywords" rows="9" placeholder="positive pickle jar&#10;pickle affirmation cards | 0.62&#10;pickle gift for her | 0.55 | +7"></textarea>
         <div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
           <span style="font-size:11.5px;font-weight:600;color:var(--mut);flex:0 0 auto" title="Danh mục Target: list → group (bid + n ngày) + Target ASIN">🗂 List target</span>
-          <select id="kwlSel" data-nopersist="1" style="flex:0 0 auto;max-width:200px"></select>
-          <button class="btn-sm" id="btnKwl" style="flex:0 0 auto;background:var(--b);color:#fff" title="Đổ keyword (kw | bid | +n) vào ô Keywords và Target ASIN vào ô Target ASINs">⬇ Kéo từ list</button>
+          <select id="kwlSel" data-nopersist="1" style="flex:0 0 auto;max-width:190px"></select>
+          <span style="flex:0 0 auto;color:var(--mut)">→</span>
+          <span style="position:relative;flex:0 0 auto">
+            <button type="button" class="btn-sm" id="kwlGBtn" disabled style="background:#fff;border:1px solid #ccd3e0;min-width:170px;text-align:left">Group: — chọn list trước — ▾</button>
+            <div id="kwlGroups" style="display:none;position:absolute;left:0;top:112%;z-index:50;background:#fff;border:1px solid #ccd3e0;border-radius:8px;padding:8px 10px;box-shadow:0 8px 24px rgba(0,0,0,.18);min-width:260px;max-height:320px;overflow:auto;font-size:12.5px"></div>
+          </span>
+          <label class="chk" id="kwlAsinWrap" style="display:none;margin:0;white-space:nowrap;flex:0 0 auto"><input type="checkbox" id="kwlAsin" data-nopersist="1"> 🎯 Target ASIN <span class="hint" id="kwlAsinN"></span></label>
+        </div>
+        <div style="margin-top:6px;display:flex;gap:8px;align-items:center">
+          <button class="btn-sm" id="btnKwl" style="flex:0 0 auto;background:var(--b);color:#fff" title="Đổ keyword (kw | bid | +n) của các group đã chọn vào ô Keywords, Target ASIN vào ô Target ASINs">⬇ Kéo từ list</button>
           <a href="/kwlists.html" class="hint" style="flex:0 0 auto">sửa list ↗</a>
         </div>
-        <div id="kwlGroups" style="margin-top:4px;display:flex;gap:10px;flex-wrap:wrap;font-size:12px"></div>
         <div class="hint" id="kwlMsg" style="margin-top:2px"></div>
         <div style="margin-top:8px;display:flex;gap:10px;align-items:center;flex-wrap:nowrap">
           <span style="font-size:11.5px;font-weight:600;color:var(--mut);flex:0 0 auto">Cerebro H10</span>
@@ -764,10 +771,10 @@ function buildAsinPop() {
     asinSummary(); return;
   }
   const chosen = new Set([...$('asin').selectedOptions].map((o) => o.value));
-  pop.innerHTML = '<div class="ms-search"><input type="text" id="asinFind" placeholder="Tìm theo ASIN, SKU hoặc tên list…" autocomplete="off"></div>'
-    + catalog.map((c) => `<label class="ms-opt" data-find="${esc(((c.acc || '') + ' ' + (c.list || '') + ' ' + c.asin + ' ' + (c.sku || '') + ' ' + c.type).toLowerCase())}">
+  pop.innerHTML = '<div class="ms-search"><input type="text" id="asinFind" placeholder="Tìm theo Acc, ASIN hoặc SKU…" autocomplete="off"></div>'
+    + catalog.map((c) => `<label class="ms-opt" data-find="${esc(((c.acc || '') + ' ' + c.asin + ' ' + (c.sku || '') + ' ' + c.type).toLowerCase())}">
     <input type="checkbox" value="${c.asin}"${chosen.has(c.asin) ? ' checked' : ''}>
-    <span>${c.acc ? '<b style="color:#2455e6">' + esc(c.acc) + '</b> · ' : ''}${c.list ? c.list + ' · ' : ''}<b>${c.asin}</b> · ${c.sku || '(chưa có SKU)'} · ${c.type}</span></label>`).join('')
+    <span>${c.acc ? '<b style="color:#2455e6">' + esc(c.acc) + '</b> · ' : ''}<b>${c.asin}</b> · ${c.sku || '(chưa có SKU)'} · ${c.type}</span></label>`).join('')
     + '<div class="ms-empty" id="asinNone" style="display:none">Không có ASIN nào khớp</div>'
     + '<div class="ms-foot"><a id="asinClear">Bỏ chọn hết</a><a id="asinAllShown">Chọn hết đang hiện</a></div>';
 
@@ -988,7 +995,8 @@ async function loadKwlOptions() {
 }
 async function loadKwlGroups() {
   const id = $('kwlSel').value;
-  kwlCache = null; $('kwlGroups').innerHTML = ''; $('kwlMsg').textContent = '';
+  kwlCache = null; $('kwlGroups').innerHTML = ''; $('kwlGroups').style.display = 'none'; $('kwlMsg').textContent = '';
+  $('kwlGBtn').disabled = true; $('kwlAsinWrap').style.display = 'none'; $('kwlAsin').checked = false; kwlGSummary();
   if (!id) return;
   try { kwlCache = (await (await fetch('/api/kwlists/' + encodeURIComponent(id))).json()).list; } catch {}
   if (!kwlCache) { $('kwlMsg').textContent = '✕ Không đọc được list'; return; }
@@ -997,14 +1005,39 @@ async function loadKwlGroups() {
   const gs = [...kwlCache.groups.map((g) => ({ name: g.name, label: `${g.name} · ${g.bid != null ? '$' + g.bid : 'bid —'} · +${g.offset || 0} ngày` })),
     ...(cnt[''] ? [{ name: '', label: '(chưa phân group)' }] : [])];
   const nA = (kwlCache.asins || []).length;
-  $('kwlGroups').innerHTML = (gs.map((g) => `<label class="chk" style="margin:0;white-space:nowrap"><input type="checkbox" class="kwlG" value="${esc(g.name)}" checked> ${esc(g.label)} <span class="hint">(${cnt[g.name] || 0})</span></label>`).join('')
-    + (nA ? `<label class="chk" style="margin:0;white-space:nowrap"><input type="checkbox" id="kwlAsin" checked> 🎯 Target ASIN <span class="hint">(${nA})</span></label>` : ''))
-    || '<span class="hint">List chưa có keyword / Target ASIN</span>';
+  // Group NẰM TRONG list → ô Group chỉ mở được sau khi chọn list; đổi list là chọn lại group.
+  // Mặc định không tick gì: mỗi group là 1 đợt launch (bid/ngày riêng), kéo nhầm cả list là ra
+  // campaign của mọi đợt cùng lúc.
+  $('kwlGBtn').disabled = false;
+  $('kwlAsinWrap').style.display = nA ? '' : 'none';
+  $('kwlAsin').checked = false; $('kwlAsinN').textContent = `(${nA})`;
+  $('kwlGroups').innerHTML = !gs.length ? '<span class="hint">List chưa có keyword</span>'
+    : gs.map((g) => `<label class="chk" style="display:flex;margin:3px 0;white-space:nowrap"><input type="checkbox" class="kwlG" value="${esc(g.name)}"> ${esc(g.label)} <span class="hint">(${cnt[g.name] || 0})</span></label>`).join('')
+      + (gs.length > 1 ? `<div style="margin-top:6px;border-top:1px solid #eef1f7;padding-top:6px;display:flex;gap:12px">
+          <a href="#" class="hint" onclick="document.querySelectorAll('.kwlG').forEach((c) => c.checked = true);kwlGSummary();return false">chọn tất cả</a>
+          <a href="#" class="hint" onclick="document.querySelectorAll('.kwlG').forEach((c) => c.checked = false);kwlGSummary();return false">bỏ hết</a></div>` : '');
+  kwlGSummary();
 }
+/** Nhãn ô Group: tên các group đã chọn + tổng số keyword */
+function kwlGSummary() {
+  if (!kwlCache) { $('kwlGBtn').textContent = 'Group: — chọn list trước — ▾'; return; }
+  const on = [...document.querySelectorAll('.kwlG:checked')].map((c) => c.value);
+  const n = kwlCache.keywords.filter((k) => on.includes(k.group)).length;
+  const names = on.map((g) => g || '(chưa phân group)');
+  $('kwlGBtn').textContent = !on.length ? 'Group: — chọn group — ▾'
+    : `Group: ${names.length <= 2 ? names.join(', ') : names.length + ' group'} · ${n} kw ▾`;
+}
+window.kwlGSummary = kwlGSummary;
+$('kwlGroups').addEventListener('change', kwlGSummary);
+$('kwlGBtn').onclick = (e) => { e.stopPropagation(); const p = $('kwlGroups'); p.style.display = p.style.display === 'none' ? 'block' : 'none'; };
+document.addEventListener('click', (e) => { if (!e.target.closest('#kwlGroups') && e.target !== $('kwlGBtn')) $('kwlGroups').style.display = 'none'; });
 $('kwlSel').onchange = loadKwlGroups;
 $('btnKwl').onclick = () => {
-  if (!kwlCache) { $('kwlMsg').textContent = '✕ Chọn list trước (hoặc gán List keyword cho ASIN ở Danh mục)'; return; }
+  if (!kwlCache) { $('kwlMsg').innerHTML = '<b style="color:#e04545">✕ Chọn list trước (hoặc gán List keyword cho ASIN ở Danh mục Tài sản)</b>'; return; }
   const on = new Set([...document.querySelectorAll('.kwlG:checked')].map((c) => c.value));
+  if (!on.size && !($('kwlAsin') && $('kwlAsin').checked)) {
+    $('kwlMsg').innerHTML = '<b style="color:#e04545">✕ Mở ô Group, chọn ít nhất 1 group (hoặc tick 🎯 Target ASIN) rồi bấm Kéo</b>'; return;
+  }
   const order = new Map(kwlCache.groups.map((g, i) => [g.name, i]));
   const gOf = (n) => kwlCache.groups.find((g) => g.name === n);
   const ks = kwlCache.keywords.filter((k) => on.has(k.group))

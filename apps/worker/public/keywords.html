@@ -386,7 +386,7 @@ function pickFromCatalog() {
   const q = $('catFind').value.trim().toLowerCase();
   if (!q) return;
   const hit = catalog.find((c) => c.asin.toLowerCase() === q)
-    || catalog.find((c) => `${c.list} ${c.asin} ${c.sku}`.toLowerCase().includes(q));
+    || catalog.find((c) => `${c.acc || ''} ${c.asin} ${c.sku}`.toLowerCase().includes(q));
   if (!hit) { $('runMsg').className = 'msg err'; $('runMsg').textContent = `✕ Không có "${q}" trong Danh mục`; return; }
   const n = addAsins([hit.asin]);
   $('catFind').value = '';
@@ -462,7 +462,7 @@ async function followJob(jobId, out) {
   try {
     const c = await (await fetch('/api/catalog')).json();
     catalog = c.products || [];
-    $('catList').innerHTML = catalog.map((p) => `<option value="${p.asin}">${p.list ? p.list + ' · ' : ''}${p.sku || ''}</option>`).join('');
+    $('catList').innerHTML = catalog.map((p) => `<option value="${p.asin}">${p.acc ? p.acc + ' · ' : ''}${p.sku || ''}</option>`).join('');
   } catch {}
 })();
 </script>

@@ -731,7 +731,8 @@ export function saveCatalog(rows) {
     next[asin] = {
       ...(old[asin] || {}),
       acc: String(r.acc ?? old[asin]?.acc ?? "").trim().slice(0, 40),
-      list: String(r.list || "").trim().slice(0, 60),
+      // Cột "Tên list" đã bỏ khỏi bảng (30/10/2026) — UI không gửi list nữa thì giữ giá trị cũ, không xoá
+      list: String(r.list ?? old[asin]?.list ?? "").trim().slice(0, 60),
       sku: String(r.sku || "").trim().slice(0, 60),
       type: String(r.type || "").toUpperCase() === "FBM" ? "FBM" : "FBA",
       portfolioId: String(r.portfolioId || "").trim(),

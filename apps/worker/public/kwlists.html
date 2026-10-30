@@ -144,7 +144,7 @@
           </div></div>
       </div>
       <div class="scroll" id="kwScroll">
-        <table>
+        <table data-resizable data-grid id="kwTable">
           <thead><tr>
             <th style="width:34px" class="c"><input type="checkbox" id="tickAll" title="Tick mọi keyword đang hiện"></th>
             <th data-sort="kw">Keyword</th><th data-sort="sv" style="width:120px">Search Volume</th><th data-sort="group" style="width:190px">Group</th>
@@ -153,7 +153,8 @@
           <tbody id="kBody"></tbody>
         </table>
       </div>
-      <div class="hint" style="margin-top:6px">⌨ Bấm vào 1 dòng rồi <b>Shift + ↑/↓</b> để chọn liền nhiều dòng · <b>Shift + Cmd/Ctrl + ↑/↓</b> chọn tới đầu/cuối danh sách · <b>Shift + click</b> ô tick để chọn cả dải · <b>Space</b> tick/bỏ tick dòng đang đứng.</div>
+      <div class="hint" style="margin-top:6px">⌨ Bấm vào 1 dòng rồi <b>Shift + ↑/↓</b> để chọn liền nhiều dòng · <b>Shift + Cmd/Ctrl + ↑/↓</b> chọn tới đầu/cuối danh sách · <b>Shift + click</b> ô tick để chọn cả dải · <b>Space</b> tick/bỏ tick dòng đang đứng.<br>
+        Ô Group / Bid như Excel: <b>Shift + click</b> ô đầu–cuối chọn vùng rồi Cmd/Ctrl+C, dán 1 giá trị để điền cả vùng, Delete xoá · kéo <b>ô vuông xanh</b> góc ô để điền xuống · <b>⧉</b> trên tiêu đề copy cả cột (mọi keyword đang lọc).</div>
       <div class="row" style="margin-top:8px"><span class="hint" id="moreInfo"></span><button class="btn-sm" id="btnMore" style="display:none">Hiện thêm</button></div>
     </div>
   </div>
@@ -389,7 +390,10 @@ function renderKw() {
   $('btnMore').style.display = rows.length > shown ? '' : 'none';
   document.querySelectorAll('th[data-sort]').forEach((th) => {
     th.classList.toggle('sorted', th.dataset.sort === sortF);
-    th.textContent = th.textContent.replace(/ [▲▼]$/, '') + (th.dataset.sort === sortF ? (sortDir > 0 ? ' ▲' : ' ▼') : '');
+    // mũi tên nằm trong span riêng — KHÔNG ghi đè textContent của th (sẽ xoá tay kéo co cột)
+    let a = th.querySelector('.arr');
+    if (!a) { a = document.createElement('span'); a.className = 'arr'; th.insertBefore(a, th.querySelector('.tt-rz')); }
+    a.textContent = th.dataset.sort === sortF ? (sortDir > 0 ? ' ▲' : ' ▼') : '';
   });
 }
 function renderAll() { if (!cur) return; renderGroups(); renderAsins(); renderKw(); }
@@ -455,6 +459,28 @@ $('tickAll').onchange = () => {
   visKw.slice(0, shown).forEach((kw) => $('tickAll').checked ? sel.add(kw) : sel.delete(kw));
   syncTicks();
 };
+
+/* ===== Lưới ô (table-tools.js): ghi theo lô + copy cả cột =====
+   Đổi group/bid làm bảng VẼ LẠI → để table-tools ghi từng ô thì các ô sau đã rời DOM. Nên
+   bắt sự kiện, ghi thẳng vào dữ liệu rồi vẽ lại 1 lần. */
+$('kwTable').addEventListener('tt-setcells', (e) => {
+  e.preventDefault();
+  for (const { el, value } of e.detail.cells) {
+    const k = cur.keywords.find((x) => x.kw === el.closest('tr')?.dataset.kw); if (!k) continue;
+    if (el.classList.contains('kg')) {
+      const v = String(value ?? '').trim().toLowerCase();
+      const g = cur.groups.find((g) => g.name.toLowerCase() === v);
+      k.group = g ? g.name : (v === '' || v === '(chưa phân group)' ? '' : k.group);
+    } else if (el.classList.contains('kb')) k.bid = numOrNull(value);
+  }
+  setDirty(true); renderAll();
+});
+// Copy cả cột: lấy MỌI keyword đang lọc (bảng chỉ vẽ 300 dòng mỗi lượt "Hiện thêm")
+$('kwTable').addEventListener('tt-copycol', (e) => {
+  const rows = filtered();
+  const f = { 1: (k) => k.kw, 2: (k) => k.sv ?? '', 3: (k) => k.group, 4: (k) => effBid(k) ?? '', 5: (k) => '+' + ((groupOf(k.group) || {}).offset || 0) }[e.detail.col];
+  if (f) e.detail.text = rows.map(f).join('\n');
+});
 
 /* ===== Chọn bằng bàn phím kiểu Excel =====
    Dòng NEO (anchor) = dòng bấm/tick gần nhất. Shift + ↑/↓ chọn dải neo → dòng đang đứng, cộng
@@ -541,5 +567,6 @@ $('btnBkDel').onclick = () => {
 loadLists().catch((e) => { $('emptyArea').style.display = ''; $('emptyArea').innerHTML = `<span class="msg err">✕ ${esc(e.message)}</span>`; });
 </script>
 <script src="/nav.js"></script>
+<script src="/table-tools.js"></script>
 </body>
 </html>
