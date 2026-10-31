@@ -340,7 +340,9 @@
         <h3><input type="checkbox" id="onPt"> Product Targeting (1 ASIN)</h3>
         <div class="hint" style="margin-bottom:4px">Mỗi target ASIN = 1 campaign riêng, tên campaign dùng chính ASIN đó</div>
         <div class="mt-grid">
-          <div><label>Bid gốc</label><input type="number" id="bidPt" value="0.67" step="0.01"></div>
+          <div><label>Bid Exact</label><input type="number" id="bidPt" value="0.67" step="0.01"></div>
+          <div><label title="Để trống = dùng Bid Exact">Bid Expanded</label><input type="number" id="bidExpPt" step="0.01" placeholder="= Exact"></div>
+          <div></div>
           <div><label>Số mức ⓘ</label><input type="number" id="levelsPt" value="3" min="1" max="10"></div>
           <div><label>Bước nhảy ⓘ</label><input type="number" id="stepPt" value="0.02" step="0.01"></div>
         </div>
@@ -350,7 +352,7 @@
           <span class="chk" style="margin:0"><input type="checkbox" id="expandedPt">
             <label style="margin:0" title='asin-expanded="..." — cả biến thể/sản phẩm liên quan'><b>Expanded</b></label></span>
         </div>
-        <div class="hint">Tick 1 hoặc cả 2 — chọn cả 2 = 2 product targeting trong cùng 1 ad group</div>
+        <div class="hint">Tick 1 hoặc cả 2 — chọn cả 2 = 2 campaign riêng (Exact và Expanded), mỗi loại theo bid của nó</div>
         <label>Portfolio (trống = dùng chung)</label><select id="pfPt" class="pfSel"></select>
         <label>Note / chiến lược (optional)</label><input type="text" id="notePt" placeholder="VD: ATTACK / DEFEND">
       </div>
@@ -360,8 +362,8 @@
         <div class="hint" style="margin-bottom:4px">Nhóm 10 ASIN / campaign — nhóm cuối = số còn lại (&lt;10). Tên campaign: "{Group} 1", "{Group} 2"...</div>
         <div class="mt-grid">
           <div><label title='Tên campaign nhóm sẽ là "{Group} 1", "{Group} 2"...'>Tên nhóm {Group}</label><input type="text" id="groupNamePt" placeholder="VD: Jar Rivals"></div>
-          <div><label>Bid gốc</label><input type="number" id="bidPtG" value="0.67" step="0.01"></div>
-          <div></div>
+          <div><label>Bid Exact</label><input type="number" id="bidPtG" value="0.67" step="0.01"></div>
+          <div><label title="Để trống = dùng Bid Exact">Bid Expanded</label><input type="number" id="bidExpPtG" step="0.01" placeholder="= Exact"></div>
           <div><label>Số mức ⓘ</label><input type="number" id="levelsPtG" value="3" min="1" max="10"></div>
           <div><label>Bước nhảy ⓘ</label><input type="number" id="stepPtG" value="0.02" step="0.01"></div>
         </div>
@@ -371,7 +373,7 @@
           <span class="chk" style="margin:0"><input type="checkbox" id="expandedPtG">
             <label style="margin:0" title='asin-expanded="..." — cả biến thể/sản phẩm liên quan'><b>Expanded</b></label></span>
         </div>
-        <div class="hint">Tick 1 hoặc cả 2 — chọn cả 2 = mỗi ASIN có 2 product targeting trong cùng ad group</div>
+        <div class="hint">Tick 1 hoặc cả 2 — chọn cả 2 = mỗi nhóm ra 2 campaign riêng (Exact và Expanded), mỗi loại theo bid của nó</div>
         <label>Portfolio (trống = dùng chung)</label><select id="pfPtG" class="pfSel"></select>
         <label>Note / chiến lược (optional)</label><input type="text" id="notePtG" placeholder="VD: ATTACK">
       </div>
@@ -601,7 +603,7 @@ const TYPE_LABEL = { SP_KW_EXACT:'Exact', SP_KW_PHRASE:'Phrase', SP_KW_BROAD:'Br
 const STRATEGIES = ['Dynamic bids - down only','Dynamic bids - up and down','Fixed bid'];
 
 /* ===== Cảnh báo server chạy code cũ ===== */
-const UI_VERSION = '0.47.0';
+const UI_VERSION = '0.47.1';
 /* ===== THANH TIẾN ĐỘ QUÉT RANKING (dùng chung mọi trang) =====
    Lượt quét sống ở HÀNG ĐỢI trên server, không phải ở tab nào. Trước đây chuyển sang trang
    này là mất dấu — tệ hơn, bản cũ còn làm CHẾT luôn lượt quét vì vòng lặp điều phối nằm ở
@@ -669,7 +671,7 @@ document.addEventListener('change', () => { clearTimeout(persistTimer); persistT
    (inputmode=decimal cho bàn phím số trên mobile); gõ "," tự thay bằng "." */
 const DECIMAL_IDS = ['bidMultiplier','maxBidCap','defaultBid','fixedBid','minBid',
   'stepExact','ratioPhrase','valuePhrase','stepPhrase','ratioBroad','valueBroad','stepBroad',
-  'bidPt','stepPt','bidPtG','stepPtG','dailyBudget','autoDailyBudget','adGroupDefaultBid','autoAdGroupDefaultBid'];
+  'bidPt','bidExpPt','stepPt','bidPtG','bidExpPtG','stepPtG','dailyBudget','autoDailyBudget','adGroupDefaultBid','autoAdGroupDefaultBid'];
 for (const id of DECIMAL_IDS) {
   const el = $(id);
   if (!el) continue;
@@ -1157,9 +1159,9 @@ function buildPayload() {
     },
     campaignMode: $('campaignMode') ? $('campaignMode').value : 'single',
     pt: { on: sp && $('onPt').checked, exact: $('exactPt').checked, expanded: $('expandedPt').checked,
-      bid: +$('bidPt').value, step: +$('stepPt').value, levels: +$('levelsPt').value, note: $('notePt').value.trim() },
+      bid: +$('bidPt').value, bidExpanded: +$('bidExpPt').value, step: +$('stepPt').value, levels: +$('levelsPt').value, note: $('notePt').value.trim() },
     ptGroup: { on: sp && $('onPtG').checked, exact: $('exactPtG').checked, expanded: $('expandedPtG').checked,
-      groupName: $('groupNamePt').value.trim(), bid: +$('bidPtG').value, step: +$('stepPtG').value, levels: +$('levelsPtG').value, note: $('notePtG').value.trim() },
+      groupName: $('groupNamePt').value.trim(), bid: +$('bidPtG').value, bidExpanded: +$('bidExpPtG').value, step: +$('stepPtG').value, levels: +$('levelsPtG').value, note: $('notePtG').value.trim() },
     auto: { on: sp && $('onAuto').checked, adTypes, bids: $('autoBids').value.split(',').map(s => s.trim()).filter(Boolean), note: $('noteAuto').value.trim() },
     sb: (() => {
       const on = $('onSB').checked;

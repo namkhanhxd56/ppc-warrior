@@ -707,9 +707,10 @@ export function listCatalog() {
   return Object.entries(s.products || {})
     .map(([asin, p]) => ({
       asin,
-      // tài khoản seller — xuất bulk không được trộn ASIN của nhiều acc. Acc LOOKUP từ Danh mục
-      // portfolio theo Portfolio mặc định (portfolio thuộc đúng 1 tài khoản); không còn gõ tay.
-      acc: pfDir[String(p.portfolioId || "").trim()]?.acc || "",
+      // tài khoản seller — xuất bulk không được trộn ASIN của nhiều acc. Portfolio thuộc đúng 1
+      // acc nên Acc của portfolio thắng; portfolio chưa ghi Acc thì dùng Acc gõ tay của sản phẩm.
+      acc: pfDir[String(p.portfolioId || "").trim()]?.acc || p.acc || "",
+      accOwn: p.acc || "",
       list: p.list || "", sku: p.sku || "", type: p.type === "FBM" ? "FBM" : "FBA",
       portfolioId: p.portfolioId || "",  // portfolio mặc định — gán theo TÊN LIST, tự điền khi chọn ASIN
       kwList: p.kwList || "",            // id list trong Danh mục Target — Tạo Campaign kéo keyword + Target ASIN từ đây

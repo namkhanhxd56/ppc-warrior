@@ -197,10 +197,11 @@ export function planCampaigns(input) {
   //  - pt (1 ASIN):       mỗi target ASIN = 1 campaign, tên dùng chính ASIN đó
   //  - ptGroup (ASINs):   chia targetAsins thành TỪNG NHÓM 10 (nhóm cuối = số còn lại <10),
   //                       1 nhóm = 1 campaign chứa N dòng targeting; tên "{Tên} 1", "{Tên} 2"...
-  const pt = { on: false, bid: null, step: d.ladder.pt.step, levels: d.ladder.pt.levels, note: "",
-    exact: true, expanded: false, ...(input.pt || {}) }; // exact → asin="", expanded → asin-expanded="", cả 2 → 2 targeting cùng ad group
-  const ptGroup = { on: false, groupName: "", groupSize: 10, exact: true, expanded: false, // exact → asin="", expanded → asin-expanded="", cả 2 được
-    bid: null, step: d.ladder.pt.step, levels: d.ladder.pt.levels, note: "", ...(input.ptGroup || {}) };
+  // bid = bid Exact; bidExpanded trống → dùng bid Exact
+  const pt = { on: false, bid: null, bidExpanded: null, step: d.ladder.pt.step, levels: d.ladder.pt.levels, note: "",
+    exact: true, expanded: false, ...(input.pt || {}) }; // exact → asin="", expanded → asin-expanded=""
+  const ptGroup = { on: false, groupName: "", groupSize: 10, exact: true, expanded: false,
+    bid: null, bidExpanded: null, step: d.ladder.pt.step, levels: d.ladder.pt.levels, note: "", ...(input.ptGroup || {}) };
   /* TÁCH ĐÔI Exact / Expanded thành HAI CAMPAIGN RIÊNG (chốt với người dùng 12/10/2026).
      Trước đây tick cả hai ra MỘT campaign chứa cả asin= lẫn asin-expanded= trong cùng ad
      group — không đặt bid riêng cho từng loại được, trong khi asin-expanded ăn traffic rộng
@@ -208,9 +209,10 @@ export function planCampaigns(input) {
      Mẫu tên Expanded suy ra từ chính mẫu gốc (chèn " - Expanded" sau {TargetAsin}/{Group}),
      nên người dùng không phải khai thêm mẫu thứ hai. */
   const ptVariants = (cfg) => {
+    const exactBid = r2(cfg.bid || bidRule.defaultBid);
     const out = [];
-    if (cfg.exact || (!cfg.exact && !cfg.expanded)) out.push({ expanded: false });
-    if (cfg.expanded) out.push({ expanded: true });
+    if (cfg.exact || (!cfg.exact && !cfg.expanded)) out.push({ expanded: false, base: exactBid });
+    if (cfg.expanded) out.push({ expanded: true, base: cfg.bidExpanded ? r2(cfg.bidExpanded) : exactBid });
     return out;
   };
   const expandedTpl = (tpl, token) => String(tpl).includes(token)
@@ -391,11 +393,10 @@ export function planCampaigns(input) {
 
   // PT (1 ASIN): mỗi target = 1 campaign
   if (pt.on) {
-    const ptBase = r2(pt.bid || bidRule.defaultBid);
     for (const target of ptTargets) {
       for (const v of ptVariants(pt)) {
         const tpl = v.expanded ? expandedTpl(naming.pt, "{TargetAsin}") : naming.pt;
-        for (const bid of ladderBids(ptBase, pt.step, pt.levels, bidRule.minBid)) {
+        for (const bid of ladderBids(v.base, pt.step, pt.levels, bidRule.minBid)) {
           const nm1 = renderName(tpl, { ...ctx(pf("pt")), TargetAsin: target, Bid: bid.toFixed(2), StartDate: exactDate, Note: pt.note || "" });
           push({
             type: "SP_PT", name: nm1,
@@ -411,7 +412,6 @@ export function planCampaigns(input) {
 
   // PT (ASINs): nhóm 10/campaign, nhóm cuối là phần dư (<10)
   if (ptGroup.on && ptTargets.length) {
-    const gBase = r2(ptGroup.bid || bidRule.defaultBid);
     const size = Math.max(2, Number(ptGroup.groupSize) || 10);
     const groups = [];
     for (let i = 0; i < ptTargets.length; i += size) groups.push(ptTargets.slice(i, i + size));
@@ -420,7 +420,7 @@ export function planCampaigns(input) {
       const label = `${gName} ${gi + 1}`;
       for (const v of ptVariants(ptGroup)) {
         const tpl = v.expanded ? expandedTpl(naming.ptGroup, "{Group}") : naming.ptGroup;
-        for (const bid of ladderBids(gBase, ptGroup.step, ptGroup.levels, bidRule.minBid)) {
+        for (const bid of ladderBids(v.base, ptGroup.step, ptGroup.levels, bidRule.minBid)) {
           const nm2 = renderName(tpl, { ...ctx(pf("ptGroup") || pf("pt")), Group: label, TargetAsin: label, Bid: bid.toFixed(2), StartDate: exactDate, Note: ptGroup.note || "" });
           push({
             type: "SP_PT_GROUP", name: nm2,

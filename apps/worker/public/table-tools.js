@@ -1,6 +1,7 @@
 /* table-tools.js — tiện ích dùng chung cho các trang dạng bảng (Danh mục Tài sản, Danh mục Target).
-   1. CO KÉO CỘT: mọi <table data-resizable> có tay kéo ở mép phải ô tiêu đề. Chỉ "khoá" bề
-      rộng cột lần đầu bạn kéo (khoá sớm lúc chưa có dữ liệu thì cột nào cũng bằng chữ tiêu đề).
+   1. CO KÉO CỘT: mọi <table data-resizable> dàn cột cố định (table-layout:fixed), tay kéo ở mép
+      phải ô tiêu đề. Kéo chỉ chia lại bề rộng với cột KẾ BÊN PHẢI — bề rộng bảng giữ nguyên.
+      Độ rộng đã kéo nhớ theo trang (localStorage, lưu %); nhấp đúp tay kéo = về mặc định.
    2. DROPDOWN CÓ Ô TÌM: bấm vào <select> là mở danh sách tự vẽ có ô tìm ở đầu thay cho danh
       sách gốc của trình duyệt. Bỏ qua <select multiple>, select bị khoá, và select có
       data-nosearch (VD ô FBA/FBM — 2 lựa chọn thì tìm làm gì). Bàn phím trên select gốc (↑↓,
@@ -11,11 +12,16 @@
         = điền cả vùng; Delete/Backspace xoá cả vùng; Esc bỏ chọn.
       - Ô vuông nhỏ góc dưới phải vùng chọn: kéo lên/xuống để điền (lặp lại giá trị nguồn).
       - Nút ⧉ trên tiêu đề cột: copy toàn bộ cột.
+      - Kéo chuột qua các ô = chọn vùng; Cmd/Ctrl + C khi không bôi đen chữ = copy nguyên ô.
+      - Chuột phải vào ô: menu Copy ô (vùng chọn) / Copy dòng / Copy cột — dòng/cột theo vùng chọn.
+      Ô chữ thường (không phải ô nhập) chọn + copy được, chỉ không ghi được.
       Trang có dữ liệu riêng (VD bảng vẽ lại sau mỗi lần sửa) bắt sự kiện "tt-setcells" /
       "tt-copycol" trên <table> để tự xử lý theo lô (xem kwlists.html).
    Gắn bằng <script src="/table-tools.js"></script>; bảng/ô dựng thêm sau vẫn ăn (bắt sự kiện ở document). */
 (function () {
   const css = `
+  table[data-resizable] { table-layout:fixed; }
+  table[data-resizable] td { overflow:hidden; }
   th .tt-rz { position:absolute; right:-3px; top:0; bottom:0; width:7px; cursor:col-resize; z-index:3; }
   th .tt-rz:hover, th .tt-rz.on { background:rgba(36,85,230,.35); }
   .tt-pop { position:fixed; z-index:9999; background:#fff; border:1px solid #ccd3e0; border-radius:8px;
@@ -32,41 +38,73 @@
   table[data-grid] td.tt-sel input, table[data-grid] td.tt-sel select { background:transparent; }
   table[data-grid] td.tt-anc { box-shadow:inset 0 0 0 2px #2455e6; }
   table[data-grid] td.tt-fill { background:#eef3ff !important; box-shadow:inset 0 0 0 1px #9db4f5; }
-  .tt-fh { position:absolute; right:-4px; bottom:-4px; width:8px; height:8px; background:#2455e6; border:1px solid #fff; cursor:crosshair; z-index:4; }
+  .tt-fh { position:absolute; right:0; bottom:0; width:8px; height:8px; background:#2455e6; border:1px solid #fff; cursor:crosshair; z-index:4; }
   th .tt-cp { position:absolute; right:9px; top:50%; transform:translateY(-50%); display:none; cursor:copy; font-size:12px;
     background:#fff; border:1px solid #ccd3e0; border-radius:4px; padding:0 4px; line-height:16px; color:#2455e6; z-index:3; }
   table[data-grid] th:hover .tt-cp { display:inline-block; }
+  .tt-menu { position:fixed; z-index:9999; background:#fff; border:1px solid #ccd3e0; border-radius:8px; padding:4px; min-width:200px;
+    box-shadow:0 8px 24px rgba(0,0,0,.18); font:13px -apple-system,Segoe UI,Arial,sans-serif; color:#1b2330; }
+  .tt-mi { display:flex; justify-content:space-between; gap:18px; padding:6px 10px; border-radius:5px; cursor:pointer; white-space:nowrap; }
+  .tt-mi:hover { background:#eef2f9; }
+  .tt-mi kbd { font:inherit; font-size:11.5px; color:#98a2b3; }
   .tt-toast { position:fixed; left:50%; bottom:24px; transform:translateX(-50%); background:#101828; color:#fff; padding:8px 14px;
     border-radius:8px; font:13px -apple-system,Segoe UI,Arial,sans-serif; z-index:10000; box-shadow:0 6px 20px rgba(0,0,0,.25); }`;
   const st = document.createElement("style"); st.textContent = css; document.head.appendChild(st);
   const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;");
 
   /* ===== 1. Co kéo cột ===== */
+  // Cột dữ liệu = có chữ tiêu đề và không phải cột ô tick (cột ✕ để trống tiêu đề)
+  const dataThs = (t) => [...t.querySelectorAll("thead th")].filter((th) => th.textContent.trim() && !th.querySelector("input[type=checkbox]"));
+  const wKey = (t) => `tt-cols:${location.pathname}#${t.id || [...document.querySelectorAll("table[data-resizable]")].indexOf(t)}`;
+  function saveWidths(table) {
+    const tw = table.getBoundingClientRect().width;
+    if (!tw) return;
+    const rz = new Set(dataThs(table)), out = {};
+    [...table.querySelectorAll("thead th")].forEach((th, i) => {
+      if (!rz.has(th)) return; // cột tick / ✕ giữ px như markup
+      th.style.width = out[i] = (th.getBoundingClientRect().width / tw * 100).toFixed(2) + "%"; // % → đổi cỡ cửa sổ vẫn vừa bảng
+    });
+    try { localStorage.setItem(wKey(table), JSON.stringify(out)); } catch {}
+  }
+  function resetWidths(table) {
+    for (const th of table.querySelectorAll("thead th")) th.style.width = th.dataset.ttW0 || "";
+    try { localStorage.removeItem(wKey(table)); } catch {}
+  }
   function addHandles(table) {
-    for (const th of table.querySelectorAll("thead th")) {
-      // bỏ qua cột trống (nút ✕) và cột ô tick chọn dòng
-      if (th.querySelector(".tt-rz") || !th.textContent.trim() || th.querySelector("input[type=checkbox]")) continue;
+    const ths = [...table.querySelectorAll("thead th")];
+    ths.forEach((th) => { if (th.dataset.ttW0 === undefined) th.dataset.ttW0 = th.style.width; });
+    try {
+      const saved = JSON.parse(localStorage.getItem(wKey(table)) || "null");
+      if (saved) for (const [i, w] of Object.entries(saved)) if (ths[i]) ths[i].style.width = w;
+    } catch {}
+    const cols = dataThs(table);
+    cols.forEach((th, k) => {
+      const nb = cols[k + 1]; // cột cuối không có tay kéo — kéo nó là đổi bề rộng bảng
+      if (!nb || th.querySelector(".tt-rz")) return;
       if (getComputedStyle(th).position === "static") th.style.position = "relative";
-      const h = document.createElement("span"); h.className = "tt-rz"; h.title = "Kéo để đổi độ rộng cột";
+      const h = document.createElement("span"); h.className = "tt-rz"; h.title = "Kéo để đổi độ rộng cột · nhấp đúp = về mặc định";
       h.addEventListener("click", (e) => e.stopPropagation()); // kéo xong không tính là bấm tiêu đề (sắp xếp)
+      h.addEventListener("dblclick", (e) => { e.stopPropagation(); resetWidths(table); });
       h.addEventListener("mousedown", (e) => {
         e.preventDefault(); e.stopPropagation();
-        if (!table.dataset.ttLocked) { // khoá bề rộng hiện tại của mọi cột rồi mới cho kéo
-          const ths = [...table.querySelectorAll("thead th")];
-          const ws = ths.map((x) => x.offsetWidth);
-          ths.forEach((x, i) => { x.style.width = ws[i] + "px"; });
-          table.style.width = table.offsetWidth + "px"; table.style.minWidth = "0"; table.style.tableLayout = "fixed";
-          table.dataset.ttLocked = "1";
-        }
-        const x0 = e.pageX, w0 = th.offsetWidth, tw0 = table.offsetWidth;
+        // Khoá px mọi cột theo đúng bề rộng đang hiện (tổng = bề rộng bảng), rồi chỉ chuyển phần
+        // chênh giữa cột này và cột kế bên → bảng không phình/co.
+        const all = [...table.querySelectorAll("thead th")];
+        const ws = all.map((x) => x.getBoundingClientRect().width);
+        all.forEach((x, i) => { x.style.width = ws[i] + "px"; });
+        const x0 = e.pageX, a0 = ws[all.indexOf(th)], b0 = ws[all.indexOf(nb)], MIN = 36;
         h.classList.add("on"); document.body.style.cursor = "col-resize"; document.body.style.userSelect = "none";
-        const move = (ev) => { const w = Math.max(36, w0 + ev.pageX - x0); th.style.width = w + "px"; table.style.width = (tw0 + w - w0) + "px"; };
+        const move = (ev) => {
+          const d = Math.max(MIN - a0, Math.min(b0 - MIN, ev.pageX - x0));
+          th.style.width = a0 + d + "px"; nb.style.width = b0 - d + "px";
+        };
         const up = () => { document.removeEventListener("mousemove", move); document.removeEventListener("mouseup", up);
-          h.classList.remove("on"); document.body.style.cursor = ""; document.body.style.userSelect = ""; };
+          h.classList.remove("on"); document.body.style.cursor = ""; document.body.style.userSelect = "";
+          saveWidths(table); };
         document.addEventListener("mousemove", move); document.addEventListener("mouseup", up);
       });
       th.appendChild(h);
-    }
+    });
   }
   const initTables = () => document.querySelectorAll("table[data-resizable]").forEach(addHandles);
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", initTables); else initTables();
@@ -140,14 +178,19 @@
   const editorOf = (td) => td && td.querySelector("input:not([type=checkbox]):not([type=file]):not([type=radio]), select");
   const gridOf = (el) => el && el.closest && el.closest("table[data-grid]");
   const isCell = (td) => !!(td && td.tagName === "TD" && gridOf(td) && td.closest("tbody") && editorOf(td));
+  const dataCols = (t) => dataThs(t).map((th) => th.cellIndex);
+  // Chọn/copy được cả ô chữ thường; GHI chỉ vào ô nhập (isCell)
+  const isSel = (td) => !!(td && td.tagName === "TD" && gridOf(td) && td.closest("tbody") && dataCols(gridOf(td)).includes(td.cellIndex));
   const rowsOf = (t) => [...(t.tBodies[0]?.children || [])];
   const coord = (td) => ({ r: rowsOf(gridOf(td)).indexOf(td.parentElement), c: td.cellIndex });
   const tdAt = (t, r, c) => rowsOf(t)[r]?.children[c];
+  // td[data-copy] = giá trị copy khi ô là chữ thường hoặc ô nhập đang trống (VD bid theo group chỉ hiện ở placeholder)
   const cellText = (td) => {
     if (!td) return "";
     const ed = editorOf(td);
+    if (td.dataset.copy !== undefined && (!ed || ed.value === "")) return td.dataset.copy;
     if (!ed) return td.innerText.trim();
-    if (ed.tagName === "SELECT") return (ed.selectedOptions[0]?.textContent || "").trim();
+    if (ed.tagName === "SELECT") return ed.value === "" ? "" : (ed.selectedOptions[0]?.textContent || "").trim(); // "—" = trống
     return ed.value;
   };
   let G = null; // { t, a:{r,c}, b:{r,c} } — vùng chọn hiện tại
@@ -200,15 +243,29 @@
   }
   const valOf = (td) => { const ed = editorOf(td); return ed ? ed.value : ""; };
 
-  // Chọn ô / Shift + click chọn vùng (capture: chạy trước dropdown có ô tìm)
+  // Chọn ô / Shift + click chọn vùng / kéo chuột chọn vùng (capture: chạy trước dropdown có ô tìm)
+  let drag = null; // { t } — đang giữ chuột trái từ một ô
   document.addEventListener("mousedown", (e) => {
-    if (e.button !== 0 || e.target.closest(".tt-fh, .tt-pop, .tt-cp, .tt-rz")) return;
+    if (e.button !== 0 || e.target.closest(".tt-fh, .tt-pop, .tt-cp, .tt-rz, .tt-menu")) return;
     const td = e.target.closest && e.target.closest("td");
-    if (!isCell(td)) { if (G && !e.target.closest("table[data-grid]")) { G = null; paint(); } return; }
+    if (!isSel(td)) { if (G && !e.target.closest("table[data-grid]")) { G = null; paint(); } return; }
     const t = gridOf(td), co = coord(td);
     if (e.shiftKey && G && G.t === t) { e.preventDefault(); G.b = co; paint(); return; }
     G = { t, a: co, b: co }; paint();
+    drag = { t };
   }, true);
+  document.addEventListener("mousemove", (e) => {
+    if (!drag) return;
+    if (!(e.buttons & 1)) { drag = null; return; }
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    const td = el && el.closest && el.closest("td");
+    if (!isSel(td) || gridOf(td) !== drag.t || !G || G.t !== drag.t) return;
+    const co = coord(td);
+    if (co.r === G.b.r && co.c === G.b.c) return;
+    G.b = co; paint();
+    if (multi()) { close(); window.getSelection()?.removeAllRanges(); } // kéo ra khỏi ô đầu → bỏ bôi đen chữ, đóng dropdown
+  });
+  document.addEventListener("mouseup", () => { drag = null; });
   document.addEventListener("focusin", (e) => {
     const td = e.target.closest && e.target.closest("td");
     if (!isCell(td)) return;
@@ -223,11 +280,15 @@
     const typingSel = ae && ae.tagName === "INPUT" && ae.selectionStart !== ae.selectionEnd && !multi();
     if (e.key === "Escape" && multi()) { G.b = G.a; paint(); return; }
     if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "c" && multi() && !typingSel) {
-      e.preventDefault();
-      const x = R(), lines = [];
-      for (let r = x.r1; r <= x.r2; r++) { const row = []; for (let c = x.c1; c <= x.c2; c++) row.push(cellText(tdAt(G.t, r, c))); lines.push(row.join("\t")); }
-      navigator.clipboard.writeText(lines.join("\n")).then(() => toast(`📋 Đã copy ${(x.r2 - x.r1 + 1) * (x.c2 - x.c1 + 1)} ô`), () => toast("✕ Trình duyệt chặn copy"));
-      return;
+      e.preventDefault(); copyRange(); return;
+    }
+    // 1 ô: copy nguyên ô khi không bôi đen chữ (đang bôi đen thì để trình duyệt copy đoạn chữ đó)
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "c" && !multi()) {
+      const td = tdAt(G.t, G.a.r, G.a.c);
+      const editing = ae && (ae.tagName === "INPUT" || ae.tagName === "TEXTAREA" || ae.tagName === "SELECT" || ae.isContentEditable);
+      const textSel = ae && ae.tagName === "INPUT" && ae.selectionStart !== ae.selectionEnd;
+      if (!td || (editing ? !td.contains(ae) || textSel : String(window.getSelection() || "").length > 0)) return;
+      e.preventDefault(); copyRange(); return;
     }
     if ((e.key === "Delete" || e.key === "Backspace") && multi()) {
       e.preventDefault();
@@ -292,22 +353,81 @@
     document.addEventListener("mousemove", move); document.addEventListener("mouseup", up);
   }
 
+  /* ===== 4. Copy ô / dòng / cột ===== */
+  const clip = (text, msg) => navigator.clipboard.writeText(text).then(() => toast(msg), () => toast("✕ Trình duyệt chặn copy"));
+  const colName = (t, c) => t.querySelector("thead tr")?.children[c]?.firstChild?.textContent?.trim() || "";
+  /** Text cả cột — trang có thể đưa toàn bộ dữ liệu qua "tt-copycol" (kể cả dòng chưa vẽ / đang ẩn vì phân trang) */
+  function colText(t, c) {
+    const ev = new CustomEvent("tt-copycol", { detail: { col: c, text: null }, bubbles: true });
+    t.dispatchEvent(ev);
+    return ev.detail.text ?? rowsOf(t).map((tr) => cellText(tr.children[c])).join("\n");
+  }
+  function copyRange() {
+    const x = R(), lines = [];
+    for (let r = x.r1; r <= x.r2; r++) { const row = []; for (let c = x.c1; c <= x.c2; c++) row.push(cellText(tdAt(G.t, r, c))); lines.push(row.join("\t")); }
+    const n = (x.r2 - x.r1 + 1) * (x.c2 - x.c1 + 1);
+    clip(lines.join("\n"), n > 1 ? `📋 Đã copy ${n} ô` : "📋 Đã copy ô");
+  }
+  function copyRows() {
+    const x = R(), cols = dataCols(G.t), lines = [];
+    for (let r = x.r1; r <= x.r2; r++) lines.push(cols.map((c) => cellText(tdAt(G.t, r, c))).join("\t"));
+    clip(lines.join("\n"), `📋 Đã copy ${lines.length} dòng (${cols.length} cột)`);
+  }
+  function copyCols() {
+    const x = R(), cols = dataCols(G.t).filter((c) => c >= x.c1 && c <= x.c2);
+    const data = cols.map((c) => colText(G.t, c).split("\n"));
+    const n = Math.max(0, ...data.map((d) => d.length));
+    const lines = Array.from({ length: n }, (_, i) => data.map((d) => d[i] ?? "").join("\t"));
+    clip(lines.join("\n"), cols.length > 1 ? `📋 Đã copy ${cols.length} cột — ${n} dòng` : `📋 Đã copy cột "${colName(G.t, cols[0])}" — ${n} dòng`);
+  }
+
+  // Menu chuột phải trong ô
+  let menu = null;
+  const closeMenu = () => { if (menu) { menu.remove(); menu = null; } };
+  document.addEventListener("contextmenu", (e) => {
+    closeMenu();
+    const td = e.target.closest && e.target.closest("td");
+    if (!isSel(td)) return;
+    if (e.target.tagName === "INPUT" && e.target.selectionStart !== e.target.selectionEnd) return; // đang bôi đen chữ → menu gốc
+    e.preventDefault();
+    const t = gridOf(td), co = coord(td), x0 = G && G.t === t && R();
+    if (!x0 || co.r < x0.r1 || co.r > x0.r2 || co.c < x0.c1 || co.c > x0.c2) { G = { t, a: co, b: co }; paint(); } // ngoài vùng chọn → chọn ô đó
+    const x = R(), nr = x.r2 - x.r1 + 1, nc = dataCols(t).filter((c) => c >= x.c1 && c <= x.c2).length;
+    const items = [
+      [multi() ? `📋 Copy vùng chọn (${nr * (x.c2 - x.c1 + 1)} ô)` : "📋 Copy ô", "⌘/Ctrl C", copyRange],
+      [nr > 1 ? `↔ Copy ${nr} dòng` : "↔ Copy dòng", "", copyRows],
+      [nc > 1 ? `↕ Copy ${nc} cột` : "↕ Copy cột", "cả cột", copyCols]
+    ];
+    menu = document.createElement("div"); menu.className = "tt-menu";
+    menu.innerHTML = items.map(([l, k], i) => `<div class="tt-mi" data-i="${i}"><span>${esc(l)}</span><kbd>${esc(k)}</kbd></div>`).join("");
+    document.body.appendChild(menu);
+    const mw = menu.offsetWidth, mh = menu.offsetHeight;
+    menu.style.left = Math.min(e.clientX, window.innerWidth - mw - 6) + "px";
+    menu.style.top = Math.min(e.clientY, window.innerHeight - mh - 6) + "px";
+    menu.addEventListener("mousedown", (ev) => {
+      const it = ev.target.closest(".tt-mi"); if (!it) return;
+      ev.preventDefault(); ev.stopPropagation();
+      closeMenu(); items[+it.dataset.i][2]();
+    });
+  });
+  document.addEventListener("mousedown", (e) => { if (menu && !menu.contains(e.target)) closeMenu(); }, true);
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeMenu(); });
+  document.addEventListener("scroll", closeMenu, true);
+  window.addEventListener("resize", closeMenu);
+
   // Nút ⧉ copy cả cột trên tiêu đề
   function addCopyBtns(table) {
     const ths = [...table.querySelectorAll("thead th")];
-    ths.forEach((th, i) => {
+    ths.forEach((th) => {
       if (th.querySelector(".tt-cp") || !th.textContent.trim() || th.querySelector("input[type=checkbox]")) return;
       if (getComputedStyle(th).position === "static") th.style.position = "relative";
       const b = document.createElement("span"); b.className = "tt-cp"; b.textContent = "⧉"; b.title = "Copy cả cột";
       b.addEventListener("mousedown", (e) => e.stopPropagation());
       b.addEventListener("click", (e) => {
         e.stopPropagation(); e.preventDefault();
-        const ev = new CustomEvent("tt-copycol", { detail: { col: th.cellIndex, text: null }, bubbles: true });
-        table.dispatchEvent(ev); // trang có thể đưa toàn bộ dữ liệu (kể cả dòng chưa vẽ)
-        const rows = rowsOf(table);
-        const text = ev.detail.text ?? rows.map((tr) => cellText(tr.children[th.cellIndex])).join("\n");
+        const text = colText(table, th.cellIndex);
         const n = text ? text.split("\n").length : 0;
-        navigator.clipboard.writeText(text).then(() => toast(`📋 Đã copy cột "${th.firstChild?.textContent?.trim() || ""}" — ${n} dòng`), () => toast("✕ Trình duyệt chặn copy"));
+        clip(text, `📋 Đã copy cột "${th.firstChild?.textContent?.trim() || ""}" — ${n} dòng`);
       });
       th.insertBefore(b, th.querySelector(".tt-rz"));
     });
