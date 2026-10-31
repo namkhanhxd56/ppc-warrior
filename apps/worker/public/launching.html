@@ -648,7 +648,7 @@ if (BULK) {
 }
 
 /* ===== Cảnh báo server chạy code cũ ===== */
-const UI_VERSION = '0.48.1';
+const UI_VERSION = '0.48.2';
 /* ===== THANH TIẾN ĐỘ QUÉT RANKING (dùng chung mọi trang) =====
    Lượt quét sống ở HÀNG ĐỢI trên server, không phải ở tab nào. Trước đây chuyển sang trang
    này là mất dấu — tệ hơn, bản cũ còn làm CHẾT luôn lượt quét vì vòng lặp điều phối nằm ở
@@ -2130,6 +2130,26 @@ $('btnExport').onclick = async () => {
     $('exportMsg').className = 'msg err'; $('exportMsg').textContent = '❌ ' + (e.message || res.status);
     return;
   }
+  const tail = (info) => (info.noAcc ? ` · ⚠️ ${info.noAcc} ASIN chưa gán Acc ở Danh mục Tài sản` : '') +
+    (payload.saveToBank ? ` · kho keyword +${info.bank?.added ?? 0} (tag PPC)` : '') +
+    (info.bank?.kept ? ` · ${info.bank.kept} giữ tag removal` : '') + ' · đã lưu snapshot';
+  const head = (info) => `✅ ${info.acc ? 'acc ' + info.acc + ' · ' : ''}${info.campaigns} campaign` + (info.asins > 1 ? ` · ${info.asins} ASIN` : '');
+  // File ≥ 28MB → server chia nhiều phần (mỗi phần < 30MB), trả JSON danh sách phần thay vì file
+  if ((res.headers.get('Content-Type') || '').includes('application/json')) {
+    const info = await res.json();
+    const mb = (b) => b >= 1048576 ? (b / 1048576).toFixed(1) + 'MB' : Math.ceil(b / 1024) + 'KB';
+    const links = info.parts.map((p, i) => {
+      const url = `/api/launch/exports/${encodeURIComponent(p.id)}?name=${encodeURIComponent(p.filename)}`;
+      return `<a href="${url}" download="${esc(p.filename)}">⬇ Phần ${i + 1}</a> <span class="hint">(${p.campaigns} campaign · ${p.asins} ASIN · ${mb(p.size)})</span>`;
+    });
+    $('exportMsg').className = 'msg ok';
+    $('exportMsg').innerHTML = esc(head(info)) + ` · chia <b>${info.parts.length} file</b> (mỗi file &lt; 30MB, campaign của 1 ASIN nằm chung 1 file)`
+      + esc(tail(info)) + '<br>' + links.join('<br>')
+      + '<div class="hint">Trình duyệt hỏi "cho phép tải nhiều file" thì bấm Cho phép — hoặc bấm từng link ở trên.</div>';
+    // Tải lần lượt (cách nhau 0.8s — trình duyệt chặn khi bắn nhiều lượt tải cùng lúc)
+    for (const a of $('exportMsg').querySelectorAll('a[download]')) { a.click(); await new Promise((r) => setTimeout(r, 800)); }
+    return;
+  }
   const info = JSON.parse(res.headers.get('X-Launch-Info') || '{}');
   const blob = await res.blob();
   const a = document.createElement('a');
@@ -2137,10 +2157,7 @@ $('btnExport').onclick = async () => {
   a.download = (res.headers.get('Content-Disposition') || '').match(/filename="(.+)"/)?.[1] || 'bulk-create.xlsx';
   a.click();
   $('exportMsg').className = 'msg ok';
-  $('exportMsg').textContent = `✅ ${info.acc ? 'acc ' + info.acc + ' · ' : ''}${info.campaigns} campaign` + (info.asins > 1 ? ` · ${info.asins} ASIN` : '') +
-    (info.noAcc ? ` · ⚠️ ${info.noAcc} ASIN chưa gán Acc ở Danh mục Tài sản` : '') +
-    (payload.saveToBank ? ` · kho keyword +${info.bank?.added ?? 0} (tag PPC)` : '') +
-    (info.bank?.kept ? ` · ${info.bank.kept} giữ tag removal` : '') + ' · đã lưu snapshot';
+  $('exportMsg').textContent = head(info) + tail(info) + ` · ${blob.size >= 1048576 ? (blob.size / 1048576).toFixed(1) + 'MB' : Math.ceil(blob.size / 1024) + 'KB'}`;
 };
 
 /* ===== BULK CREATE: chọn nhiều ASIN → keyword theo list gán ở Danh mục Tài sản ===== */

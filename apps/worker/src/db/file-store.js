@@ -960,12 +960,21 @@ const EXPORTS_DIR = () => path.join(userDataDir(), "exports");
 
 export function saveExportSnapshot(meta, xlsxBuffer) {
   fs.mkdirSync(EXPORTS_DIR(), { recursive: true });
-  const id = new Date().toISOString().replace(/[:.]/g, "-");
+  const base = new Date().toISOString().replace(/[:.]/g, "-");
+  let id = base;
+  // Export chia nhiều phần lưu liền nhau trong cùng 1 ms → thêm đuôi để không ghi đè nhau
+  for (let n = 2; fs.existsSync(path.join(EXPORTS_DIR(), `${id}.xlsx`)); n++) id = `${base}-${n}`;
   fs.writeFileSync(path.join(EXPORTS_DIR(), `${id}.xlsx`), xlsxBuffer);
   const idx = readJson(path.join(EXPORTS_DIR(), "index.json"), []);
   idx.push({ id, ...meta, createdAt: new Date().toISOString() });
   fs.writeFileSync(path.join(EXPORTS_DIR(), "index.json"), JSON.stringify(idx, null, 1));
   return id;
+}
+/** Đường dẫn file snapshot theo id (id do saveExportSnapshot sinh) — null nếu id lạ/không có file */
+export function exportFilePath(id) {
+  if (!/^[0-9TZ-]+$/.test(String(id || ""))) return null;
+  const f = path.resolve(EXPORTS_DIR(), `${id}.xlsx`);
+  return fs.existsSync(f) ? f : null;
 }
 export function listExports() {
   return readJson(path.join(EXPORTS_DIR(), "index.json"), []).slice(-30).reverse();
