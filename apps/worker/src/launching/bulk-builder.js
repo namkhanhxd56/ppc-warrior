@@ -559,15 +559,17 @@ export function planCampaigns(input) {
 
   if (auto.on) {
     const bids = (auto.bids || []).map(parseBid).filter((b) => b != null);
+    const autoOff = Math.max(0, Math.min(365, Math.round(Number(auto.offsetDays) || 0)));
+    const autoDate = autoOff ? toBulkDate(addDays(info.startDate, autoOff)) : exactDate;
     for (const adType of auto.adTypes || []) {
       if (!AD_TYPE_MATRIX[adType]) continue;
       for (const bid of bids.length ? bids : [bidRule.defaultBid]) {
-        const nm3 = renderName(naming.auto, { ...ctx(pf("auto")), AdType: adType, Bid: bid.toFixed(2), StartDate: exactDate, Note: auto.note || "" });
+        const nm3 = renderName(naming.auto, { ...ctx(pf("auto")), AdType: adType, Bid: bid.toFixed(2), StartDate: autoDate, Note: auto.note || "" });
         const states = AD_TYPE_MATRIX[adType];
         push({
           type: "SP_AUTO", name: nm3,
           adType, bid, budget: Number(camp.autoDailyBudget),
-          portfolioId: pf("auto"), startDateBulk: exactDate, endDateBulk: "", note: auto.note || "", ...campLevel, ...productLevel,
+          portfolioId: pf("auto"), startDateBulk: autoDate, endDateBulk: "", note: auto.note || "", ...campLevel, ...productLevel,
           adGroups: [{ name: nm3, defaultBid: Number(camp.autoAdGroupDefaultBid) || d.autoAdGroupDefaultBid,
             targets: AUTO_EXPRESSIONS.map((expr, i) => ({ kind: "auto", expr, bid, state: states[i] })),
             negatives: [], negPt: [] }]
