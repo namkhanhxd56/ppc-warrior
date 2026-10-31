@@ -163,6 +163,13 @@
   details summary { cursor:pointer; font-size:12.5px; color:var(--mut); font-weight:600; }
   .soon { font-size:11px; background:#fef3c7; color:#b45309; border-radius:6px; padding:2px 8px; }
   .subsec { border:1px solid #e3e8f0; border-radius:10px; padding:10px 14px; margin-top:10px; background:#fcfdff; }
+  .bk-wrap { max-height:380px; overflow:auto; margin-top:8px; border:1px solid #e3e8f0; border-radius:8px; }
+  table.bk { width:100%; border-collapse:collapse; font-size:12.5px; table-layout:fixed; }
+  table.bk th { position:sticky; top:0; background:#f6f8fc; text-align:left; padding:6px 8px; font-size:11.5px; color:var(--mut); border-bottom:1px solid #e3e8f0; z-index:1; }
+  table.bk td { padding:5px 8px; border-bottom:1px solid #f0f2f7; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:260px; }
+  table.bk tr.nolist td { color:#a0a8b8; }
+  table.bk tr.on td { background:#eef3ff; }
+  #bkGroups label.chk { display:inline-flex; margin:4px 14px 4px 0; }
 </style>
 </head>
 <body>
@@ -172,8 +179,36 @@
 </header>
 <main>
 
+  <!-- ===== BULK CREATE (chỉ hiện ở /bulk.html — cùng file với Tạo Campaign, thay mục 1 + 2) ===== -->
+  <div class="card" id="bkCard1" style="display:none">
+    <h2>1️⃣ Chọn ASIN &amp; ngày tạo</h2>
+    <p class="sub">Mỗi ASIN ra bộ campaign RIÊNG với SKU, Portfolio mặc định và List keyword đã gán ở <a href="/catalog.html">📋 Danh mục Tài sản</a>. ASIN chưa gán List keyword thì không tạo được (không tick được).</p>
+    <div class="row" style="align-items:flex-end">
+      <div style="flex:0 0 260px"><label>Tìm</label><input type="text" id="bkFind" data-nopersist="1" placeholder="Acc, ASIN, SKU, tên list…" autocomplete="off"></div>
+      <div style="flex:0 0 168px" id="bkDateSlot"><label>Ngày tạo</label></div>
+      <label class="chk" style="margin:0 0 7px;flex:0 0 auto"><input type="checkbox" id="bkOnlyList" data-nopersist="1" checked> Chỉ hiện ASIN đã có list</label>
+    </div>
+    <div class="bk-wrap"><table class="bk"><thead><tr>
+      <th style="width:34px"><input type="checkbox" id="bkAll" data-nopersist="1" title="Chọn / bỏ tất cả dòng đang hiện"></th>
+      <th style="width:90px">Acc</th><th style="width:118px">ASIN</th><th style="width:150px">SKU</th><th>Portfolio</th><th>List keyword</th>
+    </tr></thead><tbody id="bkBody"></tbody></table></div>
+    <div class="hint" id="bkSum" style="margin-top:6px"></div>
+  </div>
+
+  <div class="card" id="bkCard2" style="display:none">
+    <h2>2️⃣ Keyword &amp; Target ASIN</h2>
+    <p class="sub">Keyword lấy từ list của TỪNG ASIN, chỉ các group đã tick. Bid mỗi keyword: bid sửa tay trong list → <b>bid của group</b> → <b>Bid mặc định</b> dưới đây. +n ngày theo group.</p>
+    <label>Group <span class="hint">(gom theo tên group của các list đang chọn)</span></label>
+    <div id="bkGroups" class="hint">— chọn ASIN trước —</div>
+    <div class="row" style="margin-top:10px;align-items:flex-end">
+      <div style="flex:0 0 150px"><label title="Dùng khi cả keyword lẫn group đều chưa có bid">Bid mặc định</label><input type="text" inputmode="decimal" id="bkDefBid" value="0.5"></div>
+      <label class="chk" style="margin:0 0 7px;flex:0 0 auto"><input type="checkbox" id="bkTargetAsin"> 🎯 Lấy Target ASIN của list <span class="hint">(cho Product Targeting / SD / SB ở mục 3)</span></label>
+    </div>
+    <div class="hint" id="bkKwSum" style="margin-top:6px"></div>
+  </div>
+
   <!-- ===== 1. Thông tin sản phẩm ===== -->
-  <div class="card">
+  <div class="card" id="cardProd">
     <h2>1️⃣ Thông tin sản phẩm</h2>
     <p class="sub">ASIN lấy từ <a href="/catalog.html">📋 Danh mục Tài sản</a>. Chọn ASIN là <b>SKU</b> và <b>Portfolio</b> tự điền — SKU khoá (sửa ở Danh mục), Portfolio sửa được tại đây cho riêng lượt này. Tên phân loại và mã cá nhân cũng lấy từ Danh mục.</p>
     <div class="row fields">
@@ -201,7 +236,7 @@
   </div>
 
   <!-- ===== 2. Keyword & Target ASIN ===== -->
-  <div class="card">
+  <div class="card" id="cardKw">
     <h2>2️⃣ Keyword &amp; Target ASIN</h2>
     <div class="grid2">
       <div>
@@ -601,9 +636,18 @@ const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const TYPE_LABEL = { SP_KW_EXACT:'Exact', SP_KW_PHRASE:'Phrase', SP_KW_BROAD:'Broad', SP_PT:'Product', SP_PT_GROUP:'Product (nhóm)', SP_AUTO:'Auto', SD_PT:'SD Product', SD_PT_GROUP:'SD Product (nhóm)', SD_REMARKETING:'SD Remarketing', SB_KW:'SB Keyword', SB_PT_GROUP:'SB Product (nhóm)' };
 const STRATEGIES = ['Dynamic bids - down only','Dynamic bids - up and down','Fixed bid'];
+/* /bulk.html dùng CHÍNH trang này: mục 1 + 2 thay bằng bảng chọn nhiều ASIN + chọn group,
+   mục 3, 4 và bảng kết quả / xuất file giữ nguyên. Mỗi ASIN gọi preview riêng rồi gộp. */
+const BULK = location.pathname === '/bulk.html';
+if (BULK) {
+  document.title = 'PPC Warrior — Bulk Create';
+  $('cardProd').style.display = 'none'; $('cardKw').style.display = 'none';
+  $('bkCard1').style.display = ''; $('bkCard2').style.display = '';
+  $('bkDateSlot').appendChild($('startDate')); // Ngày tạo dùng lại ô cũ → buildPayload/tên campaign không phải sửa
+}
 
 /* ===== Cảnh báo server chạy code cũ ===== */
-const UI_VERSION = '0.47.1';
+const UI_VERSION = '0.48.0';
 /* ===== THANH TIẾN ĐỘ QUÉT RANKING (dùng chung mọi trang) =====
    Lượt quét sống ở HÀNG ĐỢI trên server, không phải ở tab nào. Trước đây chuyển sang trang
    này là mất dấu — tệ hơn, bản cũ còn làm CHẾT luôn lượt quét vì vòng lặp điều phối nằm ở
@@ -640,7 +684,7 @@ const UI_VERSION = '0.47.1';
 })();
 
 /* ===== GIỮ NGUYÊN FORM khi chuyển tab (localStorage, lưu mỗi khi gõ) ===== */
-const PERSIST_KEY = 'ppcw_launch_form_v1';
+const PERSIST_KEY = BULK ? 'ppcw_bulk_form_v1' : 'ppcw_launch_form_v1';
 function persistForm() {
   const data = { fields: {}, checks: {}, adTypes: [], h10Data };
   document.querySelectorAll('main input[id], main select[id], main textarea[id]').forEach(el => {
@@ -909,6 +953,7 @@ async function loadPortfolioDir(keepValues = {}) {
   for (const id of DECIMAL_IDS) if ($(id) && String($(id).value).includes(',')) $(id).value = String($(id).value).replace(/,/g, '.');
   refreshBoxes(); refreshBidMode(); refreshSteps();
   refreshDeriveMode('modePhrase','phrase'); refreshDeriveMode('modeBroad','broad');
+  if (BULK) await bkInit();
   previewNames();
 })();
 
@@ -969,9 +1014,10 @@ async function receiveAdjustCampaigns() {
   $('exportMsg').textContent = `🚀 Đã tạo campaign cho ${made} keyword từ Adjust (bid = CPC) — kiểm tra ở mục 5 rồi Xuất Bulk`;
   try { document.getElementById('previewArea')?.scrollIntoView({ behavior: 'smooth' }); } catch {}
 }
-receiveAdjustCampaigns();
+if (!BULK) receiveAdjustCampaigns();
 /* Tương thích cũ: chỉ đổ keyword vào ô (không tự tạo) */
 (() => {
+  if (BULK) return;
   try {
     const promo = JSON.parse(localStorage.getItem('ppcw_promote_keywords') || 'null');
     if (!promo || !promo.length) return;
@@ -1222,10 +1268,12 @@ function planName(p) {
     : p.type === 'SB_KW' ? $('nameSbKw').value || DEFAULT_TPL.sbKw
     : p.type === 'SB_PT_GROUP' ? $('nameSbPt').value || DEFAULT_TPL.sbPt
     : $('nameKw').value || DEFAULT_TPL.kw);
+  // Bulk: mỗi campaign 1 ASIN khác nhau → ASIN/SKU/phân loại theo chính campaign, không theo ô form
+  const bc = BULK ? (catalog.find((c) => c.asin === p.asin) || {}) : null;
   return renderTpl(tpl, {
-    ASIN: $('asin').value.trim().toUpperCase(), SKU: $('sku').value.trim(),
+    ASIN: bc ? (p.asin || '') : $('asin').value.trim().toUpperCase(), SKU: bc ? (p.sku || bc.sku || '') : $('sku').value.trim(),
     NameID: $('manager').value.trim(),
-    Category: $('category').value.trim(), Keyword: p.keyword || '',
+    Category: bc ? (bc.category || '') : $('category').value.trim(), Keyword: p.keyword || '',
     MatchType: p.matchType ? p.matchType[0].toUpperCase() + p.matchType.slice(1) : '',
     Bid: Number(p.bid).toFixed(2), StartDate: p.startDateBulk, TargetAsin: p.groupLabel || p.targetAsin || '', Group: p.groupLabel || '',
     AdType: p.adType || '', Note: p.note || ''
@@ -1247,6 +1295,7 @@ const filterKind = (f) => (FILTER_FIELDS.find(x => x[0] === f) || [])[2] || 'tex
 
 $('btnPreview').onclick = async () => {
   $('exportMsg').textContent = '';
+  if (BULK) return runBulk();
   try {
     const res = await fetch('/api/launch/preview', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(buildPayload()) });
     if (res.status === 404) throw new Error('API không tồn tại — server đang chạy CODE CŨ, hãy restart (npm start)');
@@ -2070,6 +2119,8 @@ $('btnExport').onclick = async () => {
   const payload = buildPayload();
   payload.plans = plans.filter(p => !p.skip); // dòng gạch ngang (−) không xuất
   payload.saveToBank = $('saveToBank').checked;
+  // Bulk: SKU/ASIN nằm sẵn trong từng plan — đừng gửi ô ASIN ẩn của form Tạo Campaign
+  if (BULK) payload.info = { ...payload.info, sku: '', asin: '', products: [] };
   $('exportMsg').className = 'msg'; $('exportMsg').textContent = '⏳ Đang dựng file...';
   const res = await fetch('/api/launch/export', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
   if (!res.ok) {
@@ -2090,9 +2141,199 @@ $('btnExport').onclick = async () => {
     (info.bank?.kept ? ` · ${info.bank.kept} giữ tag removal` : '') + ' · đã lưu snapshot';
 };
 
+/* ===== BULK CREATE: chọn nhiều ASIN → keyword theo list gán ở Danh mục Tài sản ===== */
+const BK_PICK_KEY = 'ppcw_bulk_pick_v1';
+let bkSel = new Set();       // ASIN đã tick
+let bkGroupsOn = new Set();  // tên group đã tick (chữ thường — list cũ có "product" lẫn "Product")
+const bkListCache = {};      // id → list đầy đủ (keywords, groups, asins)
+let bkListMeta = [];         // tóm tắt /api/kwlists
+const gKey = (s) => String(s || '').trim().toLowerCase();
+const bkMeta = (id) => id ? bkListMeta.find((l) => l.id === id) : null;
+const pfLabelOf = (id) => { const p = pfDir.find((x) => x.id === id); return p ? `${p.name || '(chưa đặt tên)'} · ${id}` : (id || ''); };
+function bkPicked() { return catalog.filter((c) => bkSel.has(c.asin)); }
+function bkSave() { try { localStorage.setItem(BK_PICK_KEY, JSON.stringify({ asins: [...bkSel], groups: [...bkGroupsOn] })); } catch {} }
+
+async function bkInit() {
+  try { bkListMeta = (await (await fetch('/api/kwlists')).json()).lists || []; } catch { bkListMeta = []; }
+  try {
+    const s = JSON.parse(localStorage.getItem(BK_PICK_KEY) || 'null');
+    if (s) { bkSel = new Set(s.asins || []); bkGroupsOn = new Set(s.groups || []); }
+  } catch {}
+  for (const a of [...bkSel]) { const c = catalog.find((x) => x.asin === a); if (!c || !bkMeta(c.kwList)) bkSel.delete(a); }
+  bkRender(); bkRenderGroups();
+}
+
+function bkRender() {
+  const q = $('bkFind').value.trim().toLowerCase(), only = $('bkOnlyList').checked;
+  const rows = catalog.filter((c) => {
+    const l = bkMeta(c.kwList);
+    if (only && !l) return false;
+    return !q || [c.acc, c.asin, c.sku, l && l.name, pfLabelOf(c.portfolioId)].join(' ').toLowerCase().includes(q);
+  });
+  $('bkBody').innerHTML = rows.map((c) => {
+    const l = bkMeta(c.kwList), on = bkSel.has(c.asin);
+    const listCell = l ? `${esc(l.name)} <span class="hint">(${l.kwCount} kw${l.asinCount ? ' · ' + l.asinCount + ' ASIN' : ''})</span>`
+      : c.kwList ? '<span style="color:#e04545">list đã xoá</span>' : '— chưa gán list —';
+    return `<tr class="${l ? '' : 'nolist'}${on ? ' on' : ''}" data-asin="${esc(c.asin)}">
+      <td><input type="checkbox" class="bkChk"${on ? ' checked' : ''}${l ? '' : ' disabled title="Chưa gán List keyword ở Danh mục Tài sản — không tạo được"'}></td>
+      <td>${esc(c.acc || '')}</td><td><b>${esc(c.asin)}</b></td>
+      <td>${c.sku ? esc(c.sku) : '<span style="color:#e04545">— thiếu SKU —</span>'}</td>
+      <td title="${esc(pfLabelOf(c.portfolioId))}">${c.portfolioId ? esc(pfLabelOf(c.portfolioId)) : '<span class="hint">— chưa gán —</span>'}</td>
+      <td title="${esc(l ? l.name : '')}">${listCell}</td></tr>`;
+  }).join('') || '<tr><td colspan="6" class="hint">Không có ASIN nào khớp</td></tr>';
+  const able = rows.filter((c) => bkMeta(c.kwList));
+  $('bkAll').checked = able.length > 0 && able.every((c) => bkSel.has(c.asin));
+  bkSummary();
+}
+function bkChanged() { bkSave(); bkSummary(); bkRenderGroups(); previewNames(); }
+$('bkBody').addEventListener('change', (e) => {
+  if (!e.target.classList.contains('bkChk')) return;
+  const tr = e.target.closest('tr');
+  e.target.checked ? bkSel.add(tr.dataset.asin) : bkSel.delete(tr.dataset.asin);
+  tr.classList.toggle('on', e.target.checked);
+  $('bkAll').checked = [...$('bkBody').querySelectorAll('.bkChk:not(:disabled)')].every((cb) => cb.checked);
+  bkChanged();
+});
+$('bkAll').onchange = () => {
+  const on = $('bkAll').checked;
+  $('bkBody').querySelectorAll('.bkChk:not(:disabled)').forEach((cb) => {
+    const a = cb.closest('tr').dataset.asin;
+    on ? bkSel.add(a) : bkSel.delete(a);
+  });
+  bkRender(); bkChanged();
+};
+$('bkFind').oninput = bkRender;
+$('bkOnlyList').onchange = bkRender;
+
+function bkSummary() {
+  const ps = bkPicked();
+  if (!ps.length) { $('bkSum').textContent = 'Chưa chọn ASIN nào'; return; }
+  const accs = [...new Set(ps.map((p) => p.acc).filter(Boolean))];
+  const noSku = ps.filter((p) => !p.sku).length, noPf = ps.filter((p) => !p.portfolioId).length;
+  let s = `Đã chọn <b>${ps.length}</b> ASIN · ${new Set(ps.map((p) => p.kwList)).size} list`
+    + (noPf ? ` · ${noPf} ASIN chưa có portfolio (campaign để trống portfolio, trừ khi chọn portfolio riêng ở mục 3)` : '');
+  if (noSku) s += ` · <b style="color:#e04545">${noSku} ASIN thiếu SKU — sẽ bỏ qua</b>`;
+  if (accs.length > 1) s += `<br><b style="color:#e04545">⚠️ Đang chọn ASIN của ${accs.length} acc (${accs.map(esc).join(', ')}) — 1 file bulk chỉ được 1 acc: gõ tên acc vào ô Tìm để chọn từng acc.</b>`;
+  $('bkSum').innerHTML = s;
+}
+
+/* Group = gom theo TÊN group của các list đang chọn (các list "{Niche} Ornament" cùng bộ Product/Function/Gift) */
+function bkRenderGroups() {
+  const ls = [...new Set(bkPicked().map((p) => p.kwList))].map(bkMeta).filter(Boolean);
+  if (!ls.length) { $('bkGroups').innerHTML = '— chọn ASIN trước —'; bkKwSum(); return; }
+  const g = new Map();
+  for (const l of ls) for (const x of l.groups || []) {
+    const k = gKey(x.name);
+    if (!g.has(k)) g.set(k, { name: x.name, bids: new Set(), offs: new Set(), n: 0 });
+    const o = g.get(k); o.n++; o.bids.add(x.bid == null || x.bid === '' ? 'bid mặc định' : '$' + x.bid); o.offs.add(Number(x.offset) || 0);
+  }
+  $('bkGroups').innerHTML = !g.size ? 'Các list đã chọn chưa có group'
+    : [...g.entries()].map(([k, o]) => `<label class="chk"><input type="checkbox" class="bkG" value="${esc(k)}"${bkGroupsOn.has(k) ? ' checked' : ''}>
+      <b>${esc(o.name)}</b>&nbsp;<span class="hint">${[...o.bids].join(' / ')}${[...o.offs].some((v) => v) ? ' · +' + [...o.offs].join('/+') + ' ngày' : ''} · ${o.n}/${ls.length} list</span></label>`).join('');
+  bkKwSum();
+}
+$('bkGroups').addEventListener('change', (e) => {
+  if (!e.target.classList.contains('bkG')) return;
+  e.target.checked ? bkGroupsOn.add(e.target.value) : bkGroupsOn.delete(e.target.value);
+  bkSave(); bkKwSum();
+});
+
+async function bkLoadList(id) {
+  if (!(id in bkListCache)) {
+    try { bkListCache[id] = (await (await fetch('/api/kwlists/' + encodeURIComponent(id))).json()).list || null; }
+    catch { bkListCache[id] = null; }
+  }
+  return bkListCache[id];
+}
+/** Keyword của 1 list theo group đã tick — bid: bid tay của keyword → bid group → Bid mặc định; +n theo group */
+function bkKeywordsFor(list) {
+  const def = parseFloat(String($('bkDefBid').value).replace(',', '.'));
+  const gOf = (n) => (list.groups || []).find((g) => gKey(g.name) === gKey(n));
+  const order = new Map((list.groups || []).map((g, i) => [gKey(g.name), i]));
+  const seen = new Set(), out = [];
+  (list.keywords || []).filter((k) => bkGroupsOn.has(gKey(k.group)))
+    .sort((a, b) => (order.get(gKey(a.group)) ?? 999) - (order.get(gKey(b.group)) ?? 999) || (b.sv || 0) - (a.sv || 0))
+    .forEach((k) => {
+      const text = String(k.kw || '').trim().toLowerCase();
+      if (!text || seen.has(text)) return;
+      seen.add(text);
+      const g = gOf(k.group);
+      const bid = k.bid != null && k.bid !== '' ? Number(k.bid)
+        : g && g.bid != null && g.bid !== '' ? Number(g.bid) : (def > 0 ? def : null);
+      const off = g ? (Number(g.offset) || 0) : 0;
+      out.push({ text, bid, bids: null, ...(off ? { offset: off } : {}) });
+    });
+  return out;
+}
+let bkSumTimer;
+function bkKwSum() {
+  clearTimeout(bkSumTimer);
+  bkSumTimer = setTimeout(async () => {
+    const ps = bkPicked(), useT = $('bkTargetAsin').checked;
+    if (!ps.length) { $('bkKwSum').textContent = ''; return; }
+    if (!bkGroupsOn.size && !useT) { $('bkKwSum').innerHTML = '<b style="color:#e04545">Tick ít nhất 1 group (hoặc 🎯 Target ASIN)</b>'; return; }
+    $('bkKwSum').textContent = '⏳ Đang đếm keyword…';
+    let kw = 0, ta = 0, empty = 0;
+    for (const p of ps) {
+      const l = await bkLoadList(p.kwList);
+      if (!l) { empty++; continue; }
+      const n = bkKeywordsFor(l).length, t = useT ? (l.asins || []).length : 0;
+      kw += n; ta += t; if (!n && !t) empty++;
+    }
+    $('bkKwSum').innerHTML = `${ps.length} ASIN · tổng <b>${kw}</b> keyword` + (useT ? ` · ${ta} Target ASIN` : '')
+      + (empty ? ` · <b style="color:#e04545">${empty} ASIN không có keyword/ASIN ở phần đã chọn — sẽ bỏ qua</b>` : '');
+  }, 250);
+}
+$('bkTargetAsin').addEventListener('change', bkKwSum);
+$('bkDefBid').addEventListener('input', bkKwSum);
+
+async function runBulk() {
+  const say = (cls, html) => { $('exportMsg').className = 'msg ' + cls; $('exportMsg').innerHTML = html; };
+  const ps = bkPicked(), useT = $('bkTargetAsin').checked;
+  if (!ps.length) return say('err', '❌ Mục 1: chưa chọn ASIN nào');
+  if (!bkGroupsOn.size && !useT) return say('err', '❌ Mục 2: tick ít nhất 1 group (hoặc 🎯 Target ASIN)');
+  if (!(parseFloat(String($('bkDefBid').value).replace(',', '.')) > 0)) return say('err', '❌ Mục 2: Bid mặc định phải lớn hơn 0');
+  if (!$('startDate').value) return say('err', '❌ Mục 1: chưa chọn Ngày tạo');
+  const base = buildPayload();
+  const fresh = [], skipped = [], failed = [];
+  let i = 0;
+  for (const p of ps) {
+    say('', `⏳ ${++i}/${ps.length} · ${esc(p.asin)}…`);
+    if (!p.sku) { skipped.push(`${p.asin}: thiếu SKU`); continue; }
+    const l = await bkLoadList(p.kwList);
+    if (!l) { skipped.push(`${p.asin}: không đọc được list`); continue; }
+    const keywords = bkKeywordsFor(l), targetAsins = useT ? (l.asins || []) : [];
+    if (!keywords.length && !targetAsins.length) { skipped.push(`${p.asin}: list "${l.name}" không có keyword ở group đã chọn`); continue; }
+    const payload = { ...base, keywords, targetAsins,
+      info: { ...base.info, sku: p.sku, asin: p.asin, products: [{ asin: p.asin, sku: p.sku, type: p.type || 'FBA' }],
+        type: p.type || 'FBA', category: p.category || '' },
+      portfolios: { ...base.portfolios, global: p.portfolioId || '' } };
+    try {
+      const res = await fetch('/api/launch/preview', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+      const r = await res.json();
+      if (!r.ok) throw new Error(r.message);
+      if ((r.badPlaceholders || []).length)
+        return say('err', `🚨 Mẫu tên còn biến chưa thay được: ${esc(r.badPlaceholders.join(' '))} — sửa ở mục 4 rồi tạo lại (chưa thêm campaign nào)`);
+      if (r.totalCampaigns > r.plans.length) failed.push(`${p.asin}: ${r.totalCampaigns} campaign, chỉ lấy được ${r.plans.length} đầu — giảm số mức/keyword`);
+      fresh.push(...r.plans.map((x) => ({ ...x, uid: planUid++, sel: false })));
+    } catch (e) { failed.push(`${p.asin}: ${e.message}`); }
+  }
+  plans.push(...fresh);
+  renderPlans();
+  const cnt = {};
+  plans.forEach((x) => cnt[x.name] = (cnt[x.name] || 0) + 1);
+  const dup = plans.filter((x) => cnt[x.name] > 1).length;
+  const lines = [...failed.map((t) => '❌ ' + t), ...skipped.map((t) => '⏭ ' + t)];
+  say(failed.length || dup ? 'err' : 'ok',
+    `➕ Thêm ${fresh.length} campaign cho ${new Set(fresh.map((x) => x.asin)).size}/${ps.length} ASIN · tổng ${plans.length}`
+    + (dup ? ` · ⚠ ${dup} dòng TRÙNG TÊN (bôi đỏ)` : '')
+    + (lines.length ? `<details style="margin-top:4px"><summary>${failed.length} lỗi · ${skipped.length} bỏ qua</summary>${lines.map(esc).join('<br>')}</details>` : ''));
+}
+
 /* ===== Live preview tên ===== */
 function previewNames() {
-  const ex = planName({ type:'SP_KW_EXACT', keyword:'positive pickle jar', matchType:'exact', bid:0.67,
+  const first = BULK ? (bkPicked()[0] || {}) : {};
+  const ex = planName({ type:'SP_KW_EXACT', asin: first.asin, sku: first.sku, keyword:'positive pickle jar', matchType:'exact', bid:0.67,
     startDateBulk: ($('startDate').value || '').replace(/-/g, ''), note: $('noteExact').value.trim() });
   $('namePreview').innerHTML = 'VD: <b>' + esc(ex) + '</b>';
 }

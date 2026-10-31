@@ -9,6 +9,7 @@
     ["/kwlists.html", "🗂 Danh mục Target"],
     ["/keywords.html", "🔑 Phân tích Keyword"],
     ["/launching.html", "🚀 Tạo Campaign"],
+    ["/bulk.html", "📦 Bulk Create"],
     ["/adjust.html", "⚙️ Điều chỉnh Campaign"],
     ["/data.html", "📈 Data"]
   ];

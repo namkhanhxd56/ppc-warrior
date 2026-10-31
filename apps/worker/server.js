@@ -22,7 +22,7 @@ import * as auth from "./src/auth.js";
 import { als, runAsUser, userDataDir } from "./src/db/user-context.js";
 
 dotenv.config();
-export const APP_VERSION = "0.47.1"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
+export const APP_VERSION = "0.48.0"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
 
 // RUN_MODE:
 // - "local" (mặc định): bấm Kiểm tra là scrape NGAY trên máy này (dùng 1 người, chạy local)
@@ -348,6 +348,8 @@ app.get("/api/version", (req, res) => res.json({ version: APP_VERSION, runMode: 
 // Trang tài khoản: domain/user (đăng nhập, tạo tài khoản, quản lý agent) — login.html cũ chuyển hướng về đây
 app.get("/user", (req, res) => res.sendFile("user.html", { root: "public" }));
 app.get("/login.html", (req, res) => res.redirect("/user"));
+// Bulk Create = chính trang Tạo Campaign ở chế độ nhiều ASIN (launching.html tự đổi giao diện theo đường dẫn)
+app.get("/bulk.html", (req, res) => res.sendFile("launching.html", { root: "public" }));
 
 /* ===== Cookies (giữ zip code) ===== */
 app.get("/api/cookies", (req, res) => {
