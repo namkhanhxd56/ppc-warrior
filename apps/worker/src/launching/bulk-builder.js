@@ -106,6 +106,11 @@ const INVISIBLE_RE = /[\u0000-\u001F\u007F\u00AD\u200B-\u200F\u2028\u2029\u2060\
 export const cleanText = (s) =>
   String(s ?? "").replace(INVISIBLE_RE, "").replace(/\u00A0/g, " ").replace(/\s+/g, " ").trim();
 
+/** Keyword: b\u1ECF k\u00FD t\u1EF1 KH\u00D4NG ph\u1EA3i ch\u1EEF/s\u1ED1 \u1EDF HAI \u0110\u1EA6U ("#tea ornament,", "\"gift\"" \u2192 "tea ornament",
+ *  "gift") \u2014 d\u00E1n t\u1EEB Excel/Cerebro hay d\u00EDnh d\u1EA5u, Amazon nh\u1EADn nguy\u00EAn k\u00FD t\u1EF1 \u0111\u00F3 th\u00E0nh keyword l\u1EA1.
+ *  K\u00FD t\u1EF1 \u1EDF GI\u1EEEA gi\u1EEF nguy\u00EAn (mom's, 5-year). C\u00F2n l\u1EA1i r\u1ED7ng \u2192 kh\u00F4ng ph\u1EA3i keyword. */
+export const cleanKeyword = (s) => cleanText(s).replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "").toLowerCase();
+
 export function renderName(template, ctx) {
   let s = String(template || "");
   for (const [k, v] of Object.entries(ctx)) {
@@ -308,8 +313,15 @@ export function planCampaigns(input) {
   // multi: ladder KHÔNG áp (mỗi keyword dùng bid gốc của nó); tên campaign: {Keyword} = "kw đầu +N"
   const campaignMode = input.campaignMode === "multi" ? "multi" : "single";
   const kwSeen = new Set();
-  const kwListClean = (input.keywords || [])
-    .map((kw) => ({ ...kw, text: cleanText(kw.text).toLowerCase() }))
+  const kwRaw = (input.keywords || []).filter((kw) => cleanText(kw.text));
+  const kwTrimmed = [], kwInvalid = []; // báo UI: dòng bị cắt dấu ở 2 đầu / dòng toàn ký tự đặc biệt
+  const kwListClean = kwRaw
+    .map((kw) => {
+      const raw = cleanText(kw.text), text = cleanKeyword(raw);
+      if (!text) kwInvalid.push(raw);
+      else if (text !== raw.toLowerCase()) kwTrimmed.push(`${raw} → ${text}`);
+      return { ...kw, text };
+    })
     .filter((kw) => kw.text && !kwSeen.has(kw.text) && kwSeen.add(kw.text));
 
   if (campaignMode === "multi") {
@@ -520,9 +532,8 @@ export function planCampaigns(input) {
 
   // SB Video Keyword: 1 keyword = 1 campaign (bid tay của keyword ưu tiên, không thì bid box)
   if (sbKw.on) {
-    for (const kw of input.keywords || []) {
-      const text = String(kw.text || "").trim().toLowerCase();
-      if (!text) continue;
+    for (const kw of kwListClean) {
+      const text = kw.text;
       const base = r2(kw.bid ?? sbKw.bid);
       const sbDate = dateFor(0, kw) || exactDate;
       for (const bid of ladderBids(base, sbKw.step, sbKw.levels, bidRule.minBid)) {
@@ -580,8 +591,7 @@ export function planCampaigns(input) {
 
   const stats = {};
   for (const p of plans) stats[p.type] = (stats[p.type] || 0) + 1;
-  const trackingKeywords = [...new Set((input.keywords || [])
-    .map((k) => String(k.text || "").trim().toLowerCase()).filter(Boolean))];
+  const trackingKeywords = kwListClean.map((k) => k.text);
 
   // Tầng Product Ad: mỗi ad group SP mặc định 1 Product Ad (SKU × ASIN của mình), user thêm được nhiều
   for (const p of plans) {
@@ -597,7 +607,9 @@ export function planCampaigns(input) {
 
   const dropped = {
     dupTargets: (input.targetAsins || []).filter((t) => /^[A-Z0-9]{10}$/.test(cleanText(t).toUpperCase())).length - ptTargets.length,
-    dupKeywords: (input.keywords || []).filter((k) => cleanText(k.text)).length - kwListClean.length
+    dupKeywords: kwRaw.length - kwInvalid.length - kwListClean.length,
+    invalidKeywords: kwInvalid,   // toàn ký tự đặc biệt → bỏ, không tạo campaign
+    trimmedKeywords: kwTrimmed    // đã cắt ký tự đặc biệt ở 2 đầu
   };
   return { plans, stats, trackingKeywords, asin, dropped, badPlaceholders };
 }

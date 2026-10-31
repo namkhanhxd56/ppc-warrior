@@ -648,7 +648,7 @@ if (BULK) {
 }
 
 /* ===== Cảnh báo server chạy code cũ ===== */
-const UI_VERSION = '0.48.2';
+const UI_VERSION = '0.48.3';
 /* ===== THANH TIẾN ĐỘ QUÉT RANKING (dùng chung mọi trang) =====
    Lượt quét sống ở HÀNG ĐỢI trên server, không phải ở tab nào. Trước đây chuyển sang trang
    này là mất dấu — tệ hơn, bản cũ còn làm CHẾT luôn lượt quét vì vòng lặp điều phối nằm ở
@@ -1282,6 +1282,28 @@ function planName(p) {
   });
 }
 
+/* ===== Keyword: bỏ ký tự đặc biệt ở 2 đầu (#, dấu phẩy, ngoặc kép…) — khớp cleanKeyword ở server =====
+   Sửa thẳng ô Keywords để người dùng thấy cái thật sự được tạo; dòng toàn ký tự đặc biệt bị xoá. */
+const KW_EDGE_RE = /^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu;
+function cleanKeywordBox() {
+  const trimmed = [], dropped = [];
+  const lines = $('keywords').value.split('\n');
+  const out = lines.flatMap((line) => {
+    if (!line.trim()) return [];
+    const parts = line.split(/(\s*[|\t]\s*)/);   // giữ nguyên dấu tách "kw | bid | +n"
+    const raw = parts[0].trim(), kw = raw.replace(KW_EDGE_RE, '');
+    if (!kw) { dropped.push(raw); return []; }
+    if (kw !== raw) {
+      trimmed.push(`${raw} → ${kw}`);
+      const a = raw.toLowerCase(), b = kw.toLowerCase(); // bid H10 đã nạp theo keyword gốc → chuyển sang keyword sạch
+      if (h10Data[a] && !h10Data[b]) h10Data[b] = h10Data[a];
+    }
+    return [[kw, ...parts.slice(1)].join('')];
+  });
+  if (trimmed.length || dropped.length) { $('keywords').value = out.join('\n'); persistForm(); }
+  return { trimmed, dropped };
+}
+
 /* ===== Create Campaign — danh sách TÍCH LŨY (nhiều ASIN), filter, bulk, xuất file ===== */
 let plans = [];   // giữ nguyên giữa các lần ➕ — chỉ mất khi reload trang hoặc 🗑 Xoá toàn bộ
 let planUid = 1;
@@ -1298,6 +1320,7 @@ const filterKind = (f) => (FILTER_FIELDS.find(x => x[0] === f) || [])[2] || 'tex
 $('btnPreview').onclick = async () => {
   $('exportMsg').textContent = '';
   if (BULK) return runBulk();
+  const kwFix = cleanKeywordBox();
   try {
     const res = await fetch('/api/launch/preview', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(buildPayload()) });
     if (res.status === 404) throw new Error('API không tồn tại — server đang chạy CODE CŨ, hãy restart (npm start)');
@@ -1321,7 +1344,9 @@ $('btnPreview').onclick = async () => {
       return; }
     $('exportMsg').textContent = `➕ Thêm ${fresh.length} campaign · tổng ${plans.length}`
       + (lọc ? ` · đã bỏ ${lọc} (Amazon từ chối cả file nếu để trùng)` : '')
-      + (dup ? ` · ⚠ ${dup} dòng TRÙNG TÊN (bôi đỏ)` : '');
+      + (dup ? ` · ⚠ ${dup} dòng TRÙNG TÊN (bôi đỏ)` : '')
+      + (kwFix.dropped.length ? ` · 🧹 bỏ ${kwFix.dropped.length} keyword toàn ký tự đặc biệt (${kwFix.dropped.slice(0, 5).join(', ')}${kwFix.dropped.length > 5 ? '…' : ''})` : '')
+      + (kwFix.trimmed.length ? ` · 🧹 cắt ký tự đặc biệt ở 2 đầu ${kwFix.trimmed.length} keyword (${kwFix.trimmed.slice(0, 3).join('; ')}${kwFix.trimmed.length > 3 ? '…' : ''})` : '');
   } catch (e) {
     $('exportMsg').className = 'msg err';
     $('exportMsg').textContent = '❌ ' + e.message;
@@ -2314,7 +2339,7 @@ async function runBulk() {
   if (!(parseFloat(String($('bkDefBid').value).replace(',', '.')) > 0)) return say('err', '❌ Mục 2: Bid mặc định phải lớn hơn 0');
   if (!$('startDate').value) return say('err', '❌ Mục 1: chưa chọn Ngày tạo');
   const base = buildPayload();
-  const fresh = [], skipped = [], failed = [];
+  const fresh = [], skipped = [], failed = [], cleaned = [];
   let i = 0;
   for (const p of ps) {
     say('', `⏳ ${++i}/${ps.length} · ${esc(p.asin)}…`);
@@ -2334,6 +2359,12 @@ async function runBulk() {
       if ((r.badPlaceholders || []).length)
         return say('err', `🚨 Mẫu tên còn biến chưa thay được: ${esc(r.badPlaceholders.join(' '))} — sửa ở mục 4 rồi tạo lại (chưa thêm campaign nào)`);
       if (r.totalCampaigns > r.plans.length) failed.push(`${p.asin}: ${r.totalCampaigns} campaign, chỉ lấy được ${r.plans.length} đầu — giảm số mức/keyword`);
+      const dr = r.dropped || {};
+      const inv = dr.invalidKeywords || [], trm = dr.trimmedKeywords || [];
+      if (inv.length || trm.length) cleaned.push(`${p.asin}: ` + [
+        inv.length ? `bỏ ${inv.length} keyword toàn ký tự đặc biệt (${inv.slice(0, 5).join(', ')})` : '',
+        trm.length ? `cắt ký tự đặc biệt ở 2 đầu — ${trm.slice(0, 5).join('; ')}${trm.length > 5 ? ` (+${trm.length - 5})` : ''}` : ''
+      ].filter(Boolean).join(' · '));
       fresh.push(...r.plans.map((x) => ({ ...x, uid: planUid++, sel: false })));
     } catch (e) { failed.push(`${p.asin}: ${e.message}`); }
   }
@@ -2342,11 +2373,11 @@ async function runBulk() {
   const cnt = {};
   plans.forEach((x) => cnt[x.name] = (cnt[x.name] || 0) + 1);
   const dup = plans.filter((x) => cnt[x.name] > 1).length;
-  const lines = [...failed.map((t) => '❌ ' + t), ...skipped.map((t) => '⏭ ' + t)];
+  const lines = [...failed.map((t) => '❌ ' + t), ...skipped.map((t) => '⏭ ' + t), ...cleaned.map((t) => '🧹 ' + t)];
   say(failed.length || dup ? 'err' : 'ok',
     `➕ Thêm ${fresh.length} campaign cho ${new Set(fresh.map((x) => x.asin)).size}/${ps.length} ASIN · tổng ${plans.length}`
     + (dup ? ` · ⚠ ${dup} dòng TRÙNG TÊN (bôi đỏ)` : '')
-    + (lines.length ? `<details style="margin-top:4px"><summary>${failed.length} lỗi · ${skipped.length} bỏ qua</summary>${lines.map(esc).join('<br>')}</details>` : ''));
+    + (lines.length ? `<details style="margin-top:4px"><summary>${failed.length} lỗi · ${skipped.length} bỏ qua · ${cleaned.length} ASIN có keyword dính ký tự đặc biệt</summary>${lines.map(esc).join('<br>')}</details>` : ''));
 }
 
 /* ===== Live preview tên ===== */
