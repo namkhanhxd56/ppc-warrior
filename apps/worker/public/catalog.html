@@ -30,7 +30,8 @@
   td input, td select { border:none; border-radius:0; width:100%; background:transparent; font-size:12.5px; padding:6px 8px; }
   td input:focus, td select:focus { outline:2px solid #c7d5ff; outline-offset:-2px; }
   td.del { width:34px; text-align:center; }
-  td input.fromPf { color:#2455e6; font-weight:600; background:#f3f6ff; }
+  td input.fromPf, td input.fromPd { color:#2455e6; font-weight:600; background:#f3f6ff; }
+  td input.mixAcc { color:#c0392b; font-weight:600; background:#fff4f4; }
   td.type select { padding:6px 0 6px 8px; font-weight:600; }
   .pfWrap { display:flex; align-items:center; }
   .pfWrap input { flex:0 0 164px; min-width:0; }
@@ -104,7 +105,7 @@
   <div class="card">
     <h2>🗂 Danh mục portfolio</h2>
     <p class="sub">
-      Nạp Portfolio ID, tên và <b>Acc</b> (dán 3 cột từ Excel được). Sản phẩm gán portfolio có Acc ở đây thì tự lấy Acc theo. Sau khi lưu, <b>13 ô portfolio</b> trong trang Tạo Campaign đổi từ gõ tay sang chọn theo tên — hết nhầm ID.<br>
+      Nạp Portfolio ID, tên và <b>Acc</b> (dán 3 cột từ Excel được). Ô Acc để trống thì <b style="color:#2455e6">tự tra từ Danh mục sản phẩm</b> (chữ xanh — Acc của sản phẩm dùng portfolio này; <b style="color:#c0392b">chữ đỏ</b> = các sản phẩm ghi Acc khác nhau). Gõ Acc vào đây thì áp cho mọi sản phẩm dùng portfolio này (đè Acc gõ ở sản phẩm); xoá trống để quay về tra từ sản phẩm. Sau khi lưu, <b>13 ô portfolio</b> trong trang Tạo Campaign đổi từ gõ tay sang chọn theo tên — hết nhầm ID.<br>
       Tên portfolio cũng đi vào tên campaign khi một campaign gom nhiều ASIN hoặc nhiều keyword.
     </p>
     <div class="selBar" id="fBar">
@@ -149,7 +150,7 @@ function pasteInto(tbody, startTr, startCol, text, addRow) {
       const c = cells[startCol + i];
       if (!c) return;
       const v = String(val).trim();
-      if (c.classList.contains('accOwn')) c.dataset.own = v; // ô đang khoá theo portfolio vẫn nhận Acc gõ tay làm dự phòng
+      if (c.dataset.own !== undefined) c.dataset.own = v; // ô Acc: lưu Acc gõ tay, ô hiện gì do syncAcc() vẽ lại
       else if (c.classList.contains('kwSel')) { // List keyword: dán TÊN list → tìm option theo tên
         const o = [...c.options].find((x) => x.value && (x.textContent.trim().toLowerCase() === v.toLowerCase() || x.value === v));
         c.value = o ? o.value : '';
@@ -170,6 +171,7 @@ function wirePaste(tbody, addRow) {
     const tr = e.target.closest('tr');
     const col = cellsOf(tr).indexOf(e.target);
     pasteInto(tbody, tr, col, txt, addRow);
+    syncAcc();
   });
 }
 
@@ -204,8 +206,9 @@ function normPfCell(inp) {
       : 'Theo Danh mục portfolio — sửa Acc ở bảng portfolio bên dưới';
   }
 }
-/** Bảng portfolio đang hiện (kể cả chưa lưu) — nguồn tra Acc + tên */
-const pfLive = () => [...$('fBody').children].map((tr) => { const c = cellsOf(tr); return { id: c[0].value.trim(), name: c[1].value.trim(), acc: c[2].value.trim() }; }).filter((p) => p.id);
+/** Bảng portfolio đang hiện (kể cả chưa lưu) — nguồn tra Acc + tên. acc = Acc GHI RIÊNG cho portfolio
+    (không lấy Acc đang hiện — đó có thể là Acc tra ngược từ chính sản phẩm) */
+const pfLive = () => [...$('fBody').children].map((tr) => { const c = cellsOf(tr); return { id: c[0].value.trim(), name: c[1].value.trim(), acc: c[2].dataset.own.trim() }; }).filter((p) => p.id);
 function pfDatalist() {
   let dl = $('pfDl');
   if (!dl) { dl = document.createElement('datalist'); dl.id = 'pfDl'; document.body.appendChild(dl); }
@@ -270,7 +273,9 @@ function fRow(r = {}) {
     <td class="ck"><input type="checkbox" class="rowCk"></td>
     <td><input type="text" class="mono" value="${esc(r.id)}" placeholder="123456789012345"></td>
     <td><input type="text" value="${esc(r.name)}" placeholder="Pickle jar – Exact"></td>
-    <td><input type="text" class="accCell" list="accDl" value="${esc(r.acc)}" placeholder="Acc"></td>`;
+    <td><input type="text" class="accCell pfAcc" list="accDl" data-own="${esc(r.acc)}" value="${esc(r.acc)}" placeholder="Acc"></td>`;
+  const acc = tr.querySelector('.pfAcc');
+  acc.oninput = () => { acc.dataset.own = acc.value; acc.classList.remove('fromPd', 'mixAcc'); };
   $('fBody').appendChild(tr);
 }
 $('fAdd').onclick = () => fRow();
@@ -279,13 +284,13 @@ wirePaste($('fBody'), () => fRow());
 $('fSave').onclick = async () => {
   const rows = [...$('fBody').children].map((tr) => {
     const c = cellsOf(tr);
-    return { id: c[0].value.trim(), name: c[1].value.trim(), acc: c[2].value.trim() };
+    return { id: c[0].value.trim(), name: c[1].value.trim(), acc: c[2].dataset.own.trim() }; // Acc tra từ sản phẩm không lưu vào portfolio
   }).filter((r) => r.id);
   const r = await (await fetch('/api/catalog/portfolios', { method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ rows }) })).json();
   $('fMsg').className = r.ok ? 'msg ok' : 'msg err';
   $('fMsg').textContent = r.ok ? `✓ Đã lưu ${r.portfolios.length} portfolio` : '✕ ' + (r.message || 'Lỗi');
-  if (r.ok) { pfList = r.portfolios; pfDatalist(); refreshPfCells(); accDatalist(); }
+  if (r.ok) { pfList = r.portfolios; pfDatalist(); syncAcc(); }
 };
 
 $('btnMgr').onclick = async () => {
@@ -308,6 +313,7 @@ function render(products, portfolios) {
     products.forEach(pRow);
     if (!products.length) { pRow(); pRow(); pRow(); }
   }
+  syncAcc();
   updateBar('p'); updateBar('f');
 }
 
@@ -342,7 +348,7 @@ for (const k of ['p', 'f']) {
     if (!confirm(`Xoá ${rows.length} dòng ${what} khỏi bảng?\n(Chỉ mất hẳn khi bấm 💾 Lưu ${k === 'p' ? 'danh mục' : 'portfolio'} — tải lại trang trước khi lưu là lấy lại được.)`)) return;
     rows.forEach((tr) => tr.remove());
     lastCk[k] = -1; updateBar(k);
-    if (k === 'f') refreshPfCells(); // Acc/tên portfolio của sản phẩm tra lại
+    syncAcc(); // Acc/tên tra lại giữa hai bảng
     const m = $(k + 'Msg'); m.className = 'msg'; m.textContent = `🗑 Đã bỏ ${rows.length} dòng — bấm 💾 Lưu để lưu thay đổi`;
   };
 }
@@ -357,14 +363,17 @@ $('pKwApply').onclick = () => {
 };
 $('fAccApply').onclick = () => {
   const rows = pickedRows('f'), v = $('fAccBulk').value.trim();
-  rows.forEach((tr) => { cellsOf(tr)[2].value = v; });
-  refreshPfCells(); accDatalist();
+  rows.forEach((tr) => { const a = cellsOf(tr)[2]; a.dataset.own = a.value = v; });
+  syncAcc();
   $('fMsg').className = 'msg'; $('fMsg').textContent = `✓ Gán Acc "${v}" cho ${rows.length} portfolio — bấm 💾 Lưu portfolio`;
 };
-// Sửa bảng portfolio (ID/tên/Acc) → Acc + tên ở bảng sản phẩm cập nhật ngay
-let pfRefreshT = null;
-$('fBody').addEventListener('input', () => { clearTimeout(pfRefreshT); pfRefreshT = setTimeout(refreshPfCells, 250); });
-$('fBody').addEventListener('change', () => refreshPfCells());
+// Sửa một bảng → Acc + tên ở bảng kia cập nhật ngay (sản phẩm ⇄ portfolio)
+let syncT = null;
+for (const tb of ['pBody', 'fBody']) {
+  $(tb).addEventListener('input', () => { clearTimeout(syncT); syncT = setTimeout(syncAcc, 250); });
+  $(tb).addEventListener('change', () => syncAcc());
+}
+$('fBody').addEventListener('focusout', () => setTimeout(refreshPfAcc, 0)); // rời ô Acc vừa xoá trống → hiện lại Acc tra từ sản phẩm
 
 (async () => {
   const d = await (await fetch('/api/catalog')).json();
@@ -374,22 +383,42 @@ $('fBody').addEventListener('change', () => refreshPfCells());
   pfDatalist();
   $('pKwBulk').innerHTML = kwOptions('');
   render(d.products, d.portfolios);
-  accDatalist();
 })();
 
 // Gợi ý Acc đã dùng (gõ đúng y một tên cho cùng tài khoản — "LumenJar" và "lumenjar " là 2 acc khác nhau)
 function accDatalist() {
   let dl = $('accDl');
   if (!dl) { dl = document.createElement('datalist'); dl.id = 'accDl'; document.body.appendChild(dl); }
-  const accs = [...new Set([...document.querySelectorAll('.accCell')].map((i) => i.value.trim()).filter(Boolean))].sort();
+  const accs = [...new Set([...document.querySelectorAll('.accCell:not(.mixAcc)')].map((i) => i.value.trim()).filter(Boolean))].sort();
   dl.innerHTML = accs.map((a) => `<option value="${esc(a)}"></option>`).join('');
 }
 for (const tb of ['pBody', 'fBody']) $(tb).addEventListener('change', (e) => {
   if (!e.target.classList.contains('accCell')) return;
   e.target.value = e.target.value.trim();
-  if (e.target.classList.contains('accOwn') && !e.target.readOnly) e.target.dataset.own = e.target.value;
-  accDatalist();
+  if (!e.target.readOnly && e.target.dataset.own !== undefined) e.target.dataset.own = e.target.value;
 });
+
+/** Acc tra NGƯỢC xuống bảng portfolio: portfolio chưa ghi Acc riêng → Acc gõ tay của các sản phẩm dùng nó.
+    Không bỏ qua ô đang gõ thì xoá trống ô là nó tự điền lại ngay dưới tay người gõ. */
+function refreshPfAcc() {
+  const by = {};
+  for (const tr of $('pBody').children) {
+    const pf = tr.querySelector('.pfCell')?.value.trim(), a = (tr.querySelector('.accOwn')?.dataset.own || '').trim();
+    if (pf && a) (by[pf] = by[pf] || new Set()).add(a);
+  }
+  for (const tr of $('fBody').children) {
+    const inp = tr.querySelector('.pfAcc');
+    if (!inp || inp === document.activeElement) continue;
+    const id = cellsOf(tr)[0].value.trim(), own = inp.dataset.own.trim(), from = [...(by[id] || [])];
+    inp.classList.toggle('fromPd', !own && from.length === 1);
+    inp.classList.toggle('mixAcc', !own && from.length > 1);
+    inp.value = own || from.join(' / ');
+    inp.title = own ? 'Acc ghi riêng cho portfolio — áp cho mọi sản phẩm dùng portfolio này (xoá trống để tra từ sản phẩm)'
+      : from.length > 1 ? `⚠ Các sản phẩm dùng portfolio này ghi ${from.length} Acc khác nhau: ${from.join(', ')}`
+      : from.length ? 'Tra từ Acc ở Danh mục sản phẩm' : 'Chưa sản phẩm nào dùng portfolio này ghi Acc';
+  }
+}
+const syncAcc = () => { refreshPfCells(); refreshPfAcc(); accDatalist(); };
 
 // Lưu portfolio xong thì cập nhật "(tên)" ở bảng sản phẩm, giữ nguyên ID đang có
 function refreshPfCells() {
