@@ -106,16 +106,33 @@
     <h2>🗂 Danh mục portfolio</h2>
     <p class="sub">
       Nạp Portfolio ID, tên và <b>Acc</b> (dán 3 cột từ Excel được). Ô Acc để trống thì <b style="color:#2455e6">tự tra từ Danh mục sản phẩm</b> (chữ xanh — Acc của sản phẩm dùng portfolio này; <b style="color:#c0392b">chữ đỏ</b> = các sản phẩm ghi Acc khác nhau). Gõ Acc vào đây thì áp cho mọi sản phẩm dùng portfolio này (đè Acc gõ ở sản phẩm); xoá trống để quay về tra từ sản phẩm. Sau khi lưu, <b>13 ô portfolio</b> trong trang Tạo Campaign đổi từ gõ tay sang chọn theo tên — hết nhầm ID.<br>
-      Tên portfolio cũng đi vào tên campaign khi một campaign gom nhiều ASIN hoặc nhiều keyword.
+      Tên portfolio cũng đi vào tên campaign khi một campaign gom nhiều ASIN hoặc nhiều keyword.<br>
+      <b>Budget</b> theo <b>bộ budget</b> đặt tên (VD "Đầu ngày $1", "Giữa ngày") — đổi bộ là cột Budget đổi theo, gõ là <b>tự lưu</b> vào bộ đang chọn.
+      Bấm <b>⬇ Xuất Bulk-port</b> ra file đổi budget portfolio (Operation <span class="mono">Update</span>) upload lên Amazon; ô Budget <b>trống = No Cap</b>.
+      Có tick dòng thì chỉ xuất dòng đã tick, không thì xuất mọi portfolio của Acc đang chọn.
     </p>
+    <div class="row" id="budBar" style="background:#f6f8fc;border:1px solid #e3e8f0;border-radius:8px;padding:8px 10px;margin-bottom:8px;font-size:12.5px">
+      <b>💰 Bộ budget</b>
+      <select id="budSel" data-nosearch style="min-width:170px"></select>
+      <button class="btn-sm" id="budNew" title="Tạo bộ mới — chép budget của bộ đang chọn">➕ Bộ mới</button>
+      <button class="btn-sm" id="budRen">✎ Đổi tên</button>
+      <button class="btn-sm btn-bad" id="budDel">🗑 Xoá bộ</button>
+      <span class="hint" style="margin-left:8px">Budget Start Date</span><input type="date" id="budStart">
+      <label style="margin:0;display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--mut)"><input type="checkbox" id="budEndOn"> Budget End Date</label>
+      <input type="date" id="budEnd" style="display:none">
+      <span class="hint">Acc</span><select id="budAcc" data-nosearch></select>
+      <button class="btn-primary" id="budExport" style="padding:6px 14px">⬇ Xuất Bulk-port</button>
+      <span class="msg" id="budMsg"></span>
+    </div>
     <div class="selBar" id="fBar">
       <b id="fLbl">Tick ô đầu dòng để chọn</b>
       <button class="btn-sm btn-bad" id="fDel">🗑 Xoá</button>
       <span class="hint">· Acc</span><input type="text" id="fAccBulk" list="accDl" placeholder="tên acc" style="width:140px"><button class="btn-sm" id="fAccApply">Gán</button>
+      <span class="hint">· Budget $</span><input type="text" inputmode="decimal" id="fBudBulk" placeholder="trống = No Cap" style="width:110px"><button class="btn-sm" id="fBudApply">Gán</button>
       <button class="btn-sm" id="fUnpick" style="margin-left:auto">Bỏ chọn</button>
     </div>
     <table data-resizable data-grid>
-      <thead><tr><th class="ck"><input type="checkbox" id="fAll" title="Chọn tất cả"></th><th style="width:30%">Portfolio ID</th><th style="width:48%">Tên portfolio</th><th style="width:22%">Acc</th></tr></thead>
+      <thead><tr><th class="ck"><input type="checkbox" id="fAll" title="Chọn tất cả"></th><th style="width:26%">Portfolio ID</th><th style="width:42%">Tên portfolio</th><th style="width:18%">Acc</th><th style="width:14%" title="Budget theo bộ budget đang chọn — trống = No Cap">Budget $</th></tr></thead>
       <tbody id="fBody"></tbody>
     </table>
     <div class="row" style="margin-top:10px">
@@ -130,7 +147,7 @@
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
 
-const UI_VERSION = '0.48.3';
+const UI_VERSION = '0.48.4';
 (async () => {
   try { const v = (await (await fetch('/api/version')).json()).version; if (v !== UI_VERSION) throw new Error(v); }
   catch (e) { $('verWarn').style.display = 'block'; $('verWarn').textContent = `⚠️ Server phiên bản cũ (${e.message}) — hãy restart (npm start).`; }
@@ -273,7 +290,8 @@ function fRow(r = {}) {
     <td class="ck"><input type="checkbox" class="rowCk"></td>
     <td><input type="text" class="mono" value="${esc(r.id)}" placeholder="123456789012345"></td>
     <td><input type="text" value="${esc(r.name)}" placeholder="Pickle jar – Exact"></td>
-    <td><input type="text" class="accCell pfAcc" list="accDl" data-own="${esc(r.acc)}" value="${esc(r.acc)}" placeholder="Acc"></td>`;
+    <td><input type="text" class="accCell pfAcc" list="accDl" data-own="${esc(r.acc)}" value="${esc(r.acc)}" placeholder="Acc"></td>
+    <td><input type="text" inputmode="decimal" class="budCell mono" value="${esc(budOf(r.id))}" placeholder="No Cap"></td>`;
   const acc = tr.querySelector('.pfAcc');
   acc.oninput = () => { acc.dataset.own = acc.value; acc.classList.remove('fromPd', 'mixAcc'); };
   $('fBody').appendChild(tr);
@@ -375,7 +393,145 @@ for (const tb of ['pBody', 'fBody']) {
 }
 $('fBody').addEventListener('focusout', () => setTimeout(refreshPfAcc, 0)); // rời ô Acc vừa xoá trống → hiện lại Acc tra từ sản phẩm
 
+/* ===== Bộ budget portfolio → file Bulk-port =====
+   budDoc = { lists:[{id,name,budgets:{pfId:số}}], activeId } — cột Budget hiện budget của bộ đang chọn,
+   gõ là tự lưu (debounce) vào bộ đó. Đổi bộ = vẽ lại cột Budget, không đụng ID/tên/Acc. */
+let budDoc = { lists: [], activeId: '' };
+const budActive = () => budDoc.lists.find((l) => l.id === budDoc.activeId) || null;
+function budOf(id) { const l = budActive(); const v = l && id ? l.budgets[String(id).trim()] : null; return v == null ? '' : String(v); }
+const localDay = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const budNum = (s) => { const n = parseFloat(String(s ?? '').trim().replace(',', '.')); return isFinite(n) && n > 0 ? Math.round(n * 100) / 100 : null; };
+function budSelRender() {
+  $('budSel').innerHTML = budDoc.lists.length
+    ? budDoc.lists.map((l) => `<option value="${esc(l.id)}">${esc(l.name)}</option>`).join('')
+    : '<option value="">— chưa có bộ —</option>';
+  $('budSel').value = budDoc.activeId || '';
+  $('budRen').disabled = $('budDel').disabled = !budActive();
+}
+function budPaint() { // ghi budget của bộ đang chọn vào cột Budget
+  for (const tr of $('fBody').children) {
+    const id = cellsOf(tr)[0].value.trim(), b = tr.querySelector('.budCell');
+    if (b) b.value = budOf(id);
+  }
+}
+/** Đọc cột Budget → budgets của bộ đang chọn. Portfolio đang có trong bảng: ô trống = xoá (No Cap);
+ *  portfolio không còn trong bảng (vừa bỏ dòng, chưa Lưu) GIỮ budget cũ — khỏi mất khi tải lại trang. */
+function budCollect(base = budActive()?.budgets || {}) {
+  const out = { ...base };
+  for (const tr of $('fBody').children) {
+    const id = cellsOf(tr)[0].value.trim(), v = budNum(tr.querySelector('.budCell')?.value);
+    if (!id) continue;
+    if (v == null) delete out[id]; else out[id] = v;
+  }
+  return out;
+}
+let budTimer = null, budSaving = Promise.resolve();
+async function budSave(msg) {
+  const r = await (await fetch('/api/portfolio-budgets', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(budDoc) })).json().catch(() => ({}));
+  if (!r.ok) { $('budMsg').className = 'msg err'; $('budMsg').textContent = '✕ Chưa lưu được bộ budget — thử lại'; return false; }
+  budDoc = { lists: r.lists, activeId: r.activeId };
+  budSelRender();
+  $('budMsg').className = 'msg ok'; $('budMsg').textContent = msg || `✓ Đã lưu "${budActive()?.name || ''}"`;
+  return true;
+}
+function budSoon() { // gõ ở bảng portfolio → lưu bộ đang chọn sau 700ms
+  const l = budActive(); if (!l) return;
+  clearTimeout(budTimer);
+  budTimer = setTimeout(() => {
+    const next = budCollect();
+    if (JSON.stringify(next) === JSON.stringify(l.budgets)) return;
+    l.budgets = next; budSaving = budSave();
+  }, 700);
+}
+async function budFlush() { // đổi bộ / xuất file: lưu ngay phần đang gõ dở
+  clearTimeout(budTimer);
+  const l = budActive();
+  if (l) { const next = budCollect(); if (JSON.stringify(next) !== JSON.stringify(l.budgets)) { l.budgets = next; await budSave(); } }
+  await budSaving;
+}
+$('fBody').addEventListener('input', (e) => {
+  if (e.target.classList.contains('budCell') && !budActive()) {
+    $('budMsg').className = 'msg err'; $('budMsg').textContent = 'Bấm ➕ Bộ mới để đặt tên bộ budget trước — chưa lưu';
+  }
+  budSoon();
+});
+$('fBody').addEventListener('paste', () => setTimeout(budSoon, 0));
+$('budSel').onchange = async () => {
+  const to = $('budSel').value;
+  $('budSel').value = budDoc.activeId; await budFlush(); // lưu bộ cũ trước khi đổi
+  budDoc.activeId = to; budPaint(); await budSave(`Đang dùng bộ "${budActive()?.name}"`);
+};
+$('budNew').onclick = async () => {
+  const name = (prompt('Tên bộ budget mới (VD: Đầu ngày $1, Giữa ngày):') || '').trim();
+  if (!name) return;
+  await budFlush();
+  const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  budDoc.lists.push({ id, name, budgets: budCollect() }); // chép budget đang hiện → sửa tiếp từ đó
+  budDoc.activeId = id;
+  await budSave(`✓ Tạo bộ "${name}" (chép budget đang hiện)`);
+};
+$('budRen').onclick = async () => {
+  const l = budActive(); if (!l) return;
+  const name = (prompt('Đổi tên bộ budget:', l.name) || '').trim();
+  if (!name || name === l.name) return;
+  await budFlush(); l.name = name; await budSave(`✓ Đổi tên thành "${name}"`);
+};
+$('budDel').onclick = async () => {
+  const l = budActive(); if (!l) return;
+  if (!confirm(`Xoá bộ budget "${l.name}"? (Danh mục portfolio không bị ảnh hưởng)`)) return;
+  clearTimeout(budTimer);
+  budDoc.lists = budDoc.lists.filter((x) => x.id !== l.id);
+  budDoc.activeId = budDoc.lists[0]?.id || '';
+  budPaint(); await budSave(`🗑 Đã xoá bộ "${l.name}"`);
+};
+$('fBudApply').onclick = () => {
+  const rows = pickedRows('f'), raw = $('fBudBulk').value.trim(), v = budNum(raw);
+  if (raw && v == null) { $('fMsg').className = 'msg err'; $('fMsg').textContent = '✕ Budget phải là số > 0 (để trống = No Cap)'; return; }
+  rows.forEach((tr) => { tr.querySelector('.budCell').value = v == null ? '' : String(v); });
+  budSoon();
+  $('fMsg').className = 'msg'; $('fMsg').textContent = `✓ Budget ${v == null ? 'No Cap' : '$' + v} cho ${rows.length} portfolio` + (budActive() ? ' — tự lưu vào bộ đang chọn' : ' — tạo bộ budget để lưu');
+};
+$('budEndOn').onchange = () => { $('budEnd').style.display = $('budEndOn').checked ? '' : 'none'; if (!$('budEndOn').checked) $('budEnd').value = ''; };
+function budAccRender() { // Acc của các dòng portfolio (Acc ghi riêng hoặc tra từ sản phẩm)
+  const accs = [...new Set([...$('fBody').children].map((tr) => (tr.querySelector('.pfAcc')?.value || '').trim()).filter((a) => a && !a.includes(' / ')))].sort();
+  const cur = $('budAcc').value;
+  $('budAcc').innerHTML = '<option value="">— tất cả —</option>' + accs.map((a) => `<option value="${esc(a)}">${esc(a)}</option>`).join('');
+  $('budAcc').value = accs.includes(cur) ? cur : (accs.length === 1 ? accs[0] : '');
+}
+$('budAcc').onfocus = budAccRender;
+$('budExport').onclick = async () => {
+  await budFlush();
+  const picked = pickedRows('f'), acc = $('budAcc').value;
+  const all = [...$('fBody').children].map((tr) => {
+    const c = cellsOf(tr);
+    return { tr, id: c[0].value.trim(), name: c[1].value.trim(), acc: (tr.querySelector('.pfAcc')?.value || '').trim(), budget: budNum(tr.querySelector('.budCell')?.value) };
+  }).filter((r) => r.id);
+  let rows = picked.length ? all.filter((r) => picked.includes(r.tr)) : all.filter((r) => !acc || r.acc === acc);
+  const say = (cls, t) => { $('budMsg').className = 'msg ' + cls; $('budMsg').textContent = t; };
+  if (!rows.length) return say('err', '✕ Không có portfolio nào để xuất');
+  const accs = [...new Set(rows.map((r) => r.acc).filter(Boolean))];
+  if (accs.length > 1) return say('err', `✕ Đang gồm ${accs.length} acc (${accs.join(', ')}) — 1 file chỉ upload được cho 1 acc: chọn Acc hoặc tick dòng`);
+  if (!$('budStart').value) return say('err', '✕ Chọn Budget Start Date');
+  if ($('budEndOn').checked && !$('budEnd').value) return say('err', '✕ Đã tick Budget End Date — chọn ngày kết thúc');
+  const noCap = rows.filter((r) => r.budget == null).length;
+  if (noCap && !confirm(`${noCap}/${rows.length} portfolio để trống Budget → sẽ thành No Cap trên Amazon. Tiếp tục?`)) return;
+  say('', '⏳ Đang dựng file…');
+  const res = await fetch('/api/portfolio-budgets/export', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ rows: rows.map(({ id, name, budget }) => ({ id, name, budget })), startDate: $('budStart').value,
+      endDate: $('budEndOn').checked ? $('budEnd').value : '', label: [accs[0], budActive()?.name].filter(Boolean).join('-') }) });
+  if (!res.ok) { const e = await res.json().catch(() => ({})); return say('err', '✕ ' + (e.message || res.status)); }
+  const info = JSON.parse(res.headers.get('X-Port-Info') || '{}');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(await res.blob());
+  a.download = (res.headers.get('Content-Disposition') || '').match(/filename="(.+)"/)?.[1] || 'bulk-port.xlsx';
+  a.click();
+  say('ok', `✅ ${accs[0] ? 'acc ' + accs[0] + ' · ' : ''}${info.rows} portfolio` + (info.noCap ? ` (${info.noCap} No Cap)` : '') + ` · bộ "${budActive()?.name || '—'}"`);
+};
+
 (async () => {
+  try { const b = await (await fetch('/api/portfolio-budgets')).json(); if (b.ok) budDoc = { lists: b.lists, activeId: b.activeId }; } catch {}
+  budSelRender();
+  $('budStart').value = localDay();
   const d = await (await fetch('/api/catalog')).json();
   $('manager').value = d.manager || '';
   pfList = d.portfolios || [];   // PHẢI có trước khi dựng dòng — ô portfolio cần tên để hiện "(tên)"
@@ -383,6 +539,7 @@ $('fBody').addEventListener('focusout', () => setTimeout(refreshPfAcc, 0)); // r
   pfDatalist();
   $('pKwBulk').innerHTML = kwOptions('');
   render(d.products, d.portfolios);
+  budAccRender();
 })();
 
 // Gợi ý Acc đã dùng (gõ đúng y một tên cho cùng tài khoản — "LumenJar" và "lumenjar " là 2 acc khác nhau)

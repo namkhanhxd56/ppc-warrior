@@ -22,7 +22,7 @@ import * as auth from "./src/auth.js";
 import { als, runAsUser, userDataDir } from "./src/db/user-context.js";
 
 dotenv.config();
-export const APP_VERSION = "0.48.3"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
+export const APP_VERSION = "0.48.4"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
 
 // RUN_MODE:
 // - "local" (mặc định): bấm Kiểm tra là scrape NGAY trên máy này (dùng 1 người, chạy local)
@@ -1039,6 +1039,51 @@ app.post("/api/catalog/portfolios", (req, res) => {
     const rows = req.body?.rows;
     if (!Array.isArray(rows)) throw new Error("Thiếu danh sách dòng");
     res.json({ ok: true, portfolios: store.savePortfolioDir(rows) });
+  } catch (e) { res.status(400).json({ ok: false, message: e.message }); }
+});
+
+/* ===== BUDGET PORTFOLIO → file Bulk-port (mẫu Amazon: sheet "Portfolios", Operation Update) ===== */
+app.get("/api/portfolio-budgets", (req, res) => res.json({ ok: true, ...store.getPortfolioBudgets() }));
+app.put("/api/portfolio-budgets", (req, res) => {
+  try { res.json({ ok: true, ...store.savePortfolioBudgets(req.body || {}) }); }
+  catch (e) { res.status(400).json({ ok: false, message: e.message }); }
+});
+const PORT_HEADER = ["Product", "Entity", "Operation", "Portfolio ID", "Portfolio Name", "Budget Amount", "Budget Currency Code",
+  "Budget Policy", "Budget Start Date", "Budget End Date", "State (Informational only)", "In Budget (Informational only)"];
+const ymd = (s) => { const m = String(s || "").match(/^(\d{4})-(\d{2})-(\d{2})$/); return m ? m[1] + m[2] + m[3] : ""; };
+// rows: [{id, name, budget}] — budget trống/0 → "No Cap" (không ghi số tiền, không ghi ngày)
+app.post("/api/portfolio-budgets/export", (req, res) => {
+  try {
+    const { rows, startDate, endDate, label } = req.body || {};
+    const start = ymd(startDate), end = endDate ? ymd(endDate) : "";
+    if (!start) throw new Error("Thiếu Budget Start Date");
+    if (endDate && !end) throw new Error("Budget End Date không hợp lệ");
+    if (end && end < start) throw new Error("Budget End Date phải sau Start Date");
+    const out = [];
+    for (const r of Array.isArray(rows) ? rows : []) {
+      const id = String(r.id || "").trim();
+      if (!/^\d+$/.test(id)) continue;
+      const n = parseFloat(String(r.budget ?? "").replace(",", "."));
+      const cap = isFinite(n) && n > 0;
+      out.push({
+        Product: "Portfolios", Entity: "Portfolio", Operation: "Update",
+        "Portfolio ID": id, "Portfolio Name": String(r.name || "").trim(),
+        // undefined = ô TRỐNG thật (như file Amazon tải về), "" sẽ thành ô chuỗi rỗng
+        "Budget Amount": cap ? Math.round(n * 100) / 100 : undefined, "Budget Currency Code": "USD",
+        "Budget Policy": cap ? "Date Range" : "No Cap",
+        "Budget Start Date": cap ? start : undefined, "Budget End Date": cap && end ? end : undefined
+      });
+    }
+    if (!out.length) throw new Error("Không có portfolio nào (cần Portfolio ID dạng số)");
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(out, { header: PORT_HEADER }), "Portfolios");
+    const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx", compression: true });
+    const tag = String(label || "").normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[đĐ]/g, "d")
+      .replace(/[^\w.-]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40); // "Đầu ngày $1" → "dau_ngay_1"
+    res.setHeader("Content-Disposition", `attachment; filename="bulk-port${tag ? "-" + tag : ""}-${start}.xlsx"`);
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("X-Port-Info", JSON.stringify({ rows: out.length, noCap: out.filter((x) => x["Budget Policy"] === "No Cap").length }));
+    res.send(buf);
   } catch (e) { res.status(400).json({ ok: false, message: e.message }); }
 });
 

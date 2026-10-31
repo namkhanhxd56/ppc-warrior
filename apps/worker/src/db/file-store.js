@@ -775,6 +775,34 @@ export function savePortfolioDir(rows) {
   writeJsonAtomic(PORTFOLIOS_FILE(), next, 1);
   return listPortfolioDir();
 }
+/* Bộ budget portfolio: { lists:[{id, name, budgets:{"<pfId>": số}}], activeId }.
+   Mỗi bộ là 1 mức budget cho cả danh mục (VD "Đầu ngày $1", "Giữa ngày") → xuất file
+   Bulk-port (Operation Update) để đổi budget nhiều portfolio cùng lúc. Trống = No Cap. */
+const PF_BUDGETS_FILE = () => path.join(userDataDir(), "portfolio-budgets.json");
+export function getPortfolioBudgets() {
+  const d = readJson(PF_BUDGETS_FILE(), {});
+  const lists = Array.isArray(d.lists) ? d.lists : [];
+  return { lists, activeId: lists.some((l) => l.id === d.activeId) ? d.activeId : (lists[0]?.id || "") };
+}
+export function savePortfolioBudgets(body) {
+  ensureDirs();
+  const lists = [];
+  const seen = new Set();
+  for (const l of Array.isArray(body?.lists) ? body.lists : []) {
+    const id = String(l.id || "").trim().slice(0, 40) || Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    if (seen.has(id)) continue;
+    seen.add(id);
+    const budgets = {};
+    for (const [pf, v] of Object.entries(l.budgets || {})) {
+      const n = parseFloat(String(v).replace(",", "."));
+      if (String(pf).trim() && isFinite(n) && n > 0) budgets[String(pf).trim()] = Math.round(n * 100) / 100;
+    }
+    lists.push({ id, name: String(l.name || "").trim().slice(0, 60) || "Bộ budget", budgets, updatedAt: new Date().toISOString() });
+  }
+  writeJsonAtomic(PF_BUDGETS_FILE(), { lists, activeId: String(body?.activeId || "") }, 1);
+  return getPortfolioBudgets();
+}
+
 /* ===== DANH MỤC TARGET (tên cũ: Danh mục Keyword — độc lập với "Phân tích Keyword") =====
    List (VD "Pickle ornament") → nhiều group (keyword product / gift / decor...), mỗi group có
    bid riêng và offset +n ngày so với ngày launch chính (ô "Ngày tạo" ở Tạo Campaign).
