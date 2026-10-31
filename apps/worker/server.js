@@ -22,7 +22,7 @@ import * as auth from "./src/auth.js";
 import { als, runAsUser, userDataDir } from "./src/db/user-context.js";
 
 dotenv.config();
-export const APP_VERSION = "0.48.4"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
+export const APP_VERSION = "0.48.5"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
 
 // RUN_MODE:
 // - "local" (mặc định): bấm Kiểm tra là scrape NGAY trên máy này (dùng 1 người, chạy local)
@@ -1054,7 +1054,7 @@ const ymd = (s) => { const m = String(s || "").match(/^(\d{4})-(\d{2})-(\d{2})$/
 // rows: [{id, name, budget}] — budget trống/0 → "No Cap" (không ghi số tiền, không ghi ngày)
 app.post("/api/portfolio-budgets/export", (req, res) => {
   try {
-    const { rows, startDate, endDate, label } = req.body || {};
+    const { rows, startDate, endDate, setName, acc } = req.body || {};
     const start = ymd(startDate), end = endDate ? ymd(endDate) : "";
     if (!start) throw new Error("Thiếu Budget Start Date");
     if (endDate && !end) throw new Error("Budget End Date không hợp lệ");
@@ -1078,9 +1078,11 @@ app.post("/api/portfolio-budgets/export", (req, res) => {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(out, { header: PORT_HEADER }), "Portfolios");
     const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx", compression: true });
-    const tag = String(label || "").normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[đĐ]/g, "d")
-      .replace(/[^\w.-]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40); // "Đầu ngày $1" → "dau_ngay_1"
-    res.setHeader("Content-Disposition", `attachment; filename="bulk-port${tag ? "-" + tag : ""}-${start}.xlsx"`);
+    const tag = (s) => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/đ/g, "d").replace(/Đ/g, "D")
+      .replace(/[^\w.-]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40); // "Đầu ngày $1" → "Dau_ngay_1"
+    // Tên file: bulk-port-<ngày start>-<tên bộ>-<acc>.xlsx
+    const fname = ["bulk-port", start, tag(setName), tag(acc)].filter(Boolean).join("-") + ".xlsx";
+    res.setHeader("Content-Disposition", `attachment; filename="${fname}"`);
     res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
     res.setHeader("X-Port-Info", JSON.stringify({ rows: out.length, noCap: out.filter((x) => x["Budget Policy"] === "No Cap").length }));
     res.send(buf);

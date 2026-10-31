@@ -109,7 +109,7 @@
       Tên portfolio cũng đi vào tên campaign khi một campaign gom nhiều ASIN hoặc nhiều keyword.<br>
       <b>Budget</b> theo <b>bộ budget</b> đặt tên (VD "Đầu ngày $1", "Giữa ngày") — đổi bộ là cột Budget đổi theo, gõ là <b>tự lưu</b> vào bộ đang chọn.
       Bấm <b>⬇ Xuất Bulk-port</b> ra file đổi budget portfolio (Operation <span class="mono">Update</span>) upload lên Amazon; ô Budget <b>trống = No Cap</b>.
-      Có tick dòng thì chỉ xuất dòng đã tick, không thì xuất mọi portfolio của Acc đang chọn.
+      Xuất <b>mỗi Acc 1 file</b> (tên <span class="mono">bulk-port-&lt;ngày start&gt;-&lt;tên bộ&gt;-&lt;acc&gt;.xlsx</span>); portfolio <b>chưa gán Acc thì không xuất</b>. Có tick dòng thì chỉ xuất các dòng đã tick.
     </p>
     <div class="row" id="budBar" style="background:#f6f8fc;border:1px solid #e3e8f0;border-radius:8px;padding:8px 10px;margin-bottom:8px;font-size:12.5px">
       <b>💰 Bộ budget</b>
@@ -120,7 +120,6 @@
       <span class="hint" style="margin-left:8px">Budget Start Date</span><input type="date" id="budStart">
       <label style="margin:0;display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--mut)"><input type="checkbox" id="budEndOn"> Budget End Date</label>
       <input type="date" id="budEnd" style="display:none">
-      <span class="hint">Acc</span><select id="budAcc" data-nosearch></select>
       <button class="btn-primary" id="budExport" style="padding:6px 14px">⬇ Xuất Bulk-port</button>
       <span class="msg" id="budMsg"></span>
     </div>
@@ -147,7 +146,7 @@
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
 
-const UI_VERSION = '0.48.4';
+const UI_VERSION = '0.48.5';
 (async () => {
   try { const v = (await (await fetch('/api/version')).json()).version; if (v !== UI_VERSION) throw new Error(v); }
   catch (e) { $('verWarn').style.display = 'block'; $('verWarn').textContent = `⚠️ Server phiên bản cũ (${e.message}) — hãy restart (npm start).`; }
@@ -492,40 +491,45 @@ $('fBudApply').onclick = () => {
   $('fMsg').className = 'msg'; $('fMsg').textContent = `✓ Budget ${v == null ? 'No Cap' : '$' + v} cho ${rows.length} portfolio` + (budActive() ? ' — tự lưu vào bộ đang chọn' : ' — tạo bộ budget để lưu');
 };
 $('budEndOn').onchange = () => { $('budEnd').style.display = $('budEndOn').checked ? '' : 'none'; if (!$('budEndOn').checked) $('budEnd').value = ''; };
-function budAccRender() { // Acc của các dòng portfolio (Acc ghi riêng hoặc tra từ sản phẩm)
-  const accs = [...new Set([...$('fBody').children].map((tr) => (tr.querySelector('.pfAcc')?.value || '').trim()).filter((a) => a && !a.includes(' / ')))].sort();
-  const cur = $('budAcc').value;
-  $('budAcc').innerHTML = '<option value="">— tất cả —</option>' + accs.map((a) => `<option value="${esc(a)}">${esc(a)}</option>`).join('');
-  $('budAcc').value = accs.includes(cur) ? cur : (accs.length === 1 ? accs[0] : '');
-}
-$('budAcc').onfocus = budAccRender;
 $('budExport').onclick = async () => {
   await budFlush();
-  const picked = pickedRows('f'), acc = $('budAcc').value;
+  const say = (cls, html) => { $('budMsg').className = 'msg ' + cls; $('budMsg').innerHTML = html; };
+  const picked = pickedRows('f');
   const all = [...$('fBody').children].map((tr) => {
-    const c = cellsOf(tr);
-    return { tr, id: c[0].value.trim(), name: c[1].value.trim(), acc: (tr.querySelector('.pfAcc')?.value || '').trim(), budget: budNum(tr.querySelector('.budCell')?.value) };
+    const c = cellsOf(tr), accIn = tr.querySelector('.pfAcc');
+    // Acc hiệu lực: ghi riêng cho portfolio, hoặc tra từ sản phẩm; sản phẩm ghi nhiều Acc khác nhau (chữ đỏ) = chưa rõ acc
+    const acc = accIn && !accIn.classList.contains('mixAcc') ? accIn.value.trim() : '';
+    return { tr, id: c[0].value.trim(), name: c[1].value.trim(), acc, budget: budNum(tr.querySelector('.budCell')?.value) };
   }).filter((r) => r.id);
-  let rows = picked.length ? all.filter((r) => picked.includes(r.tr)) : all.filter((r) => !acc || r.acc === acc);
-  const say = (cls, t) => { $('budMsg').className = 'msg ' + cls; $('budMsg').textContent = t; };
-  if (!rows.length) return say('err', '✕ Không có portfolio nào để xuất');
-  const accs = [...new Set(rows.map((r) => r.acc).filter(Boolean))];
-  if (accs.length > 1) return say('err', `✕ Đang gồm ${accs.length} acc (${accs.join(', ')}) — 1 file chỉ upload được cho 1 acc: chọn Acc hoặc tick dòng`);
+  const scope = picked.length ? all.filter((r) => picked.includes(r.tr)) : all;
+  const noAcc = scope.filter((r) => !r.acc);
+  const byAcc = new Map();
+  for (const r of scope) if (r.acc) { if (!byAcc.has(r.acc)) byAcc.set(r.acc, []); byAcc.get(r.acc).push(r); }
+  if (!byAcc.size) return say('err', `✕ Không có portfolio nào đã gán Acc${noAcc.length ? ` (${noAcc.length} portfolio chưa có Acc — không xuất)` : ''}`);
   if (!$('budStart').value) return say('err', '✕ Chọn Budget Start Date');
   if ($('budEndOn').checked && !$('budEnd').value) return say('err', '✕ Đã tick Budget End Date — chọn ngày kết thúc');
-  const noCap = rows.filter((r) => r.budget == null).length;
-  if (noCap && !confirm(`${noCap}/${rows.length} portfolio để trống Budget → sẽ thành No Cap trên Amazon. Tiếp tục?`)) return;
-  say('', '⏳ Đang dựng file…');
-  const res = await fetch('/api/portfolio-budgets/export', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ rows: rows.map(({ id, name, budget }) => ({ id, name, budget })), startDate: $('budStart').value,
-      endDate: $('budEndOn').checked ? $('budEnd').value : '', label: [accs[0], budActive()?.name].filter(Boolean).join('-') }) });
-  if (!res.ok) { const e = await res.json().catch(() => ({})); return say('err', '✕ ' + (e.message || res.status)); }
-  const info = JSON.parse(res.headers.get('X-Port-Info') || '{}');
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(await res.blob());
-  a.download = (res.headers.get('Content-Disposition') || '').match(/filename="(.+)"/)?.[1] || 'bulk-port.xlsx';
-  a.click();
-  say('ok', `✅ ${accs[0] ? 'acc ' + accs[0] + ' · ' : ''}${info.rows} portfolio` + (info.noCap ? ` (${info.noCap} No Cap)` : '') + ` · bộ "${budActive()?.name || '—'}"`);
+  const total = [...byAcc.values()].reduce((n, l) => n + l.length, 0);
+  const noCap = [...byAcc.values()].flat().filter((r) => r.budget == null).length;
+  if (noCap && !confirm(`${noCap}/${total} portfolio để trống Budget → sẽ thành No Cap trên Amazon. Tiếp tục?`)) return;
+  // 1 acc = 1 file (1 file bulk chỉ upload được vào 1 tài khoản); tải lần lượt cách 0.8s
+  const done = [], fail = [];
+  for (const [acc, rows] of [...byAcc.entries()].sort((x, y) => x[0].localeCompare(y[0]))) {
+    say('', `⏳ Đang dựng file ${done.length + fail.length + 1}/${byAcc.size} · ${esc(acc)}…`);
+    const res = await fetch('/api/portfolio-budgets/export', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rows: rows.map(({ id, name, budget }) => ({ id, name, budget })), startDate: $('budStart').value,
+        endDate: $('budEndOn').checked ? $('budEnd').value : '', setName: budActive()?.name || '', acc }) });
+    if (!res.ok) { const e = await res.json().catch(() => ({})); fail.push(`${acc}: ${e.message || res.status}`); continue; }
+    const info = JSON.parse(res.headers.get('X-Port-Info') || '{}');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(await res.blob());
+    a.download = (res.headers.get('Content-Disposition') || '').match(/filename="(.+)"/)?.[1] || `bulk-port-${acc}.xlsx`;
+    a.click();
+    done.push(`${a.download} — ${info.rows} portfolio${info.noCap ? ` (${info.noCap} No Cap)` : ''}`);
+    await new Promise((r) => setTimeout(r, 800));
+  }
+  say(fail.length ? 'err' : 'ok', `✅ ${done.length} file theo acc · bộ "${esc(budActive()?.name || '—')}"`
+    + (noAcc.length ? ` · ⏭ bỏ ${noAcc.length} portfolio chưa gán Acc` : '')
+    + '<br>' + done.map(esc).join('<br>') + (fail.length ? '<br>✕ ' + fail.map(esc).join('<br>✕ ') : ''));
 };
 
 (async () => {
@@ -539,7 +543,6 @@ $('budExport').onclick = async () => {
   pfDatalist();
   $('pKwBulk').innerHTML = kwOptions('');
   render(d.products, d.portfolios);
-  budAccRender();
 })();
 
 // Gợi ý Acc đã dùng (gõ đúng y một tên cho cùng tài khoản — "LumenJar" và "lumenjar " là 2 acc khác nhau)
