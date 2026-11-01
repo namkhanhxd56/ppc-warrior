@@ -664,7 +664,7 @@ if (BULK) {
 }
 
 /* ===== Cảnh báo server chạy code cũ ===== */
-const UI_VERSION = '0.49.0';
+const UI_VERSION = '0.49.1';
 /* ===== THANH TIẾN ĐỘ QUÉT RANKING (dùng chung mọi trang) =====
    Lượt quét sống ở HÀNG ĐỢI trên server, không phải ở tab nào. Trước đây chuyển sang trang
    này là mất dấu — tệ hơn, bản cũ còn làm CHẾT luôn lượt quét vì vòng lặp điều phối nằm ở
@@ -1463,7 +1463,7 @@ function renderCampCard(p, nameCount) {
   const head = `
     <div class="camp-head" style="--acc:${acc}">
       <span class="caret" onclick="toggleOpen(${p.uid})">${open ? '▾' : '▸'}</span>
-      <input type="checkbox" ${p.sel ? 'checked' : ''} onchange="rowSel(${p.uid}, this.checked)">
+      <input type="checkbox" class="planCk" data-uid="${p.uid}" ${p.sel ? 'checked' : ''} onchange="rowSel(${p.uid}, this.checked)">
       <input class="camp-name-in" value="${esc(p.name)}" onchange="editPlan(${p.uid},'name',this.value)" title="Campaign Name — sửa trực tiếp">
       <span class="mini-badge">${negCount ? '🚫' + negCount + ' · ' : ''}${(p.adGroups || []).length} AG · ${tgCount} target</span>
     </div>
@@ -1599,7 +1599,7 @@ function renderSdCard(p, nameCount) {
   const head = `
     <div class="camp-head" style="--acc:${acc}">
       <span class="caret" onclick="toggleOpen(${p.uid})">${open ? '▾' : '▸'}</span>
-      <input type="checkbox" ${p.sel ? 'checked' : ''} onchange="rowSel(${p.uid}, this.checked)">
+      <input type="checkbox" class="planCk" data-uid="${p.uid}" ${p.sel ? 'checked' : ''} onchange="rowSel(${p.uid}, this.checked)">
       <input class="camp-name-in" value="${esc(p.name)}" onchange="editPlan(${p.uid},'name',this.value)" title="Campaign Name — sửa trực tiếp">
       <span class="type-chip">${TYPE_LABEL[p.type] || p.type}</span>
       <span class="mini-badge">${agN} AG · ${tgN} target</span>
@@ -1666,8 +1666,12 @@ function renderSdCard(p, nameCount) {
   </div>`;
 }
 
+/* Chỉ VẼ tối đa plansShown campaign (mỗi thẻ ~15 ô nhập — vẽ 3.000 thẻ mỗi lần sửa/xoá là giật).
+   Tick tất cả / xoá / bulk edit / xuất file vẫn tác dụng lên MỌI campaign đang lọc. */
+const PLANS_PAGE = 200;
+let plansShown = PLANS_PAGE;
 function renderPlans() {
-  if (!plans.length) { $('previewArea').innerHTML = '<span class="hint">Chưa có campaign nào — bấm ➕ Tạo campaign.</span>'; return; }
+  if (!plans.length) { plansShown = PLANS_PAGE; $('previewArea').innerHTML = '<span class="hint">Chưa có campaign nào — bấm ➕ Tạo campaign.</span>'; return; }
   const spCount = plans.filter(p => !isSD(p) && !isSB(p)).length;
   const sdCount = plans.filter(isSD).length;
   const sbCount = plans.filter(isSB).length;
@@ -1676,6 +1680,10 @@ function renderPlans() {
   if (tab5 === 'SP' && !spCount) tab5 = sdCount ? 'SD' : (sbCount ? 'SB' : 'SP');
 
   const vis = visiblePlans();
+  const drawn = vis.slice(0, plansShown);
+  const moreHtml = vis.length > drawn.length
+    ? `<div style="text-align:center;margin:10px 0"><button class="btn-sm" id="plansMore">⬇ Hiện thêm ${Math.min(PLANS_PAGE, vis.length - drawn.length)} campaign (đang hiện ${drawn.length}/${vis.length})</button>
+       <div class="hint" style="margin-top:4px">Chọn tất cả, xoá, bulk edit và xuất file vẫn áp cho cả ${vis.length} campaign — chỉ là chưa vẽ hết cho đỡ giật.</div></div>` : '';
   const stratOpts = (cur) => STRATEGIES.map(s => `<option ${s===cur?'selected':''}>${s}</option>`).join('');
   const nameCount = {};
   plans.forEach(p => nameCount[p.name] = (nameCount[p.name] || 0) + 1);
@@ -1693,9 +1701,9 @@ function renderPlans() {
     : (p.keyword || p.targetAsin || p.adType || ''));
   const targetTitle = (p) => esc(p.targetAsins ? p.groupLabel + ': ' + p.targetAsins.join(', ') : (p.keyword || p.targetAsin || p.adType || ''));
 
-  const rows = !sb ? '' : vis.map(p => {
+  const rows = !sb ? '' : drawn.map(p => {
     const common1 = `
-      <td><input type="checkbox" ${p.sel ? 'checked' : ''} onchange="rowSel(${p.uid}, this.checked)"></td>
+      <td><input type="checkbox" class="planCk" data-uid="${p.uid}" ${p.sel ? 'checked' : ''} onchange="rowSel(${p.uid}, this.checked)"></td>
       <td id="planname_${p.uid}" style="font-size:11.5px">${esc(p.name)}${(p.negatives && p.negatives.length) ? ` <span class="neg-chip" title="${esc(p.negatives.map(n => n.term + ' (' + (n.mt === 'negativePhrase' ? 'P' : 'E') + ')').join(', '))}">🚫${p.negatives.length}</span>` : ''}</td>
       <td>${TYPE_LABEL[p.type] || p.type}</td>
       <td style="text-overflow:ellipsis" title="${targetTitle(p)}">${targetCell(p)}</td>
@@ -1819,15 +1827,16 @@ function renderPlans() {
     ${(sp || sd)
       ? `<div class="scroll" style="max-height:600px;background:transparent;border:none">
            <div style="display:flex;gap:10px;align-items:center;margin-bottom:6px">
-             <label class="chk" style="margin:0;font-size:11.5px"><input type="checkbox" id="selAll" ${allSel ? 'checked' : ''}> Chọn tất cả</label>
+             <label class="chk" style="margin:0;font-size:11.5px"><input type="checkbox" id="selAll" ${allSel ? 'checked' : ''}> Chọn tất cả (${vis.length})</label>
              <span class="hint">▸ bấm mũi tên mở cấu trúc campaign · tên/thông số sửa trực tiếp trên thẻ</span>
            </div>
-           ${vis.map(px => sp ? renderCampCard(px, nameCount) : renderSdCard(px, nameCount)).join('') || '<span class="hint">Không có campaign.</span>'}
+           ${drawn.map(px => sp ? renderCampCard(px, nameCount) : renderSdCard(px, nameCount)).join('') || '<span class="hint">Không có campaign.</span>'}
+           ${moreHtml}
          </div>`
       : `<div class="scroll"><table class="resizable">
       <colgroup>${cols}</colgroup>
       <thead><tr>${headers.map((h, ci) => `<th>${h}<span class="rz" data-col="${ci}"></span></th>`).join('')}</tr></thead>
-      <tbody>${rows}</tbody></table></div>`}`;
+      <tbody>${rows}</tbody></table>${moreHtml}</div>`}`;
 
   if (negKeep) {
     const np = document.getElementById('negPanel');
@@ -1839,14 +1848,16 @@ function renderPlans() {
       if (p1) p1.value = negKeep.pt;
     }
   }
+  // Tick tất cả: đổi dữ liệu MỌI dòng đang lọc (kể cả chưa vẽ) rồi đồng bộ ô tick đã vẽ trong 1 lượt.
+  // Trước đây mỗi campaign 1 lần querySelector cả trang → 3.000 campaign mất ~12 giây.
   $('selAll').onchange = (e) => {
-    visiblePlans().forEach(p => {
-      p.sel = e.target.checked;
-      const cb = document.querySelector(`#planrow_${p.uid} input[type=checkbox], #card_${p.uid} input[type=checkbox]`);
-      if (cb) cb.checked = p.sel;
-    });
+    const on = e.target.checked;
+    for (const p of visiblePlans()) p.sel = on;
+    document.querySelectorAll('#previewArea .planCk').forEach((cb) => { cb.checked = on; });
     syncSelUI();
   };
+  const moreBtn = document.getElementById('plansMore');
+  if (moreBtn) moreBtn.onclick = () => { plansShown += PLANS_PAGE; renderPlans(); };
   $('bulkField').addEventListener('change', () => {
     const f = $('bulkField').value;
     $('bulkValWrap').innerHTML = f === 'biddingStrategy'
