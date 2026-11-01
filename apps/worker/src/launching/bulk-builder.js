@@ -149,6 +149,15 @@ export function addDays(d, days) {
  * input.camp:       {dailyBudget, autoDailyBudget, ...}
  */
 export function planCampaigns(input) {
+  /* LOWEST COST: 1 campaign SP keyword gom TẤT CẢ keyword vào 1 ad group, cùng 1 bid; tên = mẫu
+     SP Keyword với {Keyword} = "Lowest Cost". Bật lên thì CHỈ dựng campaign này (tắt mọi loại khác). */
+  const LC = input?.lowestCost?.on ? input.lowestCost : null;
+  const lcNote = LC ? String(input.matches?.[LC.matchType]?.note || input.matches?.exact?.note || "") : "";
+  if (LC) input = { ...input,
+    matches: { ...(input.matches || {}), exact: { on: false }, phrase: { on: false }, broad: { on: false } },
+    pt: { on: false }, ptGroup: { on: false }, auto: { on: false },
+    sb: { ...(input.sb || {}), kw: { on: false }, pt: { on: false } },
+    sd: { ...(input.sd || {}), pt: { on: false }, ptGroup: { on: false }, remarketing: { on: false } } };
   const d = DEFAULTS;
   const info = input.info || {};
   // Chọn sản phẩm từ Danh mục thì SKU/ASIN nằm trong info.products — không bắt phải điền
@@ -323,6 +332,22 @@ export function planCampaigns(input) {
       return { ...kw, text };
     })
     .filter((kw) => kw.text && !kwSeen.has(kw.text) && kwSeen.add(kw.text));
+
+  if (LC) {
+    if (!kwListClean.length) throw new Error("Không có keyword nào để tạo campaign Lowest Cost");
+    const mt = ["exact", "phrase", "broad"].includes(LC.matchType) ? LC.matchType : "exact";
+    const bid = r2(parseFloat(String(LC.bid ?? "").replace(",", ".")));
+    if (!(bid > 0)) throw new Error("Bid Lowest Cost phải lớn hơn 0");
+    const portfolio = pf(mt);
+    const name = renderName(naming.kw, { ...ctx(portfolio), Keyword: "Lowest Cost", MatchType: mt[0].toUpperCase() + mt.slice(1),
+      Bid: bid.toFixed(2), StartDate: exactDate, Note: lcNote });
+    push({
+      type: `SP_KW_${mt.toUpperCase()}`, lowestCost: true, name,
+      keyword: "", groupLabel: "Lowest Cost", matchType: mt, bid, budget: Number(camp.dailyBudget),
+      portfolioId: portfolio, startDateBulk: exactDate, endDateBulk: "", note: lcNote, ...campLevel, ...productLevel,
+      adGroups: [{ name, defaultBid: bid, targets: kwListClean.map((k) => ({ kind: "kw", text: k.text, mt, bid })), negatives: [], negPt: [] }]
+    });
+  }
 
   if (campaignMode === "multi") {
     // bid của 1 keyword theo match type (exact = bid gốc; phrase/broad = suy ra từ bid gốc)

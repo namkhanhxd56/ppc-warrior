@@ -22,7 +22,7 @@ import * as auth from "./src/auth.js";
 import { als, runAsUser, userDataDir } from "./src/db/user-context.js";
 
 dotenv.config();
-export const APP_VERSION = "0.48.5"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
+export const APP_VERSION = "0.49.0"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
 
 // RUN_MODE:
 // - "local" (mặc định): bấm Kiểm tra là scrape NGAY trên máy này (dùng 1 người, chạy local)
@@ -925,7 +925,8 @@ app.post("/api/launch/export", (req, res) => {
     }
 
     const asins = [...new Set(campaigns.map((p) => p.asin).filter(Boolean))];
-    const label = (accInfo.acc ? accInfo.acc.replace(/[^\w.-]+/g, "_") + "-" : "") + (asins.length === 1 ? asins[0] : `${asins.length}asin`);
+    const fileTag = String(body.fileTag || "").replace(/[^\w.-]+/g, "_").slice(0, 30); // VD "lowest-cost"
+    const label = (fileTag ? fileTag + "-" : "") + (accInfo.acc ? accInfo.acc.replace(/[^\w.-]+/g, "_") + "-" : "") + (asins.length === 1 ? asins[0] : `${asins.length}asin`);
     const day = new Date().toISOString().slice(0, 10);
     const info = { campaigns: campaigns.length, bank, saveToBank, asins: asins.length, acc: accInfo.acc, noAcc: accInfo.noAcc.length };
     const real = parts.filter((x) => x.buf);
@@ -1100,6 +1101,12 @@ app.post("/api/catalog/manager", (req, res) => {
    Độc lập với "Phân tích Keyword". Nạp từ file H10 / Amazon SQP / csv-xlsx tự làm (tự nhận dạng). */
 const uploadKw = multer({ dest: "./data/uploads", limits: { fileSize: 40 * 1024 * 1024 } });
 app.get("/api/kwlists", (req, res) => res.json({ ok: true, lists: store.listKwLists() }));
+// Group DÙNG CHUNG cho mọi list: {op:"upsert", name, bid?, offset?} | {op:"rename", from, to} | {op:"delete", name}
+app.get("/api/kw-groups", (req, res) => res.json({ ok: true, groups: store.getKwGroups() }));
+app.post("/api/kw-groups", (req, res) => {
+  try { res.json({ ok: true, ...store.kwGroupOp(req.body || {}) }); }
+  catch (e) { res.status(400).json({ ok: false, message: e.message }); }
+});
 app.get("/api/kwlists/:id", (req, res) => {
   const l = store.getKwList(req.params.id);
   if (!l) return res.status(404).json({ ok: false, message: "Không tìm thấy list" });

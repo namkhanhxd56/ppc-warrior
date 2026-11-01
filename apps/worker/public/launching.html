@@ -169,7 +169,9 @@
   table.bk td { padding:5px 8px; border-bottom:1px solid #f0f2f7; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:260px; }
   table.bk tr.nolist td { color:#a0a8b8; }
   table.bk tr.on td { background:#eef3ff; }
-  #bkGroups label.chk { display:inline-flex; margin:4px 14px 4px 0; }
+  #bkGroups .bkGrp { display:inline-flex; align-items:center; gap:4px; margin:4px 18px 4px 0; padding:3px 8px; border:1px solid #e3e8f0; border-radius:8px; background:#fcfdff; }
+  #bkGroups label.chk { display:inline-flex; margin:0; }
+  #bkGroups .bkGb { width:64px; padding:3px 6px; font-size:12px; }
 </style>
 </head>
 <body>
@@ -197,8 +199,8 @@
 
   <div class="card" id="bkCard2" style="display:none">
     <h2>2️⃣ Keyword &amp; Target ASIN</h2>
-    <p class="sub">Keyword lấy từ list của TỪNG ASIN, chỉ các group đã tick. Bid mỗi keyword: bid sửa tay trong list → <b>bid của group</b> → <b>Bid mặc định</b> dưới đây. +n ngày theo group.</p>
-    <label>Group <span class="hint">(gom theo tên group của các list đang chọn)</span></label>
+    <p class="sub">Keyword lấy từ list của TỪNG ASIN, chỉ các group đã tick. Bid mỗi keyword: bid sửa tay trong list → <b>bid group</b> (ô $ cạnh group — đổi được cho lượt này, trống = theo Danh mục Target) → <b>Bid mặc định</b> dưới đây. +n ngày theo group.</p>
+    <label>Group <span class="hint">(dùng chung cho mọi list — sửa hẳn ở <a href="/kwlists.html">🗂 Danh mục Target</a>)</span></label>
     <div id="bkGroups" class="hint">— chọn ASIN trước —</div>
     <div class="row" style="margin-top:10px;align-items:flex-end">
       <div style="flex:0 0 150px"><label title="Dùng khi cả keyword lẫn group đều chưa có bid">Bid mặc định</label><input type="text" inputmode="decimal" id="bkDefBid" value="0.5"></div>
@@ -615,6 +617,20 @@
     <div class="hint" id="namePreview" style="margin-top:8px"></div>
   </div>
 
+  <!-- ===== LOWEST COST (chỉ Bulk Create) ===== -->
+  <div class="card" id="bkLowCard" style="display:none">
+    <h2>💲 Lowest Cost</h2>
+    <p class="sub">Mỗi ASIN ra <b>1 campaign SP keyword</b> gom <b>tất cả keyword</b> (theo ASIN · group đã chọn ở mục 1–2) vào chung 1 ad group, cùng 1 bid.
+      Tên campaign theo mẫu <b>SP Keyword</b> ở mục 4 với <span class="mono">{Keyword}</span> = <b>Lowest Cost</b>. Budget / bidding strategy / placement lấy ở ⚙️ Cài đặt campaign (mục 3.1), portfolio theo ASIN.
+      Xuất thẳng file (không thêm vào danh sách ở mục 5), mỗi acc 1 file.</p>
+    <div class="row" style="align-items:flex-end">
+      <div style="flex:0 0 150px"><label>Bid Lowest Cost</label><input type="text" inputmode="decimal" id="lcBid" placeholder="VD 0.35"></div>
+      <div style="flex:0 0 150px"><label>Match type</label><select id="lcMatch"><option value="exact">Exact</option><option value="phrase">Phrase</option><option value="broad">Broad</option></select></div>
+      <button class="btn-ok" id="btnLowest" style="flex:0 0 auto">⬇ Xuất File Lowest Cost</button>
+      <span class="msg" id="lcMsg" style="flex:1 1 300px"></span>
+    </div>
+  </div>
+
   <!-- ===== 5. Create Campaign ===== -->
   <div class="card">
     <h2>5️⃣ Create Campaign</h2>
@@ -643,12 +659,12 @@ const BULK = location.pathname === '/bulk.html';
 if (BULK) {
   document.title = 'PPC Warrior — Bulk Create';
   $('cardProd').style.display = 'none'; $('cardKw').style.display = 'none';
-  $('bkCard1').style.display = ''; $('bkCard2').style.display = '';
+  $('bkCard1').style.display = ''; $('bkCard2').style.display = ''; $('bkLowCard').style.display = '';
   $('bkDateSlot').appendChild($('startDate')); // Ngày tạo dùng lại ô cũ → buildPayload/tên campaign không phải sửa
 }
 
 /* ===== Cảnh báo server chạy code cũ ===== */
-const UI_VERSION = '0.48.5';
+const UI_VERSION = '0.49.0';
 /* ===== THANH TIẾN ĐỘ QUÉT RANKING (dùng chung mọi trang) =====
    Lượt quét sống ở HÀNG ĐỢI trên server, không phải ở tab nào. Trước đây chuyển sang trang
    này là mất dấu — tệ hơn, bản cũ còn làm CHẾT luôn lượt quét vì vòng lặp điều phối nằm ở
@@ -2195,13 +2211,13 @@ const gKey = (s) => String(s || '').trim().toLowerCase();
 const bkMeta = (id) => id ? bkListMeta.find((l) => l.id === id) : null;
 const pfLabelOf = (id) => { const p = pfDir.find((x) => x.id === id); return p ? `${p.name || '(chưa đặt tên)'} · ${id}` : (id || ''); };
 function bkPicked() { return catalog.filter((c) => bkSel.has(c.asin)); }
-function bkSave() { try { localStorage.setItem(BK_PICK_KEY, JSON.stringify({ asins: [...bkSel], groups: [...bkGroupsOn] })); } catch {} }
+function bkSave() { try { localStorage.setItem(BK_PICK_KEY, JSON.stringify({ asins: [...bkSel], groups: [...bkGroupsOn], groupBid: bkGroupBid })); } catch {} }
 
 async function bkInit() {
   try { bkListMeta = (await (await fetch('/api/kwlists')).json()).lists || []; } catch { bkListMeta = []; }
   try {
     const s = JSON.parse(localStorage.getItem(BK_PICK_KEY) || 'null');
-    if (s) { bkSel = new Set(s.asins || []); bkGroupsOn = new Set(s.groups || []); }
+    if (s) { bkSel = new Set(s.asins || []); bkGroupsOn = new Set(s.groups || []); Object.assign(bkGroupBid, s.groupBid || {}); }
   } catch {}
   for (const a of [...bkSel]) { const c = catalog.find((x) => x.asin === a); if (!c || !bkMeta(c.kwList)) bkSel.delete(a); }
   bkRender(); bkRenderGroups();
@@ -2261,25 +2277,32 @@ function bkSummary() {
   $('bkSum').innerHTML = s;
 }
 
-/* Group = gom theo TÊN group của các list đang chọn (các list "{Niche} Ornament" cùng bộ Product/Function/Gift) */
+/* Group DÙNG CHUNG cho mọi list (Danh mục Target) — mỗi group: tick chọn + ô bid đổi được cho
+   lượt Bulk này (trống = bid group ở Danh mục Target). Đổi ở đây KHÔNG sửa Danh mục Target. */
+const bkGroupBid = {}; // gKey → bid đổi ở mục 2
+const bkGroupsAll = () => (bkListMeta[0] && bkListMeta[0].groups) || [];
 function bkRenderGroups() {
   const ls = [...new Set(bkPicked().map((p) => p.kwList))].map(bkMeta).filter(Boolean);
   if (!ls.length) { $('bkGroups').innerHTML = '— chọn ASIN trước —'; bkKwSum(); return; }
-  const g = new Map();
-  for (const l of ls) for (const x of l.groups || []) {
-    const k = gKey(x.name);
-    if (!g.has(k)) g.set(k, { name: x.name, bids: new Set(), offs: new Set(), n: 0 });
-    const o = g.get(k); o.n++; o.bids.add(x.bid == null || x.bid === '' ? 'bid mặc định' : '$' + x.bid); o.offs.add(Number(x.offset) || 0);
-  }
-  $('bkGroups').innerHTML = !g.size ? 'Các list đã chọn chưa có group'
-    : [...g.entries()].map(([k, o]) => `<label class="chk"><input type="checkbox" class="bkG" value="${esc(k)}"${bkGroupsOn.has(k) ? ' checked' : ''}>
-      <b>${esc(o.name)}</b>&nbsp;<span class="hint">${[...o.bids].join(' / ')}${[...o.offs].some((v) => v) ? ' · +' + [...o.offs].join('/+') + ' ngày' : ''} · ${o.n}/${ls.length} list</span></label>`).join('');
+  const gs = bkGroupsAll();
+  $('bkGroups').innerHTML = !gs.length ? 'Chưa có group — tạo ở Danh mục Target'
+    : gs.map((x) => { const k = gKey(x.name); return `<span class="bkGrp"><label class="chk"><input type="checkbox" class="bkG" value="${esc(k)}"${bkGroupsOn.has(k) ? ' checked' : ''}> <b>${esc(x.name)}</b></label>
+      <span class="hint">$</span><input type="text" inputmode="decimal" class="bkGb" data-g="${esc(k)}" value="${bkGroupBid[k] ?? ''}" placeholder="${x.bid != null && x.bid !== '' ? x.bid : 'mặc định'}" title="Bid cho group này ở lượt Bulk — trống = theo Danh mục Target (${x.bid ?? 'chưa đặt'})">
+      ${Number(x.offset) ? `<span class="hint">+${Number(x.offset)} ngày</span>` : ''}</span>`; }).join('');
   bkKwSum();
 }
 $('bkGroups').addEventListener('change', (e) => {
   if (!e.target.classList.contains('bkG')) return;
   e.target.checked ? bkGroupsOn.add(e.target.value) : bkGroupsOn.delete(e.target.value);
   bkSave(); bkKwSum();
+});
+$('bkGroups').addEventListener('input', (e) => {
+  if (!e.target.classList.contains('bkGb')) return;
+  if (e.target.value.includes(',')) e.target.value = e.target.value.replace(/,/g, '.');
+  const v = parseFloat(e.target.value);
+  if (e.target.value.trim() === '' || !(v > 0)) delete bkGroupBid[e.target.dataset.g]; else bkGroupBid[e.target.dataset.g] = v;
+  e.target.style.color = e.target.value.trim() && !(v > 0) ? '#e04545' : '';
+  bkSave();
 });
 
 async function bkLoadList(id) {
@@ -2301,8 +2324,9 @@ function bkKeywordsFor(list) {
       const text = String(k.kw || '').trim().toLowerCase();
       if (!text || seen.has(text)) return;
       seen.add(text);
-      const g = gOf(k.group);
+      const g = gOf(k.group), over = bkGroupBid[gKey(k.group)];
       const bid = k.bid != null && k.bid !== '' ? Number(k.bid)
+        : over > 0 ? over
         : g && g.bid != null && g.bid !== '' ? Number(g.bid) : (def > 0 ? def : null);
       const off = g ? (Number(g.offset) || 0) : 0;
       out.push({ text, bid, bids: null, ...(off ? { offset: off } : {}) });
@@ -2379,6 +2403,65 @@ async function runBulk() {
     + (dup ? ` · ⚠ ${dup} dòng TRÙNG TÊN (bôi đỏ)` : '')
     + (lines.length ? `<details style="margin-top:4px"><summary>${failed.length} lỗi · ${skipped.length} bỏ qua · ${cleaned.length} ASIN có keyword dính ký tự đặc biệt</summary>${lines.map(esc).join('<br>')}</details>` : ''));
 }
+
+/* ===== LOWEST COST: mỗi ASIN 1 campaign SP keyword chứa mọi keyword, xuất thẳng file — mỗi acc 1 file ===== */
+$('btnLowest').onclick = async () => {
+  const say = (cls, html) => { $('lcMsg').className = 'msg ' + cls; $('lcMsg').innerHTML = html; };
+  const ps = bkPicked(), bid = parseFloat(String($('lcBid').value).replace(',', '.'));
+  if (!ps.length) return say('err', '❌ Mục 1: chưa chọn ASIN nào');
+  if (!bkGroupsOn.size) return say('err', '❌ Mục 2: tick ít nhất 1 group');
+  if (!(bid > 0)) return say('err', '❌ Điền Bid Lowest Cost (> 0)');
+  if (!$('startDate').value) return say('err', '❌ Mục 1: chưa chọn Ngày tạo');
+  const base = buildPayload();
+  const byAcc = new Map(), skipped = [], failed = [];
+  let i = 0;
+  for (const p of ps) {
+    say('', `⏳ ${++i}/${ps.length} · ${esc(p.asin)}…`);
+    if (!p.sku) { skipped.push(`${p.asin}: thiếu SKU`); continue; }
+    const l = await bkLoadList(p.kwList);
+    const keywords = l ? bkKeywordsFor(l) : [];
+    if (!keywords.length) { skipped.push(`${p.asin}: không có keyword ở group đã chọn`); continue; }
+    const payload = { ...base, keywords, targetAsins: [],
+      info: { ...base.info, sku: p.sku, asin: p.asin, products: [{ asin: p.asin, sku: p.sku, type: p.type || 'FBA' }], type: p.type || 'FBA', category: p.category || '' },
+      portfolios: { ...base.portfolios, global: p.portfolioId || '' },
+      lowestCost: { on: true, bid, matchType: $('lcMatch').value } };
+    try {
+      const r = await (await fetch('/api/launch/preview', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) })).json();
+      if (!r.ok) throw new Error(r.message);
+      if ((r.badPlaceholders || []).length) return say('err', `🚨 Mẫu tên SP Keyword còn biến chưa thay được: ${esc(r.badPlaceholders.join(' '))} — sửa ở mục 4`);
+      const acc = p.acc || '(chưa gán acc)';
+      if (!byAcc.has(acc)) byAcc.set(acc, []);
+      byAcc.get(acc).push(...r.plans);
+    } catch (e) { failed.push(`${p.asin}: ${e.message}`); }
+  }
+  if (!byAcc.size) return say('err', '❌ Không tạo được campaign nào' + [...failed, ...skipped].map((t) => '<br>' + esc(t)).join(''));
+  const files = [];
+  for (const [acc, plansAcc] of byAcc) {
+    say('', `⏳ Đang dựng file ${files.length + 1}/${byAcc.size} · ${esc(acc)}…`);
+    const res = await fetch('/api/launch/export', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ ...base, info: { ...base.info, sku: '', asin: '', products: [] }, plans: plansAcc, saveToBank: false, fileTag: 'lowest-cost' }) });
+    if (!res.ok) { const e = await res.json().catch(() => ({})); failed.push(`${acc}: ${e.message || res.status}`); continue; }
+    if ((res.headers.get('Content-Type') || '').includes('application/json')) { // file > 28MB → server chia phần
+      const info = await res.json();
+      for (const pt of info.parts) {
+        const a = document.createElement('a');
+        a.href = `/api/launch/exports/${encodeURIComponent(pt.id)}?name=${encodeURIComponent(pt.filename)}`; a.download = pt.filename; a.click();
+        files.push(`${pt.filename} — ${pt.campaigns} campaign`);
+        await new Promise((r) => setTimeout(r, 800));
+      }
+      continue;
+    }
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(await res.blob());
+    a.download = (res.headers.get('Content-Disposition') || '').match(/filename="(.+)"/)?.[1] || 'bulk-create-lowest-cost.xlsx';
+    a.click();
+    files.push(`${a.download} — ${plansAcc.length} campaign`);
+    await new Promise((r) => setTimeout(r, 800));
+  }
+  const n = [...byAcc.values()].reduce((s, x) => s + x.length, 0);
+  say(failed.length ? 'err' : 'ok', `✅ ${n} campaign Lowest Cost · ${files.length} file` + files.map((t) => '<br>' + esc(t)).join('')
+    + [...failed.map((t) => '❌ ' + t), ...skipped.map((t) => '⏭ ' + t)].map((t) => '<br>' + esc(t)).join(''));
+};
 
 /* ===== Live preview tên ===== */
 function previewNames() {

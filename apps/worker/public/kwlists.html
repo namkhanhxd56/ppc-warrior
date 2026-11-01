@@ -71,7 +71,7 @@
   <div class="card">
     <h2>🗂 Danh mục Target</h2>
     <p class="sub">
-      Mỗi <b>list</b> (VD "Pickle ornament") gồm nhiều <b>group</b> (keyword product, keyword gift, keyword decor…). Mỗi group (đặt tên tuỳ ý: nhóm root, phân loại…) có <b>bid mặc định</b> và <b>+n ngày</b> so với ngày launch chính (trống = chạy theo Ngày tạo).
+      Mỗi <b>list</b> (VD "Pickle ornament") chia keyword theo <b>group</b> (keyword product, keyword gift, keyword decor…). <b>Group dùng chung cho TẤT CẢ list</b>: mỗi group (đặt tên tuỳ ý: nhóm root, phân loại…) có <b>bid mặc định</b> và <b>+n ngày</b> so với ngày launch chính (trống = chạy theo Ngày tạo) — sửa bid / +n / tên / xoá group ở bất kỳ list nào là áp cho mọi list.
       Keyword theo bid của group, sửa tay từng keyword được. Cùng một keyword nằm ở nhiều list được.<br>
       Mỗi list còn có <b>Target ASIN</b> (đối thủ / ASIN chạy Product Targeting).<br>
       Gán list cho ASIN ở <a href="/catalog.html">📋 Danh mục Tài sản</a> (cột List keyword) → sang <a href="/launching.html">🚀 Tạo Campaign</a> bấm "Kéo từ list" là ra <span style="font-family:ui-monospace,Menlo,monospace">keyword | bid | +n</span> (không kéo volume) vào ô Keywords và Target ASIN vào ô Target ASINs.
@@ -189,7 +189,7 @@ const numOrNull = (v) => { const s = String(v ?? '').trim(); if (!s) return null
 const svNum = (v) => { const s = String(v ?? '').trim(); if (!s) return null; const n = parseFloat(s.replace(/[^0-9.\-]/g, '')); return isNaN(n) ? null : n; };
 const fmtSv = (n) => n == null ? '' : Number(n).toLocaleString('en-US');
 
-const UI_VERSION = '0.48.5';
+const UI_VERSION = '0.49.0';
 (async () => {
   try { const v = (await (await fetch('/api/version')).json()).version; if (v !== UI_VERSION) throw new Error(v); }
   catch (e) { $('verWarn').style.display = 'block'; $('verWarn').textContent = `⚠️ Server phiên bản cũ (${e.message}) — hãy restart (npm start).`; }
@@ -428,25 +428,39 @@ function renderGroups() {
   keep('fGroup', `<option value="*">Mọi group (${cur.keywords.length})</option><option value="">(chưa phân group) (${cnt[''] || 0})</option>`
     + cur.groups.map((g) => `<option value="${esc(g.name)}">${esc(g.name)} (${cnt[g.name] || 0})</option>`).join(''));
 }
-$('gBar').addEventListener('change', (e) => {
+/* Group DÙNG CHUNG cho mọi list (lưu ở /api/kw-groups, không nằm trong list):
+   sửa bid / +n ngày → lưu ngay, áp cho mọi list. Đổi tên / xoá đụng keyword của MỌI list →
+   lưu nốt list đang sửa, gọi server, rồi tải lại list (rev đã tăng). */
+async function groupOp(body, reload) {
+  try {
+    if (reload) await flushSave();
+    const d = await api('/api/kw-groups', { method: 'POST', body });
+    if (reload) await openList(cur.id); else { cur.groups = d.groups; renderAll(); }
+    return d;
+  } catch (e) { msg('saveMsg', 'err', '✕ ' + e.message); renderAll(); return null; }
+}
+$('gBar').addEventListener('change', async (e) => {
   const el = e.target; const i = +el.dataset.i; const g = cur.groups[i]; if (!g) return;
   if (el.dataset.f === 'name') {
     const nv = el.value.trim();
     if (!nv || cur.groups.some((x, j) => j !== i && x.name.toLowerCase() === nv.toLowerCase())) { alert('Tên group trống hoặc bị trùng'); el.value = g.name; return; }
-    for (const k of cur.keywords) if (k.group === g.name) k.group = nv; // đổi tên → keyword đi theo
-    g.name = nv;
-  } else if (el.dataset.f === 'bid') g.bid = numOrNull(el.value);
-  else g.offset = Math.max(0, Math.min(365, parseInt(el.value, 10) || 0));
-  setDirty(true); renderAll();
+    const d = await groupOp({ op: 'rename', from: g.name, to: nv }, true);
+    if (d) msg('saveMsg', 'ok', `✓ Đổi tên group "${g.name}" → "${nv}" · áp cho ${d.lists} list có keyword thuộc group này`);
+  } else if (el.dataset.f === 'bid') {
+    const d = await groupOp({ op: 'upsert', name: g.name, bid: numOrNull(el.value) }, false);
+    if (d) msg('saveMsg', 'ok', `✓ Bid group "${g.name}" = ${numOrNull(el.value) ?? '—'} · áp cho mọi list`);
+  } else {
+    const d = await groupOp({ op: 'upsert', name: g.name, offset: Math.max(0, Math.min(365, parseInt(el.value, 10) || 0)) }, false);
+    if (d) msg('saveMsg', 'ok', `✓ +n ngày group "${g.name}" đã lưu · áp cho mọi list`);
+  }
 });
-$('gBar').addEventListener('click', (e) => {
+$('gBar').addEventListener('click', async (e) => {
   const d = e.target.closest('[data-del]'); if (!d) return;
   const g = cur.groups[+d.dataset.del];
   const n = cur.keywords.filter((k) => k.group === g.name).length;
-  if (n && !confirm(`Xoá group "${g.name}"? ${n} keyword chuyển về "chưa phân group".`)) return;
-  for (const k of cur.keywords) if (k.group === g.name) k.group = '';
-  cur.groups.splice(+d.dataset.del, 1);
-  setDirty(true); renderAll();
+  if (!confirm(`Xoá group "${g.name}" khỏi MỌI list?${n ? `\n${n} keyword ở list này (và keyword của các list khác) chuyển về "chưa phân group".` : ''}`)) return;
+  const r = await groupOp({ op: 'delete', name: g.name }, true);
+  if (r) msg('saveMsg', 'ok', `🗑 Đã xoá group "${g.name}" · ${r.lists} list có keyword chuyển về chưa phân group`);
 });
 /** Tìm group theo tên (không phân biệt hoa thường); chưa có thì tạo mới — dùng cho cả ô
  *  "Tên group mới" lẫn ô "Gán group" (gõ tên mới là tạo luôn, khỏi phải tạo trước rồi mới gán). */
@@ -457,6 +471,8 @@ function ensureGroup(name) {
   if (ex) return { g: ex, created: false };
   const g = { name, bid: null, offset: 0 };
   cur.groups.push(g);
+  // Lưu vào bộ group chung ngay (lưu list sau đó cũng tự thêm — gọi ở đây để list khác thấy liền)
+  api('/api/kw-groups', { method: 'POST', body: { op: 'upsert', name } }).catch((e) => msg('saveMsg', 'err', '✕ ' + e.message));
   return { g, created: true };
 }
 $('gAdd').onclick = () => {

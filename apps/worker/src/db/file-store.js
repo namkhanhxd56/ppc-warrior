@@ -813,24 +813,117 @@ const KWLISTS_FILE = () => path.join(userDataDir(), "kw-lists.json");
 const kwListsAll = () => { const d = readJson(KWLISTS_FILE(), {}); return Array.isArray(d.lists) ? d.lists : []; };
 const kwListsWrite = (lists) => { ensureDirs(); writeJsonAtomic(KWLISTS_FILE(), { lists }, 1); };
 const numOrNull = (v) => { if (v === "" || v === null || v === undefined) return null; const n = parseFloat(String(v).replace(",", ".")); return isNaN(n) ? null : n; };
-function cleanKwList(l) {
-  const groups = [];
-  const gSeen = new Set();
-  for (const g of Array.isArray(l.groups) ? l.groups : []) {
-    const name = String(g.name || "").trim().slice(0, 60);
-    if (!name || gSeen.has(name.toLowerCase())) continue;
-    gSeen.add(name.toLowerCase());
-    groups.push({ name, bid: numOrNull(g.bid), offset: Math.max(0, Math.min(365, Math.round(Number(g.offset) || 0))) });
+const cleanOffset = (v) => Math.max(0, Math.min(365, Math.round(Number(v) || 0)));
+
+/* ===== GROUP DÙNG CHUNG cho mọi list (01/11/2026 — user đổi từ "mỗi list 1 bộ group") =====
+   kw-groups.json = { groups:[{name, bid, offset}] }. List chỉ còn keywords (+ asins); keyword trỏ
+   group theo TÊN. API vẫn trả list.groups = bộ chung → Tạo Campaign / Bulk Create không phải sửa.
+   Lần đầu chạy: gộp group của mọi list (bid/offset lấy giá trị gặp nhiều nhất), keyword có bid
+   BẰNG bid group cũ → về "theo group" (null); khác bid group chung → ghi bid cũ vào keyword
+   để bid hiệu lực không đổi. */
+const KWGROUPS_FILE = () => path.join(userDataDir(), "kw-groups.json");
+const kwGroupsWrite = (groups) => { ensureDirs(); writeJsonAtomic(KWGROUPS_FILE(), { groups }, 1); };
+export function getKwGroups() {
+  const d = readJson(KWGROUPS_FILE(), null);
+  return d && Array.isArray(d.groups) ? d.groups : migrateKwGroups();
+}
+function migrateKwGroups() {
+  const lists = kwListsAll();
+  const by = new Map();
+  const tally = (m, v) => m.set(v, (m.get(v) || 0) + 1);
+  const top = (m) => [...m.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+  for (const l of lists) for (const g of l.groups || []) {
+    const name = String(g.name || "").trim().slice(0, 60); if (!name) continue;
+    const k = name.toLowerCase();
+    if (!by.has(k)) by.set(k, { name, bids: new Map(), offs: new Map() });
+    tally(by.get(k).bids, numOrNull(g.bid)); tally(by.get(k).offs, cleanOffset(g.offset));
   }
-  const gNames = new Set(groups.map((g) => g.name));
+  const groups = [...by.values()].map((o) => ({ name: o.name, bid: top(o.bids) ?? null, offset: top(o.offs) || 0 }));
+  const canon = new Map(groups.map((g) => [g.name.toLowerCase(), g]));
+  for (const l of lists) {
+    const old = new Map((l.groups || []).map((g) => [g.name, g]));
+    if (!(l.groups || []).length) continue;
+    kwSnapshot(l, "trước khi gộp group dùng chung", true);
+    for (const k of l.keywords || []) {
+      const og = old.get(k.group), cg = k.group ? canon.get(String(k.group).toLowerCase()) : null;
+      if (!cg) { k.group = ""; continue; }
+      const oldEff = numOrNull(k.bid) ?? numOrNull(og?.bid);
+      k.group = cg.name;
+      k.bid = oldEff == null || oldEff === cg.bid ? null : oldEff;
+    }
+    l.groups = [];
+  }
+  kwListsWrite(lists);
+  kwGroupsWrite(groups);
+  return groups;
+}
+/** Tên group lạ trong data (list cũ / nạp file / tab chưa tải lại) → THÊM vào bộ chung; group đã có giữ nguyên */
+function addMissingKwGroups(groups) {
+  const all = getKwGroups(), have = new Set(all.map((g) => g.name.toLowerCase()));
+  let added = 0;
+  for (const g of Array.isArray(groups) ? groups : []) {
+    const name = String(g?.name || "").trim().slice(0, 60);
+    if (!name || have.has(name.toLowerCase())) continue;
+    have.add(name.toLowerCase()); all.push({ name, bid: numOrNull(g.bid), offset: cleanOffset(g.offset) }); added++;
+  }
+  if (added) kwGroupsWrite(all);
+}
+/** Sửa bộ group chung: upsert {name, bid?, offset?} · rename {from, to} · delete {name}.
+ *  Đổi tên / xoá đụng keyword của MỌI list → tăng rev các list đó (tab đang mở phải tải lại). */
+export function kwGroupOp(op = {}) {
+  const groups = getKwGroups();
+  const find = (n) => groups.find((g) => g.name.toLowerCase() === String(n || "").trim().toLowerCase());
+  const touchLists = (fn, kind) => {
+    const lists = kwListsAll(); let n = 0;
+    for (const l of lists) {
+      if (!(l.keywords || []).some(fn.test)) continue;
+      kwSnapshot(l, kind, true);
+      for (const k of l.keywords) if (fn.test(k)) fn.apply(k);
+      l.rev = (Number(l.rev) || 0) + 1; l.updatedAt = new Date().toISOString(); n++;
+    }
+    if (n) kwListsWrite(lists);
+    return n;
+  };
+  if (op.op === "upsert") {
+    const name = String(op.name || "").trim().slice(0, 60);
+    if (!name) throw new Error("Thiếu tên group");
+    const ex = find(name);
+    if (ex) { if ("bid" in op) ex.bid = numOrNull(op.bid); if ("offset" in op) ex.offset = cleanOffset(op.offset); }
+    else groups.push({ name, bid: numOrNull(op.bid), offset: cleanOffset(op.offset) });
+    kwGroupsWrite(groups);
+    return { groups, lists: 0 };
+  }
+  if (op.op === "rename") {
+    const g = find(op.from), to = String(op.to || "").trim().slice(0, 60);
+    if (!g) throw new Error("Không có group " + op.from);
+    if (!to) throw new Error("Tên group trống");
+    if (find(to) && find(to) !== g) throw new Error(`Đã có group "${to}"`);
+    const from = g.name;
+    const n = touchLists({ test: (k) => k.group === from, apply: (k) => { k.group = to; } }, `trước khi đổi tên group "${from}"`);
+    g.name = to; kwGroupsWrite(groups);
+    return { groups, lists: n };
+  }
+  if (op.op === "delete") {
+    const g = find(op.name);
+    if (!g) throw new Error("Không có group " + op.name);
+    const n = touchLists({ test: (k) => k.group === g.name, apply: (k) => { k.group = ""; } }, `trước khi xoá group "${g.name}"`);
+    const next = groups.filter((x) => x !== g); kwGroupsWrite(next);
+    return { groups: next, lists: n };
+  }
+  throw new Error("Thao tác group không hợp lệ");
+}
+
+function cleanKwList(l) {
+  const canon = new Map(getKwGroups().map((g) => [g.name.toLowerCase(), g.name]));
   const keywords = [];
   const kSeen = new Set();
   for (const k of Array.isArray(l.keywords) ? l.keywords : []) {
     const kw = String(k.kw || "").replace(/\s+/g, " ").trim().toLowerCase().slice(0, 200);
     if (!kw || kSeen.has(kw)) continue;
     kSeen.add(kw);
-    keywords.push({ kw, sv: numOrNull(k.sv), group: gNames.has(k.group) ? k.group : "", bid: numOrNull(k.bid) });
+    keywords.push({ kw, sv: numOrNull(k.sv), group: canon.get(String(k.group || "").trim().toLowerCase()) || "", bid: numOrNull(k.bid) });
   }
+  const groups = []; // group nằm ở bộ chung (kw-groups.json), list không lưu riêng nữa
   // Target ASIN của list (đối thủ / ASIN muốn chạy Product Targeting) — Tạo Campaign kéo vào ô Target ASINs
   const asins = [...new Set((Array.isArray(l.asins) ? l.asins : [])
     .map((a) => String(a || "").trim().toUpperCase()).filter((a) => /^[A-Z0-9]{10}$/.test(a)))].slice(0, 5000);
@@ -867,16 +960,22 @@ export function listKwHistory(id) {
 export function getKwVersion(id, at) { return kwHistRead(id).find((v) => v.at === at)?.data || null; }
 
 export function listKwLists() {
-  return kwListsAll().map((l) => ({ id: l.id, name: l.name, groups: l.groups || [], kwCount: (l.keywords || []).length,
+  const groups = getKwGroups(); // gọi TRƯỚC kwListsAll: lần đầu sẽ chuyển dữ liệu sang group chung
+  return kwListsAll().map((l) => ({ id: l.id, name: l.name, groups, kwCount: (l.keywords || []).length,
     asinCount: (l.asins || []).length, updatedAt: l.updatedAt, rev: Number(l.rev) || 0 }))
     .sort((a, b) => a.name.localeCompare(b.name));
 }
-export function getKwList(id) { return kwListsAll().find((l) => l.id === id) || null; }
+export function getKwList(id) {
+  const groups = getKwGroups();
+  const l = kwListsAll().find((x) => x.id === id);
+  return l ? { ...l, groups } : null;
+}
 export function createKwList(name, data) {
+  addMissingKwGroups(data?.groups);
   const lists = kwListsAll();
   const l = cleanKwList({ groups: [], keywords: [], asins: [], ...(data || {}), id: "kl" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), name, rev: 1 });
   lists.push(l); kwListsWrite(lists);
-  return l;
+  return { ...l, groups: getKwGroups() };
 }
 /**
  * Ghi list. opts.baseRev: rev trang đang cầm — lệch với server thì trả {conflict} (không ghi).
@@ -884,6 +983,7 @@ export function createKwList(name, data) {
  * opts.kind: nhãn cho bản chụp lịch sử ("tự lưu" | "nạp file" | "khôi phục" | "ghi đè").
  */
 export function saveKwList(id, data, opts = {}) {
+  addMissingKwGroups(data?.groups); // cũng chạy chuyển đổi lần đầu trước khi đọc list
   const lists = kwListsAll();
   const i = lists.findIndex((l) => l.id === id);
   if (i === -1) return null;
@@ -895,7 +995,7 @@ export function saveKwList(id, data, opts = {}) {
   kwSnapshot(cur, kind, kind !== "tự lưu");
   lists[i] = cleanKwList({ ...data, id, rev: curRev + 1 });
   kwListsWrite(lists);
-  return lists[i];
+  return { ...lists[i], groups: getKwGroups() };
 }
 export function restoreKwVersion(id, at) {
   const v = getKwVersion(id, at);
@@ -903,6 +1003,7 @@ export function restoreKwVersion(id, at) {
   return saveKwList(id, { ...v, id }, { force: true, kind: "trước khi khôi phục" });
 }
 export function deleteKwList(id) {
+  getKwGroups();
   const lists = kwListsAll();
   const gone = lists.find((l) => l.id === id);
   const next = lists.filter((l) => l.id !== id);
