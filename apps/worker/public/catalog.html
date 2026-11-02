@@ -74,7 +74,7 @@
   <div class="card">
     <h2>📦 Danh mục sản phẩm</h2>
     <p class="sub">
-      Mỗi dòng là một sản phẩm. <b>Type</b> quyết định tiền tố tên campaign qua <span class="mono">{Type}</span> — FBA hay FBM.<br>
+      Mỗi dòng là một sản phẩm. <b>Tự lưu</b>: gõ, dán, xoá dòng, gán hàng loạt đều tự lưu sau 1 giây ngừng tay (dòng chữ cạnh nút 💾 báo giờ lưu; ASIN chưa đủ 10 ký tự thì chờ sửa xong mới lưu). <b>Type</b> quyết định tiền tố tên campaign qua <span class="mono">{Type}</span> — FBA hay FBM.<br>
       Sang Tạo Campaign, chọn ASIN thì SKU và Portfolio mặc định tự điền.<br>
       <b>Acc</b> = tài khoản seller của ASIN — Tạo Campaign <b>không cho xuất</b> file bulk trộn ASIN của nhiều acc. Portfolio mặc định đã ghi Acc ở Danh mục portfolio thì Acc <b style="color:#2455e6">tự điền theo portfolio</b> (chữ xanh, khoá — sửa ở bảng portfolio bên dưới); chưa có thì gõ Acc trực tiếp vào ô.<br>
       Dán thẳng từ Excel được: copy 3 cột <span class="mono">ASIN · SKU · Portfolio ID</span> rồi bấm vào ô ASIN và dán (thêm <span class="mono">Acc</span> phía trước thì dán vào ô Acc, thêm <span class="mono">Type · Acc</span> thì dán vào ô Type).
@@ -105,7 +105,7 @@
   <div class="card">
     <h2>🗂 Danh mục portfolio</h2>
     <p class="sub">
-      Nạp Portfolio ID, tên và <b>Acc</b> (dán 3 cột từ Excel được). Ô Acc để trống thì <b style="color:#2455e6">tự tra từ Danh mục sản phẩm</b> (chữ xanh — Acc của sản phẩm dùng portfolio này; <b style="color:#c0392b">chữ đỏ</b> = các sản phẩm ghi Acc khác nhau). Gõ Acc vào đây thì áp cho mọi sản phẩm dùng portfolio này (đè Acc gõ ở sản phẩm); xoá trống để quay về tra từ sản phẩm. Sau khi lưu, <b>13 ô portfolio</b> trong trang Tạo Campaign đổi từ gõ tay sang chọn theo tên — hết nhầm ID.<br>
+      Nạp Portfolio ID, tên và <b>Acc</b> (dán 3 cột từ Excel được) — <b>tự lưu</b> như bảng sản phẩm. Ô Acc để trống thì <b style="color:#2455e6">tự tra từ Danh mục sản phẩm</b> (chữ xanh — Acc của sản phẩm dùng portfolio này; <b style="color:#c0392b">chữ đỏ</b> = các sản phẩm ghi Acc khác nhau). Gõ Acc vào đây thì áp cho mọi sản phẩm dùng portfolio này (đè Acc gõ ở sản phẩm); xoá trống để quay về tra từ sản phẩm. Sau khi lưu, <b>13 ô portfolio</b> trong trang Tạo Campaign đổi từ gõ tay sang chọn theo tên — hết nhầm ID.<br>
       Tên portfolio cũng đi vào tên campaign khi một campaign gom nhiều ASIN hoặc nhiều keyword.<br>
       <b>Budget</b> theo <b>bộ budget</b> đặt tên (VD "Đầu ngày $1", "Giữa ngày") — đổi bộ là cột Budget đổi theo, gõ là <b>tự lưu</b> vào bộ đang chọn.
       Bấm <b>⬇ Xuất Bulk-port</b> ra file đổi budget portfolio (Operation <span class="mono">Update</span>) upload lên Amazon; ô Budget <b>trống = No Cap</b>.
@@ -153,7 +153,7 @@ const UI_VERSION = '0.49.2';
 })();
 
 /* Bảng nhập liệu kiểu bảng tính: mỗi ô là một <input>, dán từ Excel thì tự trải ra nhiều
-   dòng/cột. Cố ý KHÔNG tự lưu từng phím gõ — người dùng bấm Lưu, để còn sửa thoải mái. */
+   dòng/cột. Gõ / dán / xoá dòng / gán hàng loạt → TỰ LƯU sau ~1 giây ngừng tay (xem "TỰ LƯU" cuối file). */
 function cellsOf(tr) { return [...tr.querySelectorAll('input:not([type=checkbox]),select')]; } // bỏ ô tick chọn dòng
 
 function pasteInto(tbody, startTr, startCol, text, addRow) {
@@ -188,6 +188,7 @@ function wirePaste(tbody, addRow) {
     const col = cellsOf(tr).indexOf(e.target);
     pasteInto(tbody, tr, col, txt, addRow);
     syncAcc();
+    scheduleSave(tbody.id === 'pBody' ? 'p' : 'f');
   });
 }
 
@@ -270,17 +271,24 @@ $('pCopy').onclick = async () => {
   catch { $('pMsg').className = 'msg err'; $('pMsg').textContent = '✕ Trình duyệt chặn copy — bôi đen ô rồi Cmd+C'; }
 };
 
-$('pSave').onclick = async () => {
+/** Lưu bảng sản phẩm. auto = tự lưu: không vẽ lại bảng (đang gõ dở thì mất con trỏ), không bao giờ xoá sạch.
+ *  Trả 'ok' | 'wait' (dữ liệu chưa lưu được — chờ sửa) | 'fail' (lỗi mạng/server). */
+async function saveProducts(auto) {
   const rows = pRead();
   const bad = rows.filter((r) => !/^[A-Z0-9]{10}$/.test(r.asin));
-  if (bad.length) { $('pMsg').className = 'msg err'; $('pMsg').textContent = `✕ ASIN không hợp lệ: ${bad.map((b) => b.asin).join(', ')}`; return; }
-  if (!rows.length && !confirm('Bảng đang trống — lưu sẽ XOÁ toàn bộ danh mục sản phẩm. Tiếp tục?')) return;
-  const r = await (await fetch('/api/catalog/products', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ rows, confirmEmpty: !rows.length }) })).json();
-  $('pMsg').className = r.ok ? 'msg ok' : 'msg err';
-  $('pMsg').textContent = r.ok ? `✓ Đã lưu ${r.products.length} sản phẩm` : '✕ ' + (r.message || 'Lỗi');
-  if (r.ok) render(r.products, null);
-};
+  // ASIN đang gõ dở / sai → CHỜ, không lưu phần còn lại: server bỏ dòng sai = mất hồ sơ sản phẩm của ASIN đó
+  if (bad.length) { say('p', 'err', `✕ ASIN không hợp lệ: ${bad.map((b) => b.asin).join(', ')} — sửa xong sẽ tự lưu`); return 'wait'; }
+  if (!rows.length) {
+    if (auto) { say('p', 'err', 'Bảng trống — không tự lưu. Bấm 💾 Lưu danh mục nếu thật sự muốn xoá toàn bộ'); return 'wait'; }
+    if (!confirm('Bảng đang trống — lưu sẽ XOÁ toàn bộ danh mục sản phẩm. Tiếp tục?')) return 'wait';
+  }
+  const r = await postJson('/api/catalog/products', { rows, confirmEmpty: !rows.length });
+  if (!r.ok) { say('p', 'err', '✕ Chưa lưu được: ' + (r.message || 'Lỗi') + ' — sửa tiếp hoặc bấm 💾 Lưu để thử lại'); return 'fail'; }
+  say('p', 'ok', `✓ Đã ${auto ? 'tự ' : ''}lưu ${r.products.length} sản phẩm · ${clock()}`);
+  if (!auto) render(r.products, null);
+  return 'ok';
+}
+$('pSave').onclick = () => flushSave('p', false);
 
 /* ===== Bảng portfolio ===== */
 function fRow(r = {}) {
@@ -298,25 +306,32 @@ function fRow(r = {}) {
 $('fAdd').onclick = () => fRow();
 wirePaste($('fBody'), () => fRow());
 
-$('fSave').onclick = async () => {
+async function savePortfolios(auto) {
   const rows = [...$('fBody').children].map((tr) => {
     const c = cellsOf(tr);
     return { id: c[0].value.trim(), name: c[1].value.trim(), acc: c[2].dataset.own.trim() }; // Acc tra từ sản phẩm không lưu vào portfolio
   }).filter((r) => r.id);
-  const r = await (await fetch('/api/catalog/portfolios', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ rows }) })).json();
-  $('fMsg').className = r.ok ? 'msg ok' : 'msg err';
-  $('fMsg').textContent = r.ok ? `✓ Đã lưu ${r.portfolios.length} portfolio` : '✕ ' + (r.message || 'Lỗi');
-  if (r.ok) { pfList = r.portfolios; pfDatalist(); syncAcc(); }
-};
+  if (!rows.length && pfList.length) {
+    if (auto) { say('f', 'err', 'Bảng trống — không tự lưu. Bấm 💾 Lưu portfolio nếu thật sự muốn xoá toàn bộ'); return 'wait'; }
+    if (!confirm('Bảng đang trống — lưu sẽ XOÁ toàn bộ danh mục portfolio. Tiếp tục?')) return 'wait';
+  }
+  const r = await postJson('/api/catalog/portfolios', { rows });
+  if (!r.ok) { say('f', 'err', '✕ Chưa lưu được: ' + (r.message || 'Lỗi') + ' — sửa tiếp hoặc bấm 💾 Lưu để thử lại'); return 'fail'; }
+  say('f', 'ok', `✓ Đã ${auto ? 'tự ' : ''}lưu ${r.portfolios.length} portfolio · ${clock()}`);
+  pfList = r.portfolios; pfDatalist(); syncAcc();
+  return 'ok';
+}
+$('fSave').onclick = () => flushSave('f', false);
 
-$('btnMgr').onclick = async () => {
-  const r = await (await fetch('/api/catalog/manager', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ manager: $('manager').value }) })).json();
-  $('mgrMsg').className = 'msg ok';
-  $('mgrMsg').textContent = '✓ đã lưu';
-  setTimeout(() => { $('mgrMsg').textContent = ''; }, 2500);
-};
+async function saveManager() {
+  const r = await postJson('/api/catalog/manager', { manager: $('manager').value });
+  if (!r.ok) { say('mgr', 'err', '✕ Chưa lưu được — thử lại'); return 'fail'; }
+  say('mgr', 'ok', '✓ đã lưu');
+  setTimeout(() => { if ($('mgrMsg').textContent === '✓ đã lưu') $('mgrMsg').textContent = ''; }, 2500);
+  return 'ok';
+}
+$('btnMgr').onclick = () => flushSave('mgr', false);
+$('manager').addEventListener('input', () => scheduleSave('mgr'));
 
 function render(products, portfolios) {
   // Portfolio TRƯỚC: cột Acc của sản phẩm tra từ bảng portfolio
@@ -362,28 +377,83 @@ for (const k of ['p', 'f']) {
   $(k + 'Del').onclick = () => {
     const rows = pickedRows(k); if (!rows.length) return;
     const what = k === 'p' ? 'sản phẩm' : 'portfolio';
-    if (!confirm(`Xoá ${rows.length} dòng ${what} khỏi bảng?\n(Chỉ mất hẳn khi bấm 💾 Lưu ${k === 'p' ? 'danh mục' : 'portfolio'} — tải lại trang trước khi lưu là lấy lại được.)`)) return;
+    if (!confirm(`Xoá ${rows.length} dòng ${what} khỏi danh mục?\n(Tự lưu ngay sau khi xoá.)`)) return;
     rows.forEach((tr) => tr.remove());
     lastCk[k] = -1; updateBar(k);
     syncAcc(); // Acc/tên tra lại giữa hai bảng
-    const m = $(k + 'Msg'); m.className = 'msg'; m.textContent = `🗑 Đã bỏ ${rows.length} dòng — bấm 💾 Lưu để lưu thay đổi`;
+    scheduleSave(k, `🗑 Đã bỏ ${rows.length} dòng — đang tự lưu…`);
   };
 }
 document.querySelectorAll('[data-ptype]').forEach((b) => b.onclick = () => {
   const rows = pickedRows('p'); rows.forEach((tr) => { cellsOf(tr)[0].value = b.dataset.ptype; });
-  $('pMsg').className = 'msg'; $('pMsg').textContent = `✓ Đổi Type ${rows.length} dòng → ${b.dataset.ptype} — bấm 💾 Lưu danh mục`;
+  scheduleSave('p', `✓ Đổi Type ${rows.length} dòng → ${b.dataset.ptype} — đang tự lưu…`);
 });
 $('pKwApply').onclick = () => {
   const rows = pickedRows('p'), v = $('pKwBulk').value;
   rows.forEach((tr) => { tr.querySelector('.kwSel').value = v; });
-  $('pMsg').className = 'msg'; $('pMsg').textContent = `✓ Gán List keyword cho ${rows.length} dòng — bấm 💾 Lưu danh mục`;
+  scheduleSave('p', `✓ Gán List keyword cho ${rows.length} dòng — đang tự lưu…`);
 };
 $('fAccApply').onclick = () => {
   const rows = pickedRows('f'), v = $('fAccBulk').value.trim();
   rows.forEach((tr) => { const a = cellsOf(tr)[2]; a.dataset.own = a.value = v; });
   syncAcc();
-  $('fMsg').className = 'msg'; $('fMsg').textContent = `✓ Gán Acc "${v}" cho ${rows.length} portfolio — bấm 💾 Lưu portfolio`;
+  scheduleSave('f', `✓ Gán Acc "${v}" cho ${rows.length} portfolio — đang tự lưu…`);
 };
+/* ===== TỰ LƯU =====
+   k = 'p' (sản phẩm) · 'f' (portfolio) · 'mgr' (mã cá nhân). Sửa → chờ 1 giây ngừng tay rồi lưu cả bảng
+   (API ghi đè cả danh mục). Mỗi bảng chỉ 1 lượt lưu chạy cùng lúc; sửa tiếp trong lúc đang lưu thì lưu thêm
+   1 lượt sau đó. Budget có cơ chế tự lưu riêng (budSoon). Nút 💾 Lưu vẫn còn = lưu ngay. */
+const AUTO_MS = 1000;
+const autoSt = { p: {}, f: {}, mgr: {} }; // { t: timer, dirty, busy: Promise, blocked }
+const SAVERS = { p: saveProducts, f: savePortfolios, mgr: saveManager };
+function say(k, cls, text) { const m = $(k + 'Msg'); m.className = 'msg' + (cls ? ' ' + cls : ''); m.textContent = text; }
+function clock() { return new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }); }
+let unloading = false; // đóng/tải lại trang → keepalive để lượt lưu cuối vẫn tới server
+async function postJson(url, body) {
+  try {
+    const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), keepalive: unloading });
+    return await res.json();
+  } catch (e) { return { ok: false, message: 'Mất kết nối server' }; }
+}
+function scheduleSave(k, msg) {
+  const s = autoSt[k];
+  s.dirty = true;
+  clearTimeout(s.t);
+  s.t = setTimeout(() => flushSave(k, true), AUTO_MS);
+  if (k !== 'mgr') say(k, '', msg || '✎ Đang sửa — tự lưu sau 1 giây…');
+}
+async function flushSave(k, auto) {
+  const s = autoSt[k];
+  clearTimeout(s.t);
+  if (s.busy) { s.dirty = true; if (!auto) s.manual = true; return s.busy; } // lưu xong lượt đang chạy sẽ lưu tiếp
+  if (auto && !s.dirty) return;
+  s.dirty = false;
+  if (k !== 'mgr') say(k, '', '⏳ Đang lưu…');
+  s.busy = SAVERS[k](auto);
+  const res = await s.busy;
+  s.busy = null;
+  s.blocked = res === 'wait'; // dữ liệu chưa hợp lệ → giữ cảnh báo khi rời trang
+  if (res === 'fail') s.dirty = true;
+  if (s.dirty && res === 'ok') { const m = s.manual; s.manual = false; return flushSave(k, !m); } // có sửa thêm trong lúc lưu
+}
+for (const [k, tb] of [['p', 'pBody'], ['f', 'fBody']]) {
+  const onEdit = (e) => { if (!e.target.closest('.rowCk') && !e.target.classList.contains('budCell')) scheduleSave(k); };
+  $(tb).addEventListener('input', onEdit);
+  $(tb).addEventListener('change', onEdit);
+}
+// Rời trang khi còn phần chưa lưu: lưu ngay (keepalive); dữ liệu chưa hợp lệ / đang lỗi thì hỏi lại
+window.addEventListener('beforeunload', (e) => {
+  unloading = true;
+  let warn = false;
+  for (const k of Object.keys(autoSt)) {
+    const s = autoSt[k];
+    if (s.blocked || (s.dirty && s.busy)) warn = true;
+    else if (s.dirty) flushSave(k, true);
+  }
+  setTimeout(() => { unloading = false; }, 0); // người dùng bấm "Ở lại" → các lượt sau lưu bình thường
+  if (warn) { e.preventDefault(); e.returnValue = ''; }
+});
+
 // Sửa một bảng → Acc + tên ở bảng kia cập nhật ngay (sản phẩm ⇄ portfolio)
 let syncT = null;
 for (const tb of ['pBody', 'fBody']) {
