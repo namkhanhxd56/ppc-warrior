@@ -4,6 +4,7 @@
 import fs from "fs";
 import path from "path";
 import { userDataDir } from "./user-context.js";
+import { cleanKeyword } from "../launching/bulk-builder.js";
 
 // PHÂN VÙNG THEO USER (05/08/2026): mọi đường dẫn resolve TẠI THỜI ĐIỂM GỌI qua userDataDir()
 // — chưa đăng nhập/admin gốc → ./data (dữ liệu cũ nguyên vẹn); member → ./data/users/<name>/
@@ -810,7 +811,47 @@ export function savePortfolioBudgets(body) {
    Cùng 1 keyword được nằm ở nhiều list (mỗi list giữ group/bid riêng).
    Sản phẩm trong Danh mục gán kwList = id list → Tạo Campaign kéo nhanh "kw | bid | +n". */
 const KWLISTS_FILE = () => path.join(userDataDir(), "kw-lists.json");
-const kwListsAll = () => { const d = readJson(KWLISTS_FILE(), {}); return Array.isArray(d.lists) ? d.lists : []; };
+/** Làm sạch + bỏ trùng keyword: ký tự ẩn (U+FFFC "OBJ" khi copy từ web/H10, zero-width…) và ký hiệu ở
+    2 đầu. Trùng sau khi làm sạch → giữ dòng đầu, lấy sv/group/bid còn trống từ dòng trùng. */
+function dedupKw(arr) {
+  const out = [], by = new Map();
+  for (const k of Array.isArray(arr) ? arr : []) {
+    const kw = cleanKeyword(k?.kw).slice(0, 200);
+    if (!kw) continue;
+    const ex = by.get(kw);
+    if (ex) {
+      if (numOrNull(ex.sv) == null && numOrNull(k.sv) != null) ex.sv = k.sv;
+      if (!ex.group && k.group) ex.group = k.group;
+      if (numOrNull(ex.bid) == null && numOrNull(k.bid) != null) ex.bid = k.bid;
+      continue;
+    }
+    const o = { ...k, kw };
+    by.set(kw, o); out.push(o);
+  }
+  return out;
+}
+/* Dữ liệu lưu TRƯỚC khi có dedupKw có thể còn ký tự ẩn → dọn 1 lần mỗi file (mỗi tài khoản) mỗi lần
+   chạy server, chụp lịch sử list trước khi dọn. Không tăng rev: tab đang mở lỡ lưu bản cũ thì
+   cleanKwList cũng dọn lại. */
+const kwCleanedFiles = new Set();
+const kwListsAll = () => {
+  const file = KWLISTS_FILE();
+  const d = readJson(file, {});
+  const lists = Array.isArray(d.lists) ? d.lists : [];
+  if (!kwCleanedFiles.has(file)) {
+    kwCleanedFiles.add(file);
+    let changed = false;
+    for (const l of lists) {
+      const before = Array.isArray(l.keywords) ? l.keywords : [];
+      const after = dedupKw(before);
+      if (after.length === before.length && after.every((k, i) => k.kw === before[i].kw)) continue;
+      kwSnapshot(l, "dọn ký tự ẩn / trùng", true);
+      l.keywords = after; changed = true;
+    }
+    if (changed) kwListsWrite(lists);
+  }
+  return lists;
+};
 const kwListsWrite = (lists) => { ensureDirs(); writeJsonAtomic(KWLISTS_FILE(), { lists }, 1); };
 const numOrNull = (v) => { if (v === "" || v === null || v === undefined) return null; const n = parseFloat(String(v).replace(",", ".")); return isNaN(n) ? null : n; };
 const cleanOffset = (v) => Math.max(0, Math.min(365, Math.round(Number(v) || 0)));
@@ -915,14 +956,8 @@ export function kwGroupOp(op = {}) {
 
 function cleanKwList(l) {
   const canon = new Map(getKwGroups().map((g) => [g.name.toLowerCase(), g.name]));
-  const keywords = [];
-  const kSeen = new Set();
-  for (const k of Array.isArray(l.keywords) ? l.keywords : []) {
-    const kw = String(k.kw || "").replace(/\s+/g, " ").trim().toLowerCase().slice(0, 200);
-    if (!kw || kSeen.has(kw)) continue;
-    kSeen.add(kw);
-    keywords.push({ kw, sv: numOrNull(k.sv), group: canon.get(String(k.group || "").trim().toLowerCase()) || "", bid: numOrNull(k.bid) });
-  }
+  const keywords = dedupKw(l.keywords).map((k) => ({ kw: k.kw, sv: numOrNull(k.sv),
+    group: canon.get(String(k.group || "").trim().toLowerCase()) || "", bid: numOrNull(k.bid) }));
   const groups = []; // group nằm ở bộ chung (kw-groups.json), list không lưu riêng nữa
   // Target ASIN của list (đối thủ / ASIN muốn chạy Product Targeting) — Tạo Campaign kéo vào ô Target ASINs
   const asins = [...new Set((Array.isArray(l.asins) ? l.asins : [])
@@ -1020,7 +1055,7 @@ export function mergeKwIntoList(id, rows, group) {
   const byKw = new Map(l.keywords.map((k) => [k.kw, k]));
   let added = 0, updated = 0;
   for (const r of rows || []) {
-    const kw = String(r.kw || "").replace(/\s+/g, " ").trim().toLowerCase();
+    const kw = cleanKeyword(r.kw).slice(0, 200);
     if (!kw) continue;
     const ex = byKw.get(kw);
     if (ex) { if (r.sv != null) { ex.sv = r.sv; updated++; } continue; }

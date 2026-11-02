@@ -9,6 +9,7 @@
 // Chỉ lấy keyword + search volume — Danh mục Target không cần các cột khác.
 
 import * as XLSX from "xlsx";
+import { cleanKeyword } from "../launching/bulk-builder.js";
 
 const norm = (s) => String(s ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
 const KW_ALIASES = ["keywordphrase", "searchquery", "customersearchterm", "searchterm", "keyword", "query", "keywords"];
@@ -29,7 +30,10 @@ const colOf = (H, aliases) => {
 
 /** buffer → { rows:[{kw, sv}], source:"H10"|"SQP"|"file", total } — keyword trùng trong file giữ volume lớn nhất. */
 export function parseKeywordFile(buf) {
-  const wb = XLSX.read(buf, { type: "buffer" });
+  // xlsx = zip ("PK"), xls = OLE (D0 CF). Còn lại là csv/txt: đọc thẳng buffer thì file UTF-8 không BOM bị
+  // giải mã kiểu latin1 → U+FFFC thành "ï¿¼", chữ có dấu vỡ → tự giải mã UTF-8 trước.
+  const binary = (buf[0] === 0x50 && buf[1] === 0x4b) || (buf[0] === 0xd0 && buf[1] === 0xcf);
+  const wb = binary ? XLSX.read(buf, { type: "buffer" }) : XLSX.read(buf.toString("utf8").replace(/^﻿/, ""), { type: "string" });
   const sheet = wb.Sheets[wb.SheetNames[0]];
   const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "", raw: false });
   if (!rows.length) throw new Error("File rỗng");
@@ -54,7 +58,7 @@ export function parseKeywordFile(buf) {
   const best = new Map();
   for (let i = hi + 1; i < rows.length; i++) {
     const r = rows[i];
-    const kw = String(r[kwCol] ?? "").replace(/\s+/g, " ").trim().toLowerCase();
+    const kw = cleanKeyword(r[kwCol]); // ký tự ẩn U+FFFC… + ký hiệu 2 đầu → bản sạch mới gộp trùng đúng
     if (!kw || kw.length > 200) continue;
     const sv = svCol === -1 ? null : num(r[svCol]);
     if (!best.has(kw) || (sv != null && (best.get(kw) == null || sv > best.get(kw)))) best.set(kw, sv);
