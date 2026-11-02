@@ -268,24 +268,44 @@ function toast(msg, ms = 2800) {
 }
 
 // Co kéo độ rộng cột (kéo cạnh phải ô tiêu đề). Gọi SAU khi đã có dữ liệu để khóa bề rộng tự nhiên.
+// Bảng bị dựng lại mỗi lần filter / sort / bulk / đổi tab → độ rộng đã kéo được NHỚ theo từng bảng
+// (lưu cả localStorage) và áp lại sau khi dựng. Nhấp đúp tay kéo → về độ rộng mặc định.
+const colWKey = (id) => 'ppcw_adj_cols_' + id;
+const loadColW = (id) => { try { const a = JSON.parse(localStorage.getItem(colWKey(id))); return Array.isArray(a) ? a : null; } catch { return null; } };
+const saveColW = (id, ws) => { try { localStorage.setItem(colWKey(id), JSON.stringify(ws)); } catch {} };
 function makeResizable(tableId) {
   const table = document.getElementById(tableId); if (!table) return;
   const ths = [...table.querySelectorAll('thead th')];
   if (!ths.length) return;
-  // Khóa bề rộng hiện tại + table-layout:fixed → cho phép kéo THU NHỎ (co vào), không bị nội dung chặn
-  ths.forEach((th) => { th.style.width = th.offsetWidth + 'px'; });
-  table.style.width = table.offsetWidth + 'px';
-  table.style.tableLayout = 'fixed';
+  const lock = () => {
+    const saved = loadColW(tableId);
+    const ws = saved && saved.length === ths.length ? saved : ths.map((th) => th.offsetWidth); // đo TRƯỚC khi khóa
+    ths.forEach((th, i) => { th.style.width = ws[i] + 'px'; });
+    table.style.width = ws.reduce((s, w) => s + w, 0) + 'px';
+    // table-layout:fixed → cho phép kéo THU NHỎ (co vào), không bị nội dung chặn
+    table.style.tableLayout = 'fixed';
+  };
+  lock();
+  const save = () => saveColW(tableId, ths.map((th) => th.offsetWidth));
   ths.forEach((th) => {
     if (th.querySelector('.col-resizer')) return;
     const h = document.createElement('span'); h.className = 'col-resizer';
+    h.title = 'Kéo để đổi độ rộng · nhấp đúp: về mặc định';
     th.appendChild(h);
     h.addEventListener('mousedown', (e) => {
       const startX = e.pageX, startW = th.offsetWidth, startTW = table.offsetWidth;
       const move = (ev) => { const w = Math.max(28, startW + ev.pageX - startX); th.style.width = w + 'px'; table.style.width = (startTW + w - startW) + 'px'; };
-      const up = () => { document.removeEventListener('mousemove', move); document.removeEventListener('mouseup', up); document.body.style.userSelect = ''; };
+      const up = () => { document.removeEventListener('mousemove', move); document.removeEventListener('mouseup', up); document.body.style.userSelect = ''; save(); };
       document.addEventListener('mousemove', move); document.addEventListener('mouseup', up);
       document.body.style.userSelect = 'none'; e.preventDefault(); e.stopPropagation();
+    });
+    h.addEventListener('click', (e) => e.stopPropagation()); // không sắp xếp khi bấm vào tay kéo
+    h.addEventListener('dblclick', (e) => {
+      e.preventDefault(); e.stopPropagation();
+      try { localStorage.removeItem(colWKey(tableId)); } catch {}
+      ths.forEach((x) => { x.style.width = ''; });
+      table.style.width = ''; table.style.tableLayout = '';
+      lock();
     });
   });
 }
