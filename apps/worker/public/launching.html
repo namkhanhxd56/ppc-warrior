@@ -172,6 +172,13 @@
   #bkGroups .bkGrp { display:inline-flex; align-items:center; gap:4px; margin:4px 18px 4px 0; padding:3px 8px; border:1px solid #e3e8f0; border-radius:8px; background:#fcfdff; }
   #bkGroups label.chk { display:inline-flex; margin:0; }
   #bkGroups .bkGb { width:64px; padding:3px 6px; font-size:12px; }
+  table.bk tr.empty td { background:#fff1f1; }
+  table.bk td.why { white-space:normal; color:#e04545; }
+  table.bk tr.part td { background:#fffaf0; }
+  table.bk td.why.part { color:#b45309; }
+  .bkX { border:0; background:none; color:var(--mut); cursor:pointer; font-size:13px; padding:0 4px; }
+  .bkX:hover { color:#e04545; }
+  #bkEmptyList { max-height:180px; overflow:auto; margin-top:4px; padding:6px 10px; border:1px solid #f5c2c2; border-radius:8px; background:#fff8f8; line-height:1.6; }
 </style>
 </head>
 <body>
@@ -189,12 +196,18 @@
       <div style="flex:0 0 260px"><label>Tìm</label><input type="text" id="bkFind" data-nopersist="1" placeholder="Acc, ASIN, SKU, tên list…" autocomplete="off"></div>
       <div style="flex:0 0 168px" id="bkDateSlot"><label>Ngày tạo</label></div>
       <label class="chk" style="margin:0 0 7px;flex:0 0 auto"><input type="checkbox" id="bkOnlyList" data-nopersist="1" checked> Chỉ hiện ASIN đã có list</label>
+      <label class="chk" style="margin:0 0 7px;flex:0 0 auto"><input type="checkbox" id="bkOnlyPicked" data-nopersist="1"> Chỉ hiện ASIN đã chọn <span class="hint" id="bkPickedN"></span></label>
     </div>
     <div class="bk-wrap"><table class="bk"><thead><tr>
       <th style="width:34px"><input type="checkbox" id="bkAll" data-nopersist="1" title="Chọn / bỏ tất cả dòng đang hiện"></th>
       <th style="width:90px">Acc</th><th style="width:118px">ASIN</th><th style="width:150px">SKU</th><th>Portfolio</th><th>List keyword</th>
     </tr></thead><tbody id="bkBody"></tbody></table></div>
     <div class="hint" id="bkSum" style="margin-top:6px"></div>
+    <details id="bkPickedBox" style="margin-top:8px;display:none"><summary id="bkPickedSum">👁 Hiện các ASIN đã chọn</summary>
+      <div class="bk-wrap"><table class="bk"><thead><tr>
+        <th style="width:90px">Acc</th><th style="width:118px">ASIN</th><th style="width:150px">SKU</th><th>List keyword</th><th style="width:34%">Sẽ tạo (theo group đã tick ở mục 2)</th><th style="width:34px"></th>
+      </tr></thead><tbody id="bkPickedBody"></tbody></table></div>
+    </details>
   </div>
 
   <div class="card" id="bkCard2" style="display:none">
@@ -965,7 +978,9 @@ async function loadPortfolioDir(keepValues = {}) {
     settingsCache = saved || {};
     if (!restored) for (const f of SAVE_FIELDS) if (saved[f] !== undefined && $(f)) $(f).value = saved[f];
   } catch {}
-  if (!$('startDate').value) $('startDate').value = new Date().toISOString().slice(0,10);
+  // Bulk: Ngày tạo luôn mặc định hôm nay (giờ máy, không phải UTC); trang thường chỉ điền khi trống
+  const today = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+  if (BULK || !$('startDate').value) $('startDate').value = today;
   // Chuẩn hóa giá trị khôi phục (settings/localStorage cũ có thể chứa dấu phẩy)
   for (const id of DECIMAL_IDS) if ($(id) && String($(id).value).includes(',')) $(id).value = String($(id).value).replace(/,/g, '.');
   refreshBoxes(); refreshBidMode(); refreshSteps();
@@ -2235,10 +2250,11 @@ async function bkInit() {
 }
 
 function bkRender() {
-  const q = $('bkFind').value.trim().toLowerCase(), only = $('bkOnlyList').checked;
+  const q = $('bkFind').value.trim().toLowerCase(), only = $('bkOnlyList').checked, onlyPicked = $('bkOnlyPicked').checked;
   const rows = catalog.filter((c) => {
     const l = bkMeta(c.kwList);
     if (only && !l) return false;
+    if (onlyPicked && !bkSel.has(c.asin)) return false;
     return !q || [c.acc, c.asin, c.sku, l && l.name, pfLabelOf(c.portfolioId)].join(' ').toLowerCase().includes(q);
   });
   $('bkBody').innerHTML = rows.map((c) => {
@@ -2275,10 +2291,12 @@ $('bkAll').onchange = () => {
 };
 $('bkFind').oninput = bkRender;
 $('bkOnlyList').onchange = bkRender;
+$('bkOnlyPicked').onchange = bkRender;
 
 function bkSummary() {
   const ps = bkPicked();
-  if (!ps.length) { $('bkSum').textContent = 'Chưa chọn ASIN nào'; return; }
+  $('bkPickedN').textContent = ps.length ? `(${ps.length})` : '';
+  if (!ps.length) { $('bkSum').textContent = 'Chưa chọn ASIN nào'; bkRenderPicked(); return; }
   const accs = [...new Set(ps.map((p) => p.acc).filter(Boolean))];
   const noSku = ps.filter((p) => !p.sku).length, noPf = ps.filter((p) => !p.portfolioId).length;
   let s = `Đã chọn <b>${ps.length}</b> ASIN · ${new Set(ps.map((p) => p.kwList)).size} list`
@@ -2286,7 +2304,41 @@ function bkSummary() {
   if (noSku) s += ` · <b style="color:#e04545">${noSku} ASIN thiếu SKU — sẽ bỏ qua</b>`;
   if (accs.length > 1) s += `<br><b style="color:#e04545">⚠️ Đang chọn ASIN của ${accs.length} acc (${accs.map(esc).join(', ')}) — 1 file bulk chỉ được 1 acc: gõ tên acc vào ô Tìm để chọn từng acc.</b>`;
   $('bkSum').innerHTML = s;
+  bkRenderPicked();
 }
+
+/* Bảng "ASIN đã chọn" (mục 1) — cột "Sẽ tạo" lấy từ bkCnt do bkKwSum đếm; ASIN rỗng lên đầu, tô đỏ */
+const bkCnt = {}; // asin → bkCheck(): { kw, ta, skip, miss }
+function bkRenderPicked() {
+  const ps = bkPicked();
+  $('bkPickedBox').style.display = ps.length ? '' : 'none';
+  if (!ps.length) return;
+  const bad = (p) => !p.sku || !!(bkCnt[p.asin] && bkCnt[p.asin].skip);
+  const warn = (p) => bad(p) || !!(bkCnt[p.asin] && bkCnt[p.asin].miss);
+  const nBad = ps.filter(bad).length;
+  const nPart = ps.filter((p) => warn(p) && !bad(p)).length;
+  $('bkPickedSum').innerHTML = `👁 Hiện các ASIN đã chọn (${ps.length})`
+    + (nBad ? ` · <span style="color:#e04545">${nBad} sẽ bị bỏ qua</span>` : '')
+    + (nPart ? ` · <span style="color:#b45309">${nPart} chỉ tạo được một phần</span>` : '');
+  $('bkPickedBody').innerHTML = [...ps].sort((a, b) => bad(b) - bad(a) || warn(b) - warn(a)).map((p) => {
+    const l = bkMeta(p.kwList), c = bkCnt[p.asin];
+    const cnt = c ? [c.kw ? `<b>${c.kw}</b> keyword` : '', c.ta ? `${c.ta} Target ASIN` : ''].filter(Boolean).join(' · ') : '';
+    const what = !p.sku ? '<td class="why">thiếu SKU — sẽ bỏ qua</td>'
+      : !c ? '<td class="hint">…</td>'
+      : c.miss ? `<td class="why${c.skip ? '' : ' part'}" title="${esc(c.miss)}">${cnt ? cnt + ' · ' : ''}${esc(c.miss)} → <b>${bkMissFx(c)}</b></td>`
+      : `<td>${cnt}</td>`;
+    return `<tr class="${bad(p) ? 'empty' : warn(p) ? 'part' : ''}" data-asin="${esc(p.asin)}">
+      <td>${esc(p.acc || '')}</td><td><b>${esc(p.asin)}</b></td>
+      <td>${p.sku ? esc(p.sku) : '<span style="color:#e04545">— thiếu SKU —</span>'}</td>
+      <td title="${esc(l ? l.name : '')}">${l ? esc(l.name) : '—'}</td>${what}
+      <td><button type="button" class="bkX" title="Bỏ chọn ASIN này">✕</button></td></tr>`;
+  }).join('');
+}
+$('bkPickedBody').addEventListener('click', (e) => {
+  if (!e.target.classList.contains('bkX')) return;
+  bkSel.delete(e.target.closest('tr').dataset.asin);
+  bkRender(); bkChanged();
+});
 
 /* Group DÙNG CHUNG cho mọi list (Danh mục Target) — mỗi group: tick chọn + ô bid đổi được cho
    lượt Bulk này (trống = bid group ở Danh mục Target). Đổi ở đây KHÔNG sửa Danh mục Target. */
@@ -2344,23 +2396,49 @@ function bkKeywordsFor(list) {
     });
   return out;
 }
-let bkSumTimer;
+/** Kiểm 1 list theo lựa chọn ở mục 2 — chỉ báo khi THIẾU: keyword (đã tick group mà list không có
+    keyword ở các group đó) hoặc Target ASIN (đã bật 🎯 mà list không có ASIN). skip = cả hai đều rỗng → bỏ qua */
+function bkCheck(l, useT) {
+  if (!l) return { kw: 0, ta: 0, skip: true, miss: 'không đọc được list (list đã xoá?)' };
+  const kw = bkGroupsOn.size ? bkKeywordsFor(l).length : 0, ta = useT ? (l.asins || []).length : 0, miss = [];
+  if (bkGroupsOn.size && !kw) {
+    const by = new Map();
+    (l.keywords || []).filter((k) => String(k.kw || '').trim()).forEach((k) => {
+      const e = by.get(gKey(k.group)) || { name: String(k.group || '').trim() || '(không group)', n: 0 };
+      e.n++; by.set(gKey(k.group), e);
+    });
+    miss.push(!by.size ? 'chưa có keyword nào'
+      : `không có keyword ở group đã tick (keyword nằm ở: ${[...by.values()].map((e) => `${e.name} ${e.n}`).join(', ')})`);
+  }
+  if (useT && !ta) miss.push('không có Target ASIN');
+  return { kw, ta, skip: !kw && !ta, miss: miss.length ? `list "${l.name}" ${miss.join(', ')}` : '' };
+}
+/** Hệ quả của việc thiếu: bỏ qua cả ASIN, hay chỉ tạo được một phần */
+const bkMissFx = (c) => c.skip ? 'sẽ bỏ qua' : !c.kw ? 'chỉ tạo campaign Target ASIN' : 'chỉ tạo campaign keyword';
+let bkSumTimer, bkSumRun = 0;
 function bkKwSum() {
   clearTimeout(bkSumTimer);
   bkSumTimer = setTimeout(async () => {
-    const ps = bkPicked(), useT = $('bkTargetAsin').checked;
+    const run = ++bkSumRun, ps = bkPicked(), useT = $('bkTargetAsin').checked;
+    Object.keys(bkCnt).forEach((a) => delete bkCnt[a]);
     if (!ps.length) { $('bkKwSum').textContent = ''; return; }
-    if (!bkGroupsOn.size && !useT) { $('bkKwSum').innerHTML = '<b style="color:#e04545">Tick ít nhất 1 group (hoặc 🎯 Target ASIN)</b>'; return; }
+    if (!bkGroupsOn.size && !useT) { $('bkKwSum').innerHTML = '<b style="color:#e04545">Tick ít nhất 1 group (hoặc 🎯 Target ASIN)</b>'; bkRenderPicked(); return; }
     $('bkKwSum').textContent = '⏳ Đang đếm keyword…';
-    let kw = 0, ta = 0, empty = 0;
+    bkRenderPicked();
+    let kw = 0, ta = 0;
+    const miss = [];
     for (const p of ps) {
       const l = await bkLoadList(p.kwList);
-      if (!l) { empty++; continue; }
-      const n = bkKeywordsFor(l).length, t = useT ? (l.asins || []).length : 0;
-      kw += n; ta += t; if (!n && !t) empty++;
+      if (run !== bkSumRun) return; // đã có lượt đếm mới hơn
+      const c = bkCnt[p.asin] = bkCheck(l, useT);
+      kw += c.kw; ta += c.ta;
+      if (c.miss) miss.push(p);
     }
+    const nSkip = miss.filter((p) => bkCnt[p.asin].skip).length, what = useT && bkGroupsOn.size ? 'keyword / Target ASIN' : useT ? 'Target ASIN' : 'keyword';
     $('bkKwSum').innerHTML = `${ps.length} ASIN · tổng <b>${kw}</b> keyword` + (useT ? ` · ${ta} Target ASIN` : '')
-      + (empty ? ` · <b style="color:#e04545">${empty} ASIN không có keyword/ASIN ở phần đã chọn — sẽ bỏ qua</b>` : '');
+      + (miss.length ? ` · <b style="color:#e04545">${miss.length} ASIN thiếu ${what}${nSkip ? ` (${nSkip} sẽ bỏ qua)` : ''}:</b>
+        <div id="bkEmptyList">${miss.map((p) => { const c = bkCnt[p.asin]; return `• <b>${esc(p.asin)}</b>${p.acc ? ` <span class="hint">(${esc(p.acc)}${p.sku ? ' · ' + esc(p.sku) : ''})</span>` : ''} — ${esc(c.miss)} → <b>${bkMissFx(c)}</b>`; }).join('<br>')}</div>` : '');
+    bkRenderPicked();
   }, 250);
 }
 $('bkTargetAsin').addEventListener('change', bkKwSum);
@@ -2382,7 +2460,7 @@ async function runBulk() {
     const l = await bkLoadList(p.kwList);
     if (!l) { skipped.push(`${p.asin}: không đọc được list`); continue; }
     const keywords = bkKeywordsFor(l), targetAsins = useT ? (l.asins || []) : [];
-    if (!keywords.length && !targetAsins.length) { skipped.push(`${p.asin}: list "${l.name}" không có keyword ở group đã chọn`); continue; }
+    if (!keywords.length && !targetAsins.length) { skipped.push(`${p.asin}: ${bkCheck(l, useT).miss}`); continue; }
     const payload = { ...base, keywords, targetAsins,
       info: { ...base.info, sku: p.sku, asin: p.asin, products: [{ asin: p.asin, sku: p.sku, type: p.type || 'FBA' }],
         type: p.type || 'FBA', category: p.category || '' },
