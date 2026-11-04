@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "ppc-warrior-worker",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": ["-c", "cd apps/worker && npm start"],
+      "port": 3100
+    }
+  ]
+}

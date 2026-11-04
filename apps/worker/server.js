@@ -22,7 +22,7 @@ import * as auth from "./src/auth.js";
 import { als, runAsUser, userDataDir } from "./src/db/user-context.js";
 
 dotenv.config();
-export const APP_VERSION = "0.49.2"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
+export const APP_VERSION = "0.49.4"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
 
 // RUN_MODE:
 // - "local" (mặc định): bấm Kiểm tra là scrape NGAY trên máy này (dùng 1 người, chạy local)
@@ -53,7 +53,9 @@ const PASSWORD = process.env.WORKER_PASSWORD || "";
 const PUBLIC_PATHS = ["/user", "/user.html", "/login.html", "/api/auth/login", "/api/auth/register", "/api/auth/me", "/api/version", "/favicon.ico", "/setup-agent.sh", "/setup-agent.ps1", "/agent-bundle.tgz", "/nav.js", "/agent-panel.js"];
 app.use((req, res, next) => {
   const p = req.path;
-  if (PUBLIC_PATHS.includes(p)) return next();
+  // /kwlist/<slug> = trang CHIA SẺ Danh mục Target (xem server.js phần "CHIA SẺ LIST") — cố ý
+  // công khai, không cần đăng nhập, để gửi được cho người ngoài tool (VA/freelancer...).
+  if (PUBLIC_PATHS.includes(p) || p.startsWith("/kwlist/")) return next();
 
   // Agent: TOKEN (máy không lưu user/pass — khuyên dùng) → Basic user:pass → fallback WORKER_PASSWORD
   if (p.startsWith("/api/agent/")) {
@@ -1100,12 +1102,130 @@ app.post("/api/catalog/manager", (req, res) => {
 /* ===================== DANH MỤC TARGET (list → group → keyword, + Target ASIN) =====================
    Độc lập với "Phân tích Keyword". Nạp từ file H10 / Amazon SQP / csv-xlsx tự làm (tự nhận dạng). */
 const uploadKw = multer({ dest: "./data/uploads", limits: { fileSize: 40 * 1024 * 1024 } });
+
+/* ===== CHIA SẺ LIST qua URL /kwlist/<slug> (công khai — xem PUBLIC_PATHS phía trên) =====
+   Dữ liệu chia theo phân vùng user (file-store.js), nhưng link chia sẻ KHÔNG đăng nhập nên
+   không biết list thuộc user nào — phải dò qua MỌI phân vùng (tenant) để tìm đúng shareSlug.
+   slug lưu CỐ ĐỊNH trên list (không tính lại từ tên) để đổi tên list sau đó không làm hỏng link
+   đã gửi đi; tạo lần đầu mới sinh slug và đảm bảo không trùng slug của bất kỳ list nào (mọi user). */
+function escHtml(s) { return String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); }
+function slugifyName(s) {
+  return String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/đ/g, "d").replace(/Đ/g, "D")
+    .toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60) || "list";
+}
+// Chạy fn trong TỪNG phân vùng (tenant) đang có — chưa có user nào đăng ký thì chỉ có 1 "phân vùng" (ROOT, chạy ngoài context).
+function kwTenants() {
+  const users = auth.listUsers();
+  return users.length ? users.map((u) => ({ name: u.name, legacyRoot: u.legacyRoot })) : [null];
+}
+function runInTenant(tenant, fn) { return tenant ? runAsUser(tenant, fn) : fn(); }
+function findKwListBySlug(slug) {
+  for (const t of kwTenants()) {
+    const hit = runInTenant(t, () => {
+      const s = store.listKwLists().find((l) => l.shareSlug === slug);
+      return s ? store.getKwList(s.id) : null;
+    });
+    if (hit) return hit;
+  }
+  return null;
+}
+function makeUniqueShareSlug(name, excludeSlug) {
+  const used = new Set();
+  for (const t of kwTenants()) runInTenant(t, () => { for (const l of store.listKwLists()) if (l.shareSlug) used.add(l.shareSlug); });
+  if (excludeSlug) used.delete(excludeSlug);
+  const base = slugifyName(name);
+  if (!used.has(base)) return base;
+  for (let i = 2; i < 1000; i++) { const s = `${base}-${i}`; if (!used.has(s)) return s; }
+  return `${base}-${Date.now().toString(36)}`;
+}
+// Bật/tắt chia sẻ cho list hiện tại (trong phân vùng của user đang đăng nhập — như mọi API /api/kwlists khác).
+app.post("/api/kwlists/:id/share", (req, res) => {
+  const l = store.getKwList(req.params.id);
+  if (!l) return res.status(404).json({ ok: false, message: "Không tìm thấy list" });
+  if (req.body?.on === false) { const u = store.setKwShareSlug(l.id, ""); return res.json({ ok: true, list: u }); }
+  const slug = l.shareSlug || makeUniqueShareSlug(l.name);
+  const u = store.setKwShareSlug(l.id, slug);
+  res.json({ ok: true, list: u, url: `/kwlist/${slug}` });
+});
+// Trang xem CÔNG KHAI (không đăng nhập): chỉ hiện Keyword · Search Volume · Group · Target ASIN — không có Bid/chiến lược.
+app.get("/kwlist/:slug", (req, res) => {
+  const slug = String(req.params.slug || "").trim().toLowerCase();
+  const l = findKwListBySlug(slug);
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+  if (!l) {
+    return res.status(404).send(`<!DOCTYPE html><html lang="vi"><meta charset="UTF-8"><title>Không tìm thấy — PPC Warrior</title>
+      <body style="font-family:-apple-system,Arial,sans-serif;background:#f4f6fa;color:#1b2330;display:flex;align-items:center;justify-content:center;height:100vh;margin:0">
+      <div style="text-align:center"><h2>🔍 Không tìm thấy list chia sẻ này</h2><p style="color:#667">Link đã bị tắt chia sẻ, hoặc không đúng.</p></div></body></html>`);
+  }
+  const kwRows = (l.keywords || []).map((k) => `<tr><td>${escHtml(k.kw)}</td><td class="num">${k.sv ?? ""}</td><td>${escHtml(k.group || "")}</td></tr>`).join("");
+  const asinRows = (l.asins || []).map((a) => `<tr><td class="mono">${escHtml(a)}</td></tr>`).join("");
+  const kwTsv = (l.keywords || []).map((k) => [k.kw, k.sv ?? "", k.group || ""].join("\t")).join("\n");
+  res.send(`<!DOCTYPE html><html lang="vi"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>${escHtml(l.name)} — PPC Warrior (chia sẻ)</title>
+  <style>
+    * { box-sizing:border-box; } body { font-family:-apple-system,Segoe UI,Arial,sans-serif; margin:0; background:#f4f6fa; color:#1b2330; }
+    header { background:#101828; color:#fff; padding:14px 24px; } header h1 { font-size:16px; margin:0 0 2px; } header p { margin:0; font-size:12px; color:#9fb0c8; }
+    main { max-width:820px; margin:20px auto; padding:0 16px 40px; }
+    .card { background:#fff; border:1px solid #e3e8f0; border-radius:12px; padding:16px 18px; margin-bottom:16px; }
+    .card h2 { font-size:14px; margin:0 0 10px; display:flex; align-items:center; gap:8px; }
+    .card h2 .n { font-size:12px; color:#667; font-weight:400; }
+    table { border-collapse:collapse; width:100%; font-size:13px; } th,td { border:1px solid #e3e8f0; padding:6px 8px; text-align:left; }
+    th { background:#f0f3f9; font-size:11.5px; color:#667; } td.num { text-align:right; } td.mono { font-family:ui-monospace,Menlo,monospace; }
+    .scroll { max-height:520px; overflow:auto; border:1px solid #e3e8f0; border-radius:8px; } .scroll table { border:none; }
+    button { padding:6px 14px; border:none; border-radius:7px; cursor:pointer; font-size:12.5px; font-weight:600; background:#eef1f7; }
+    .hint { font-size:12px; color:#667; margin:0 0 10px; }
+  </style></head><body>
+  <header><h1>⚔️ PPC Warrior — 🗂 ${escHtml(l.name)}</h1><p>Link chia sẻ chỉ xem (keyword + Target ASIN) — không cần đăng nhập</p></header>
+  <main>
+    <div class="card">
+      <h2>🔑 Keyword <span class="n">(${(l.keywords || []).length})</span>
+        <button style="margin-left:auto" onclick="copyKw()">📋 Copy keyword</button></h2>
+      <div class="scroll"><table><thead><tr><th>Keyword</th><th>Search Volume</th><th>Group</th></tr></thead><tbody>${kwRows || '<tr><td colspan="3" style="color:#99a">— trống —</td></tr>'}</tbody></table></div>
+    </div>
+    <div class="card">
+      <h2>🎯 Target ASIN <span class="n">(${(l.asins || []).length})</span>
+        <button style="margin-left:auto" onclick="copyAsin()">📋 Copy ASIN</button></h2>
+      <div class="scroll"><table><thead><tr><th>Target ASIN</th></tr></thead><tbody>${asinRows || '<tr><td style="color:#99a">— trống —</td></tr>'}</tbody></table></div>
+    </div>
+  </main>
+  <textarea id="kwRaw" style="position:absolute;left:-9999px">${escHtml(kwTsv)}</textarea>
+  <textarea id="asinRaw" style="position:absolute;left:-9999px">${escHtml((l.asins || []).join("\n"))}</textarea>
+  <script>
+    function copyText(id, label) {
+      const el = document.getElementById(id);
+      navigator.clipboard.writeText(el.value).then(() => alert('✅ Đã copy ' + label)).catch(() => { el.style.left = '12px'; el.style.top = '12px'; el.select(); alert('Trình duyệt chặn copy — đã bôi đen, bấm Cmd/Ctrl+C'); });
+    }
+    function copyKw() { copyText('kwRaw', 'keyword'); }
+    function copyAsin() { copyText('asinRaw', 'ASIN'); }
+  </script>
+  </body></html>`);
+});
 app.get("/api/kwlists", (req, res) => res.json({ ok: true, lists: store.listKwLists() }));
 // Group DÙNG CHUNG cho mọi list: {op:"upsert", name, bid?, offset?} | {op:"rename", from, to} | {op:"delete", name}
 app.get("/api/kw-groups", (req, res) => res.json({ ok: true, groups: store.getKwGroups() }));
 app.post("/api/kw-groups", (req, res) => {
   try { res.json({ ok: true, ...store.kwGroupOp(req.body || {}) }); }
   catch (e) { res.status(400).json({ ok: false, message: e.message }); }
+});
+// Xuất TOÀN BỘ list (mọi list đang có) ra 1 file: 1 dòng = 1 keyword, cột List phân biệt list nào.
+// ?asin=1 → xuất kèm sheet Target ASIN (List · Target ASIN); không truyền hoặc =0 thì bỏ sheet này.
+app.get("/api/kwlists/export-all", (req, res) => {
+  const withAsin = ["1", "true", "yes"].includes(String(req.query.asin || "").toLowerCase());
+  const lists = store.listKwLists().map((s) => store.getKwList(s.id)).filter(Boolean);
+  const wb = XLSX.utils.book_new();
+  const kwRows = [];
+  for (const l of lists) for (const k of l.keywords || []) kwRows.push({ "List": l.name, "Keyword": k.kw, "Search Volume": k.sv ?? "", "Group": k.group || "" });
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(kwRows, { header: ["List", "Keyword", "Search Volume", "Group"] }), "Keywords");
+  if (withAsin) {
+    const asinRows = [];
+    for (const l of lists) for (const a of l.asins || []) asinRows.push({ "List": l.name, "Target ASIN": a });
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(asinRows, { header: ["List", "Target ASIN"] }), "Target ASIN");
+  }
+  const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx", compression: true });
+  const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-");
+  res.setHeader("Content-Disposition", `attachment; filename="danh-muc-target-toan-bo-${stamp}.xlsx"`);
+  res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+  res.send(buf);
 });
 app.get("/api/kwlists/:id", (req, res) => {
   const l = store.getKwList(req.params.id);

@@ -963,6 +963,7 @@ function cleanKwList(l) {
   const asins = [...new Set((Array.isArray(l.asins) ? l.asins : [])
     .map((a) => String(a || "").trim().toUpperCase()).filter((a) => /^[A-Z0-9]{10}$/.test(a)))].slice(0, 5000);
   return { id: l.id, name: String(l.name || "").trim().slice(0, 80) || "List không tên", groups, keywords, asins,
+    shareSlug: String(l.shareSlug || "").trim(), // giữ qua mỗi lần lưu — xem setKwShareSlug() bên dưới
     rev: Number(l.rev) || 0, updatedAt: new Date().toISOString() };
 }
 
@@ -997,7 +998,7 @@ export function getKwVersion(id, at) { return kwHistRead(id).find((v) => v.at ==
 export function listKwLists() {
   const groups = getKwGroups(); // gọi TRƯỚC kwListsAll: lần đầu sẽ chuyển dữ liệu sang group chung
   return kwListsAll().map((l) => ({ id: l.id, name: l.name, groups, kwCount: (l.keywords || []).length,
-    asinCount: (l.asins || []).length, updatedAt: l.updatedAt, rev: Number(l.rev) || 0 }))
+    asinCount: (l.asins || []).length, updatedAt: l.updatedAt, rev: Number(l.rev) || 0, shareSlug: l.shareSlug || "" }))
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 export function getKwList(id) {
@@ -1046,6 +1047,16 @@ export function deleteKwList(id) {
   kwSnapshot(gone, "trước khi xoá", true);
   kwListsWrite(next);
   return true;
+}
+/** Chia sẻ list qua URL /kwlist/<slug> (công khai, không cần đăng nhập — xem server.js).
+ *  slug = "" → tắt chia sẻ. Không đụng rev/lịch sử thường (chỉ là cờ, không phải nội dung list). */
+export function setKwShareSlug(id, slug) {
+  const lists = kwListsAll();
+  const i = lists.findIndex((l) => l.id === id);
+  if (i === -1) return null;
+  lists[i] = { ...lists[i], shareSlug: String(slug || "").trim() };
+  kwListsWrite(lists);
+  return { ...lists[i], groups: getKwGroups() };
 }
 /** Gộp keyword mới vào list (import Cerebro / dán tay): keyword đã có thì chỉ cập nhật SV,
  *  giữ nguyên group/bid đã phân — import lại file mới không làm mất công phân group. */
