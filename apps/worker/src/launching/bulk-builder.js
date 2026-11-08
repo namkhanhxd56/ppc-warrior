@@ -144,6 +144,8 @@ export function addDays(d, days) {
  * input.pt:         {on, bid, step, levels, note}
  * input.auto:       {on, adTypes[], bids[], note}
  * input.keywords:   [{text, bid|null, bids:{sugg,min,max}|null, offset?:n}]  — offset = +n ngày Start Date
+ * input.lowestCostSp: {on, types:["exact"|"phrase"|"broad"], bids:{exact,phrase,broad}, portfolio, note}
+ *                    — ô 💲 Lowest Cost ở 3.1: mỗi match type 1 campaign, mọi keyword chung 1 ad group
  * input.targetAsins:[string]
  * input.naming:     {kw, pt, auto}
  * input.camp:       {dailyBudget, autoDailyBudget, ...}
@@ -155,7 +157,7 @@ export function planCampaigns(input) {
   const lcNote = LC ? String(input.matches?.[LC.matchType]?.note || input.matches?.exact?.note || "") : "";
   if (LC) input = { ...input,
     matches: { ...(input.matches || {}), exact: { on: false }, phrase: { on: false }, broad: { on: false } },
-    pt: { on: false }, ptGroup: { on: false }, auto: { on: false },
+    pt: { on: false }, ptGroup: { on: false }, auto: { on: false }, lowestCostSp: { on: false },
     sb: { ...(input.sb || {}), kw: { on: false }, pt: { on: false } },
     sd: { ...(input.sd || {}), pt: { on: false }, ptGroup: { on: false }, remarketing: { on: false } } };
   const d = DEFAULTS;
@@ -415,6 +417,35 @@ export function planCampaigns(input) {
       for (const bid of ladderBids(derived(broad, base), broad.step, broad.levels, bidRule.minBid)) {
         push(kwPlan(text, "broad", bid, dateFor(broadOff, kw) || broadDate, naming.kw, pf("broad"), broad.note || ""));
       }
+    }
+  }
+
+  /* 💲 LOWEST COST ở 3.1 SP (08/11/2026) — khác "Lowest Cost" của Bulk Create (1 match type,
+     bật là tắt mọi loại khác): ở đây chọn được nhiều match type, mỗi loại 1 bid riêng và TÁCH
+     thành campaign riêng, chạy CÙNG các campaign Exact/Phrase/Broad/PT/Auto đang bật.
+     Mỗi campaign: 1 ad group chứa TẤT CẢ keyword, cùng 1 bid (bid thấp quét traffic rẻ) — không
+     thang bid, không giới hạn số từ, không theo Chế độ campaign; Start Date = Ngày tạo (bỏ qua
+     +n của từng keyword vì cả ad group chỉ có 1 ngày). Tên = mẫu SP Keyword với
+     {Keyword} = "Lowest Cost", {MatchType} = Exact/Phrase/Broad; mẫu thiếu {MatchType} thì tự
+     nối " - Exact"… để 3 campaign không trùng tên (push() bỏ qua tên trùng = mất campaign). */
+  const LCS = input.lowestCostSp?.on ? input.lowestCostSp : null;
+  if (LCS && kwListClean.length) {
+    const types = ["exact", "phrase", "broad"].filter((t) => (LCS.types || []).includes(t));
+    const lcPf = String(LCS.portfolio || "").trim() || pf("global"); // trống = portfolio chung
+    const hasMT = String(naming.kw).includes("{MatchType}");
+    for (const mt of types) {
+      const MT = mt[0].toUpperCase() + mt.slice(1);
+      const bid = r2(parseFloat(String(LCS.bids?.[mt] ?? "").replace(",", ".")));
+      if (!(bid > 0)) throw new Error(`Lowest Cost: điền bid ${MT} (> 0) hoặc bỏ tick ${MT}`);
+      let name = renderName(naming.kw, { ...ctx(lcPf), Keyword: "Lowest Cost", MatchType: MT,
+        Bid: bid.toFixed(2), StartDate: exactDate, Note: String(LCS.note || "") });
+      if (!hasMT) name = `${name} - ${MT}`;
+      push({
+        type: `SP_KW_${mt.toUpperCase()}`, lowestCost: true, name,
+        keyword: "", groupLabel: "Lowest Cost", matchType: mt, bid, budget: Number(camp.dailyBudget),
+        portfolioId: lcPf, startDateBulk: exactDate, endDateBulk: "", note: String(LCS.note || ""), ...campLevel, ...productLevel,
+        adGroups: [{ name, defaultBid: bid, targets: kwListClean.map((k) => ({ kind: "kw", text: k.text, mt, bid })), negatives: [], negPt: [] }]
+      });
     }
   }
 

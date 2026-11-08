@@ -386,6 +386,23 @@
         <label>Note / chiến lược (optional)</label><input type="text" id="noteBroad" placeholder="VD: HARVEST">
       </div>
 
+      <div class="mt-box off" id="boxLC">
+        <h3><input type="checkbox" id="onLC"> 💲 Lowest Cost</h3>
+        <div class="hint" style="margin-bottom:4px">Mỗi match type = <b>1 campaign riêng</b>, <b>tất cả keyword</b> vào chung 1 ad group, cùng 1 bid (không thang bid). Tên: mẫu SP Keyword với {Keyword} = <b>Lowest Cost</b>, {MatchType} = Exact / Phrase / Broad.</div>
+        <div style="display:flex;gap:16px;margin:6px 0 2px">
+          <span class="chk" style="margin:0"><input type="checkbox" id="lcExact" checked><label style="margin:0"><b>Exact</b></label></span>
+          <span class="chk" style="margin:0"><input type="checkbox" id="lcPhrase"><label style="margin:0"><b>Phrase</b></label></span>
+          <span class="chk" style="margin:0"><input type="checkbox" id="lcBroad"><label style="margin:0"><b>Broad</b></label></span>
+        </div>
+        <div class="mt-grid">
+          <div><label>Bid Exact</label><input type="text" inputmode="decimal" id="lcBidExact" value="0.35"></div>
+          <div><label>Bid Phrase</label><input type="text" inputmode="decimal" id="lcBidPhrase" value="0.30"></div>
+          <div><label>Bid Broad</label><input type="text" inputmode="decimal" id="lcBidBroad" value="0.25"></div>
+        </div>
+        <label>Portfolio (trống = dùng chung)</label><select id="pfLC" class="pfSel"></select>
+        <label>Note / chiến lược (optional)</label><input type="text" id="noteLC" placeholder="VD: LOWCOST">
+      </div>
+
       <div class="mt-box off" id="boxPt">
         <h3><input type="checkbox" id="onPt"> Product Targeting (1 ASIN)</h3>
         <div class="hint" style="margin-bottom:4px">Mỗi target ASIN = 1 campaign riêng, tên campaign dùng chính ASIN đó</div>
@@ -602,7 +619,8 @@
         <b>multi</b>: TẤT CẢ keyword vào 1 campaign, mỗi keyword 1 ad group với bid riêng — <b>bỏ qua thang bid</b> (số mức / bước nhảy).
       </span>
     </div>
-    <div class="hint" style="margin-top:8px">Tác dụng trên campaign <b>keyword SP</b> (Exact / Phrase / Broad ở 3.1) và cũng được trang <b>Điều chỉnh Campaign</b> dùng khi tạo campaign từ search term. Product Targeting, Auto, SB, SD luôn 1 campaign – 1 ad group.</div>
+    <div class="hint" style="margin-top:8px">Tác dụng trên campaign <b>keyword SP</b> (Exact / Phrase / Broad ở 3.1) và cũng được trang <b>Điều chỉnh Campaign</b> dùng khi tạo campaign từ search term. Product Targeting, Auto, SB, SD luôn 1 campaign – 1 ad group.
+      <b>💲 Lowest Cost</b> (3.1) không theo chế độ này: luôn mỗi match type 1 campaign, mọi keyword trong 1 ad group.</div>
   </div>
 
   <!-- ===== 4. Tên campaign ===== -->
@@ -763,11 +781,11 @@ document.addEventListener('input', (e) => {
 });
 
 /* ===== Bật/tắt mờ box + chế độ hiển thị ===== */
-for (const [chk, box] of [['onExact','boxExact'],['onPhrase','boxPhrase'],['onBroad','boxBroad'],['onPt','boxPt'],['onPtG','boxPtG'],['onAuto','boxAuto'],['onSdRem','boxSdRem'],['onSdPt','boxSdPt'],['onSdPtG','boxSdPtG'],['onSbKw','boxSbKw'],['onSbPt','boxSbPt']]) {
+for (const [chk, box] of [['onExact','boxExact'],['onPhrase','boxPhrase'],['onBroad','boxBroad'],['onLC','boxLC'],['onPt','boxPt'],['onPtG','boxPtG'],['onAuto','boxAuto'],['onSdRem','boxSdRem'],['onSdPt','boxSdPt'],['onSdPtG','boxSdPtG'],['onSbKw','boxSbKw'],['onSbPt','boxSbPt']]) {
   $(chk).addEventListener('change', () => $(box).classList.toggle('off', !$(chk).checked));
 }
 function refreshBoxes() {
-  for (const [chk, box] of [['onExact','boxExact'],['onPhrase','boxPhrase'],['onBroad','boxBroad'],['onPt','boxPt'],['onPtG','boxPtG'],['onAuto','boxAuto'],['onSdRem','boxSdRem'],['onSdPt','boxSdPt'],['onSdPtG','boxSdPtG'],['onSbKw','boxSbKw'],['onSbPt','boxSbPt']])
+  for (const [chk, box] of [['onExact','boxExact'],['onPhrase','boxPhrase'],['onBroad','boxBroad'],['onLC','boxLC'],['onPt','boxPt'],['onPtG','boxPtG'],['onAuto','boxAuto'],['onSdRem','boxSdRem'],['onSdPt','boxSdPt'],['onSdPtG','boxSdPtG'],['onSbKw','boxSbKw'],['onSbPt','boxSbPt']])
     $(box).classList.toggle('off', !$(chk).checked);
 }
 function refreshBidMode() {
@@ -802,7 +820,7 @@ const SAVE_FIELDS = ['sku','asin','category','manager','nameKw','namePt','namePt
   'sbBrandEntityId','sbMediaId','bidSbKw','stepSbKw','sbBudgetKw','pfSbKw','noteSbKw','groupNameSbPt','bidSbPt','stepSbPt','sbBudgetPt','pfSbPt','noteSbPt',
   'sdCostType','sdBidOpt','sdAdGroupBid','sdRem7','sdRem14','sdRem30','sdRem60','sdBudgetRem','sdBudgetPt','sdBudgetPtG',
   'bidSdPt','stepSdPt','bidSdPtG','stepSdPtG','groupNameSdPt','pfSdPt','pfSdPtG','pfSdRem','noteSdPt','noteSdPtG','noteSdRem',
-  'pfGlobal','pfExact','pfPhrase','pfBroad','pfPt','pfAuto',
+  'pfGlobal','pfExact','pfPhrase','pfBroad','pfPt','pfAuto','pfLC','lcBidExact','lcBidPhrase','lcBidBroad','noteLC',
   'noteExact','notePhrase','noteBroad','notePt','notePtG','noteAuto','groupNamePt','pfPtG',
   'campaignMode','bidMode','h10Type','bidMultiplier','maxBidCap','defaultBid','fixedBid','minBid',
   'modePhrase','ratioPhrase','valuePhrase','wordLimitPhrase','offsetPhrase',
@@ -1037,7 +1055,7 @@ async function receiveAdjustCampaigns() {
     await new Promise(r => setTimeout(r, 400));
     $('keywords').value = list.map(x => x.bid ? `${x.keyword} | ${x.bid}` : x.keyword).join('\n');
     $('onExact').checked = true;
-    ['onPhrase','onBroad','onPt','onPtG','onAuto','onSB','onSD'].forEach(id => { if ($(id)) $(id).checked = false; });
+    ['onPhrase','onBroad','onLC','onPt','onPtG','onAuto','onSB','onSD'].forEach(id => { if ($(id)) $(id).checked = false; });
     await $('btnPreview').onclick();
     made += list.length;
   }
@@ -1226,6 +1244,10 @@ function buildPayload() {
     bidRule: { mode: $('bidMode').value, h10Type: $('h10Type').value,
       defaultBid: +$('defaultBid').value, bidMultiplier: +$('bidMultiplier').value,
       maxBidCap: +$('maxBidCap').value, fixedBid: +$('fixedBid').value, minBid: +$('minBid').value },
+    lowestCostSp: { on: sp && $('onLC').checked,
+      types: [['exact', 'lcExact'], ['phrase', 'lcPhrase'], ['broad', 'lcBroad']].filter(([, id]) => $(id).checked).map(([t]) => t),
+      bids: { exact: $('lcBidExact').value, phrase: $('lcBidPhrase').value, broad: $('lcBidBroad').value },
+      portfolio: $('pfLC').value.trim(), note: $('noteLC').value.trim() },
     matches: {
       exact:  { on: sp && $('onExact').checked,  step: +$('stepExact').value,  levels: +$('levelsExact').value, note: $('noteExact').value.trim() },
       phrase: { on: sp && $('onPhrase').checked, mode: $('modePhrase').value, ratio: +$('ratioPhrase').value, value: +$('valuePhrase').value,
