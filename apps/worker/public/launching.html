@@ -653,11 +653,11 @@
     <h2>💲 Lowest Cost</h2>
     <p class="sub">Mỗi ASIN ra <b>1 campaign SP keyword</b> gom <b>tất cả keyword</b> (theo ASIN · group đã chọn ở mục 1–2) vào chung 1 ad group, cùng 1 bid.
       Tên campaign theo mẫu <b>SP Keyword</b> ở mục 4 với <span class="mono">{Keyword}</span> = <b>Lowest Cost</b>. Budget / bidding strategy / placement lấy ở ⚙️ Cài đặt campaign (mục 3.1), portfolio theo ASIN.
-      Xuất thẳng file (không thêm vào danh sách ở mục 5), mỗi acc 1 file.</p>
+      Campaign được <b>thêm vào danh sách ở mục Create Campaign</b> bên dưới — sửa được như campaign thường rồi bấm 📦 Xuất bulk XLSX (1 file chỉ 1 acc).</p>
     <div class="row" style="align-items:flex-end">
       <div style="flex:0 0 150px"><label>Bid Lowest Cost</label><input type="text" inputmode="decimal" id="lcBid" placeholder="VD 0.35"></div>
       <div style="flex:0 0 150px"><label>Match type</label><select id="lcMatch"><option value="exact">Exact</option><option value="phrase">Phrase</option><option value="broad">Broad</option></select></div>
-      <button class="btn-ok" id="btnLowest" style="flex:0 0 auto">⬇ Xuất File Lowest Cost</button>
+      <button class="btn-primary" id="btnLowest" style="flex:0 0 auto">➕ Tạo campaign Lowest Cost</button>
       <span class="msg" id="lcMsg" style="flex:1 1 300px"></span>
     </div>
   </div>
@@ -695,7 +695,7 @@ if (BULK) {
 }
 
 /* ===== Cảnh báo server chạy code cũ ===== */
-const UI_VERSION = '0.49.4';
+const UI_VERSION = '0.49.5';
 /* ===== THANH TIẾN ĐỘ QUÉT RANKING (dùng chung mọi trang) =====
    Lượt quét sống ở HÀNG ĐỢI trên server, không phải ở tab nào. Trước đây chuyển sang trang
    này là mất dấu — tệ hơn, bản cũ còn làm CHẾT luôn lượt quét vì vòng lặp điều phối nằm ở
@@ -2082,9 +2082,19 @@ function refreshDupUI() {
   const cnt = {};
   plans.forEach(pl => cnt[pl.name] = (cnt[pl.name] || 0) + 1);
   plans.forEach(pl => {
-    const r = document.getElementById('planrow_' + pl.uid);
-    if (r) r.classList.toggle('dup', cnt[pl.name] > 1);
+    for (const id of ['planrow_', 'card_']) { // bảng (SB/SD cũ) + card (SP/SD phân tầng)
+      const r = document.getElementById(id + pl.uid);
+      if (r) r.classList.toggle('dup', cnt[pl.name] > 1);
+    }
   });
+  // Thông báo "⚠ n dòng TRÙNG TÊN" in lúc tạo → cập nhật theo tên vừa sửa tay
+  const dup = plans.filter(pl => cnt[pl.name] > 1).length;
+  for (const id of ['exportMsg', 'lcMsg']) {
+    const m = $(id);
+    if (!m || !m.innerHTML.includes('TRÙNG TÊN')) continue;
+    m.innerHTML = m.innerHTML.replace(/ · ⚠ \d+ dòng TRÙNG TÊN \(bôi đỏ\)/, dup ? ` · ⚠ ${dup} dòng TRÙNG TÊN (bôi đỏ)` : '');
+    if (!dup && !m.innerHTML.includes('❌')) m.className = 'msg ok';
+  }
   refreshStats();
 }
 window.editLookback = (uid, i, val) => {
@@ -2515,7 +2525,8 @@ async function runBulk() {
     + (lines.length ? `<details style="margin-top:4px"><summary>${failed.length} lỗi · ${skipped.length} bỏ qua · ${cleaned.length} ASIN có keyword dính ký tự đặc biệt</summary>${lines.map(esc).join('<br>')}</details>` : ''));
 }
 
-/* ===== LOWEST COST: mỗi ASIN 1 campaign SP keyword chứa mọi keyword, xuất thẳng file — mỗi acc 1 file ===== */
+/* ===== LOWEST COST: mỗi ASIN 1 campaign SP keyword chứa mọi keyword → THÊM VÀO danh sách mục Create Campaign,
+   sửa / bôi đỏ trùng tên / 📦 Xuất bulk XLSX như campaign thường ===== */
 $('btnLowest').onclick = async () => {
   const say = (cls, html) => { $('lcMsg').className = 'msg ' + cls; $('lcMsg').innerHTML = html; };
   const ps = bkPicked(), bid = parseFloat(String($('lcBid').value).replace(',', '.'));
@@ -2524,7 +2535,7 @@ $('btnLowest').onclick = async () => {
   if (!(bid > 0)) return say('err', '❌ Điền Bid Lowest Cost (> 0)');
   if (!$('startDate').value) return say('err', '❌ Mục 1: chưa chọn Ngày tạo');
   const base = buildPayload();
-  const byAcc = new Map(), skipped = [], failed = [];
+  const fresh = [], skipped = [], failed = [];
   let i = 0;
   for (const p of ps) {
     say('', `⏳ ${++i}/${ps.length} · ${esc(p.asin)}…`);
@@ -2539,39 +2550,20 @@ $('btnLowest').onclick = async () => {
     try {
       const r = await (await fetch('/api/launch/preview', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) })).json();
       if (!r.ok) throw new Error(r.message);
-      if ((r.badPlaceholders || []).length) return say('err', `🚨 Mẫu tên SP Keyword còn biến chưa thay được: ${esc(r.badPlaceholders.join(' '))} — sửa ở mục 4`);
-      const acc = p.acc || '(chưa gán acc)';
-      if (!byAcc.has(acc)) byAcc.set(acc, []);
-      byAcc.get(acc).push(...r.plans);
+      if ((r.badPlaceholders || []).length) return say('err', `🚨 Mẫu tên SP Keyword còn biến chưa thay được: ${esc(r.badPlaceholders.join(' '))} — sửa ở mục 4 (chưa thêm campaign nào)`);
+      fresh.push(...r.plans.map((x) => ({ ...x, uid: planUid++, sel: false })));
     } catch (e) { failed.push(`${p.asin}: ${e.message}`); }
   }
-  if (!byAcc.size) return say('err', '❌ Không tạo được campaign nào' + [...failed, ...skipped].map((t) => '<br>' + esc(t)).join(''));
-  const files = [];
-  for (const [acc, plansAcc] of byAcc) {
-    say('', `⏳ Đang dựng file ${files.length + 1}/${byAcc.size} · ${esc(acc)}…`);
-    const res = await fetch('/api/launch/export', { method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ ...base, info: { ...base.info, sku: '', asin: '', products: [] }, plans: plansAcc, saveToBank: false, fileTag: 'lowest-cost' }) });
-    if (!res.ok) { const e = await res.json().catch(() => ({})); failed.push(`${acc}: ${e.message || res.status}`); continue; }
-    if ((res.headers.get('Content-Type') || '').includes('application/json')) { // file > 28MB → server chia phần
-      const info = await res.json();
-      for (const pt of info.parts) {
-        const a = document.createElement('a');
-        a.href = `/api/launch/exports/${encodeURIComponent(pt.id)}?name=${encodeURIComponent(pt.filename)}`; a.download = pt.filename; a.click();
-        files.push(`${pt.filename} — ${pt.campaigns} campaign`);
-        await new Promise((r) => setTimeout(r, 800));
-      }
-      continue;
-    }
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(await res.blob());
-    a.download = (res.headers.get('Content-Disposition') || '').match(/filename="(.+)"/)?.[1] || 'bulk-create-lowest-cost.xlsx';
-    a.click();
-    files.push(`${a.download} — ${plansAcc.length} campaign`);
-    await new Promise((r) => setTimeout(r, 800));
-  }
-  const n = [...byAcc.values()].reduce((s, x) => s + x.length, 0);
-  say(failed.length ? 'err' : 'ok', `✅ ${n} campaign Lowest Cost · ${files.length} file` + files.map((t) => '<br>' + esc(t)).join('')
+  if (!fresh.length) return say('err', '❌ Không tạo được campaign nào' + [...failed, ...skipped].map((t) => '<br>' + esc(t)).join(''));
+  plans.push(...fresh);
+  renderPlans();
+  const cnt = {};
+  plans.forEach((x) => cnt[x.name] = (cnt[x.name] || 0) + 1);
+  const dup = plans.filter((x) => cnt[x.name] > 1).length;
+  say(failed.length || dup ? 'err' : 'ok', `➕ Thêm ${fresh.length} campaign Lowest Cost vào mục Create Campaign · tổng ${plans.length}`
+    + (dup ? ` · ⚠ ${dup} dòng TRÙNG TÊN (bôi đỏ)` : '') + ' — bấm 📦 Xuất bulk XLSX để tải file'
     + [...failed.map((t) => '❌ ' + t), ...skipped.map((t) => '⏭ ' + t)].map((t) => '<br>' + esc(t)).join(''));
+  $('previewArea').scrollIntoView({ behavior: 'smooth', block: 'start' });
 };
 
 /* ===== Live preview tên ===== */
