@@ -771,7 +771,7 @@ export function savePortfolioDir(rows) {
   for (const r of rows || []) {
     const id = String(r.id || "").trim();
     if (!id) continue;
-    next[id] = { name: String(r.name || "").trim().slice(0, 80), acc: String(r.acc || "").trim().slice(0, 40), updatedAt: new Date().toISOString() };
+    next[id] = { name: String(r.name || "").trim(), acc: String(r.acc || "").trim().slice(0, 40), updatedAt: new Date().toISOString() };
   }
   writeJsonAtomic(PORTFOLIOS_FILE(), next, 1);
   return listPortfolioDir();

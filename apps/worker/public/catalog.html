@@ -36,7 +36,7 @@
   .pfWrap { display:flex; align-items:center; }
   .pfWrap input { flex:0 0 164px; min-width:0; }
   .tblWrap { overflow-x:auto; } .tblWrap table { min-width:960px; }
-  .pfName { font-size:12px; color:#2455e6; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; padding-right:8px; }
+  .pfName { font-size:12px; color:#2455e6; white-space:normal; overflow-wrap:anywhere; line-height:1.3; padding:2px 8px 2px 0; } /* hiện đủ tên, dài thì xuống dòng */
   th.ck, td.ck { width:34px; text-align:center; padding:0; }
   td.ck input, th.ck input { width:auto; cursor:pointer; }
   tr.picked td { background:#f3f6ff; }
@@ -146,7 +146,7 @@
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
 
-const UI_VERSION = '0.49.5';
+const UI_VERSION = '0.49.6';
 (async () => {
   try { const v = (await (await fetch('/api/version')).json()).version; if (v !== UI_VERSION) throw new Error(v); }
   catch (e) { $('verWarn').style.display = 'block'; $('verWarn').textContent = `⚠️ Server phiên bản cũ (${e.message}) — hãy restart (npm start).`; }
