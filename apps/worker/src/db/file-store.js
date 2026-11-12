@@ -715,6 +715,9 @@ export function listCatalog() {
       list: p.list || "", sku: p.sku || "", type: p.type === "FBM" ? "FBM" : "FBA",
       portfolioId: p.portfolioId || "",  // portfolio mặc định — gán theo TÊN LIST, tự điền khi chọn ASIN
       kwList: p.kwList || "",            // id list trong Danh mục Target — Tạo Campaign kéo keyword + Target ASIN từ đây
+      // kwLists: NHIỀU bộ keyword gán cho 1 ASIN (Bulk Create chọn riêng từng ASIN). Tương thích ngược:
+      // ASIN cũ chỉ có kwList (1 bộ) → coi như mảng 1 phần tử.
+      kwLists: Array.isArray(p.kwLists) && p.kwLists.length ? p.kwLists : (p.kwList ? [p.kwList] : []),
       category: p.category || ""
     }))
     .sort((a, b) => (a.acc || "~").localeCompare(b.acc || "~") || (a.list || "~").localeCompare(b.list || "~") || a.asin.localeCompare(b.asin));
@@ -739,11 +742,29 @@ export function saveCatalog(rows) {
       type: String(r.type || "").toUpperCase() === "FBM" ? "FBM" : "FBA",
       portfolioId: String(r.portfolioId || "").trim(),
       kwList: String(r.kwList ?? old[asin]?.kwList ?? "").trim().slice(0, 40),
+      // Bảng danh mục không gửi kwLists → giữ nguyên gán nhiều bộ cũ của ASIN.
+      kwLists: Array.isArray(r.kwLists)
+        ? [...new Set(r.kwLists.map((x) => String(x || "").trim()).filter(Boolean))].slice(0, 20)
+        : (old[asin]?.kwLists ?? undefined),
       category: String(r.category ?? old[asin]?.category ?? "").trim().slice(0, 60),
       updatedAt: new Date().toISOString()
     };
   }
   fs.writeFileSync(LAUNCH_FILE(), JSON.stringify({ ...s, products: next, updatedAt: new Date().toISOString() }, null, 2));
+  return listCatalog();
+}
+
+/** Gán NHIỀU bộ keyword (id list) cho 1 ASIN — lưu vĩnh viễn vào Danh mục, GIỮ nguyên mọi ASIN khác.
+ *  kwList (1 bộ) được đồng bộ = phần tử đầu để các luồng cũ (Tạo Campaign thường, harvest) vẫn chạy. */
+export function setProductKwLists(asin, ids) {
+  const a = String(asin || "").trim().toUpperCase();
+  if (!/^[A-Z0-9]{10}$/.test(a)) throw new Error("ASIN không hợp lệ");
+  const s = getLaunchSettings();
+  const products = { ...(s.products || {}) };
+  const clean = [...new Set((Array.isArray(ids) ? ids : []).map((x) => String(x || "").trim()).filter(Boolean))].slice(0, 20);
+  const cur = products[a] || { acc: "", sku: "", type: "FBA" };
+  products[a] = { ...cur, kwLists: clean, kwList: clean[0] || "", updatedAt: new Date().toISOString() };
+  fs.writeFileSync(LAUNCH_FILE(), JSON.stringify({ ...s, products, updatedAt: new Date().toISOString() }, null, 2));
   return listCatalog();
 }
 

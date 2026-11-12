@@ -1038,6 +1038,15 @@ app.post("/api/catalog/products", (req, res) => {
   } catch (e) { res.status(400).json({ ok: false, message: e.message }); }
 });
 
+// Gán nhiều bộ keyword cho 1 ASIN (Bulk Create chọn riêng từng dòng) — lưu vĩnh viễn, giữ ASIN khác.
+app.post("/api/catalog/product-kwlists", (req, res) => {
+  try {
+    const { asin, kwLists } = req.body || {};
+    const products = store.setProductKwLists(asin, kwLists);
+    res.json({ ok: true, products });
+  } catch (e) { res.status(400).json({ ok: false, message: e.message }); }
+});
+
 app.post("/api/catalog/portfolios", (req, res) => {
   try {
     const rows = req.body?.rows;
