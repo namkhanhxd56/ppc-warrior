@@ -742,14 +742,15 @@ function buildHarvestCreateRows(items, opts = {}) {
   // thiếu thì lấy giá trị chung của request → tương thích cách gọi cũ.
   const dfPf = String(portfolioId || "").trim();
   const dfNote = note === undefined ? "HARVEST" : String(note || "");
-  const dfMode = campaignMode === "multi" ? "multi" : "single";
+  const normMode = (m) => (m === "onegroup" || m === "multi") ? "onegroup" : "single";
+  const dfMode = normMode(campaignMode);
   const groups = new Map(); // asin|note|pf|mode → items[]
   for (const it of items) {
     const asin = String(it.asin || "").toUpperCase();
     if (!/^[A-Z0-9]{10}$/.test(asin)) continue;
     const pf = it.portfolioId === undefined ? dfPf : String(it.portfolioId || "").trim();
     const nt = it.note === undefined ? dfNote : String(it.note || "");
-    const md = it.campaignMode ? (it.campaignMode === "multi" ? "multi" : "single") : dfMode;
+    const md = it.campaignMode ? normMode(it.campaignMode) : dfMode;
     const key = [asin, nt, pf, md].join("");
     if (!groups.has(key)) groups.set(key, { asin, note: nt, pf, mode: md, list: [] });
     groups.get(key).list.push(it);

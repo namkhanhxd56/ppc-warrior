@@ -319,10 +319,12 @@ export function planCampaigns(input) {
     };
   };
 
-  // CHẾ ĐỘ CAMPAIGN (19/07): "single" = 1 campaign - 1 ad group (mặc định, như cũ)
-  //                          "multi"  = 1 campaign - NHIỀU ad group (mỗi keyword 1 ad group, bid riêng)
-  // multi: ladder KHÔNG áp (mỗi keyword dùng bid gốc của nó); tên campaign: {Keyword} = "kw đầu +N"
-  const campaignMode = input.campaignMode === "multi" ? "multi" : "single";
+  // CHẾ ĐỘ CAMPAIGN: "single"   = 1 campaign - 1 ad group - 1 KEYWORD (mặc định, như cũ)
+  //                  "onegroup" = 1 campaign - 1 ad group - NHIỀU keyword (gom hết vào chung 1 ad group)
+  // onegroup: ladder KHÔNG áp (mỗi keyword dùng bid gốc của nó); tên campaign: {Keyword} = "kw đầu +N"
+  // (13/11: đổi từ "multi" cũ — trước đây mỗi keyword 1 ad group RIÊNG; nay chung 1 ad group).
+  // "multi" cũ còn sót trong form/settings đã lưu → quy về "onegroup" cho khớp ý "nhiều keyword 1 campaign".
+  const campaignMode = (input.campaignMode === "onegroup" || input.campaignMode === "multi") ? "onegroup" : "single";
   const kwSeen = new Set();
   const kwRaw = (input.keywords || []).filter((kw) => cleanText(kw.text));
   const kwTrimmed = [], kwInvalid = []; // báo UI: dòng bị cắt dấu ở 2 đầu / dòng toàn ký tự đặc biệt
@@ -351,7 +353,7 @@ export function planCampaigns(input) {
     });
   }
 
-  if (campaignMode === "multi") {
+  if (campaignMode === "onegroup") {
     // bid của 1 keyword theo match type (exact = bid gốc; phrase/broad = suy ra từ bid gốc)
     const bidFor = (matchType, kw) => matchType === "exact"
       ? r2(exactBase(kw))
@@ -372,10 +374,13 @@ export function planCampaigns(input) {
         type: `SP_KW_${matchType.toUpperCase()}`, name,
         keyword: label, matchType, bid: headBid, budget: Number(camp.dailyBudget),
         portfolioId: portfolio, startDateBulk: date, endDateBulk: "", note, ...campLevel, ...productLevel,
-        adGroups: kws.map((kw) => ({
-          name: kw.text, defaultBid: Number(camp.adGroupDefaultBid) || d.adGroupDefaultBid,
-          targets: [{ kind: "kw", text: kw.text, mt: matchType, bid: bidFor(matchType, kw) }], negatives: [], negPt: []
-        }))
+        // 1 campaign - 1 ad group - NHIỀU keyword: tất cả keyword vào CHUNG 1 ad group (tên = tên campaign),
+        // mỗi keyword giữ bid riêng theo match type.
+        adGroups: [{
+          name, defaultBid: Number(camp.adGroupDefaultBid) || d.adGroupDefaultBid,
+          targets: kws.map((kw) => ({ kind: "kw", text: kw.text, mt: matchType, bid: bidFor(matchType, kw) })),
+          negatives: [], negPt: []
+        }]
       });
     };
     // 1 campaign chỉ có 1 Start Date → keyword khác +n tách thành campaign riêng theo từng

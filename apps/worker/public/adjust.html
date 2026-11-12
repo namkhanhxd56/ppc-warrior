@@ -205,8 +205,8 @@
         <input type="text" id="pmNote" value="HARVEST" placeholder="VD: HARVEST" style="width:150px;padding:5px 8px;border:1px solid #ccd3e0;border-radius:6px"></div>
       <div><label style="font-size:11.5px;color:#667;display:block;margin-bottom:2px">Chế độ campaign</label>
         <select id="pmMode" style="padding:5px 8px;border:1px solid #ccd3e0;border-radius:6px">
-          <option value="single">1 campaign – 1 ad group / keyword</option>
-          <option value="multi">1 campaign – nhiều ad group (mỗi keyword 1 AG)</option>
+          <option value="single">1 Campaign – 1 ad Group – 1 Keyword</option>
+          <option value="onegroup">1 Campaign – 1 ad group – nhiều keyword</option>
         </select></div>
     </div>
     <div id="promoteList" style="max-height:280px;overflow:auto;border:1px solid #e3e8f0;border-radius:8px;padding:8px 12px;margin-bottom:12px;font-size:12.5px"></div>
@@ -869,7 +869,7 @@ function renderChangesTab() {
     <td><input type="text" inputmode="decimal" style="width:66px" value="${c.bid ?? ''}" placeholder="—" onchange="editCreate(${i},'bid',this.value)"></td>
     <td><input type="text" style="width:110px" value="${esc(c.note || '')}" onchange="editCreate(${i},'note',this.value)"></td>
     <td class="hint" style="max-width:220px;overflow:hidden;text-overflow:ellipsis" title="${esc(c.pfLabel || c.pf || '')}">${esc(c.pfLabel || c.pf || '—')}</td>
-    <td class="hint">${c.mode === 'multi' ? '1 camp – nhiều AG' : '1 camp – 1 AG'}</td></tr>`).join('');
+    <td class="hint">${(c.mode === 'onegroup' || c.mode === 'multi') ? '1 camp – 1 AG – nhiều KW' : '1 camp – 1 AG – 1 KW'}</td></tr>`).join('');
   area.innerHTML = `
     <div class="statgrid">
       <div class="stat"><b>${edits.length}</b><span>Sửa (Update)</span></div>
