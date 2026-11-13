@@ -559,7 +559,7 @@ function renderTargetsInit() {
   bkFieldChanged();
   $('tableArea').innerHTML = `<table id="tblTargets"><thead><tr>
     <th style="width:28px"><input type="checkbox" onchange="tickAll(this.checked)"></th>
-    <th class="l" data-sort="name">Name</th><th data-sort="e">Entity</th><th>Oper.</th><th class="l">Targeting</th><th>SKU</th><th>Start</th><th>End</th>
+    <th class="l" data-sort="name" style="min-width:230px">Name</th><th data-sort="e">Entity</th><th>Oper.</th><th class="l">Targeting</th><th>SKU</th><th>Start</th><th>End</th>
     <th data-sort="st">State</th><th data-sort="bud">Budget</th><th data-sort="bid">Bid</th><th data-sort="pct">%</th>
     <th data-sort="imp">Impr</th><th data-sort="clk">Clicks</th><th data-sort="sp">Spend</th><th data-sort="sa">Sales</th><th data-sort="or">Orders</th><th data-sort="acos">ACoS</th><th data-sort="roas">ROAS</th><th data-sort="ctr">CTR</th><th data-sort="cr">CR</th><th data-sort="cpc">CPC</th>
     </tr></thead><tbody id="tbMain"></tbody></table>`;
@@ -578,7 +578,9 @@ function buildTargetRow(x) {
   const stSel = () => `<td class="${editedCls(x.k,'st')}"><select ${da('st',x.st)} onchange="editEl(this)"><option ${stNow==='enabled'?'selected':''}>enabled</option><option ${stNow==='paused'?'selected':''}>paused</option></select></td>`;
   const numCell = (field, val) => `<td class="${editedCls(x.k,field)}"><input type="text" inputmode="decimal" style="width:60px" value="${editedVal(x.k,field,val)}" ${da(field,val)} onchange="editEl(this)"></td>`;
   const pctCell = (val) => `<td class="${editedCls(x.k,'pct')}"><input type="text" inputmode="decimal" style="width:60px" value="${Number(editedVal(x.k,'pct',val) || 0).toFixed(2)}" ${da('pct',val)} onchange="editEl(this)"></td>`;
-  const txtCell = (field, val, w) => `<td class="${editedCls(x.k,field)}"><input type="text" style="width:${w}px" value="${esc(editedVal(x.k,field,val))}" ${da(field,val)} onchange="editEl(this)"></td>`;
+  // Ô Name/Ad Group: input co theo CỘT (width:100%) thay vì cố định px — kéo cột là ô giãn/co theo.
+  // w = min-width để cột có bề rộng mặc định hợp lý khi mới nạp (table-layout:fixed sẽ khóa lại).
+  const txtCell = (field, val, w) => `<td class="${editedCls(x.k,field)}" style="min-width:${w}px"><input type="text" style="width:100%;min-width:0" value="${esc(editedVal(x.k,field,val))}" ${da(field,val)} onchange="editEl(this)"></td>`;
   let nameCell;
   if (x.e === 'Campaign') nameCell = txtCell('name', x.name, 230);
   else if (x.e === 'Ad Group') nameCell = txtCell('agname', x.agname, 200);
