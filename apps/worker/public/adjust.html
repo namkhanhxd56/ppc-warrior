@@ -1259,8 +1259,9 @@ window.openChipEditor = (lvl, f, idx) => {
     const TOPS = [['contains', 'chứa'], ['notContains', 'không chứa'], ['is', 'là (đúng y)']];
     body = `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
       <select id="ceTOp" style="width:150px">${TOPS.map(o => `<option value="${o[0]}" ${o[0] === op ? 'selected' : ''}>${o[1]}</option>`).join('')}</select>
-      <input type="text" id="ceTV" style="width:190px" value="${cur ? esc(cur.v || '') : ''}" placeholder="vd: ornament">
-      </div><div class="hint" style="margin-top:4px">Lọc theo Tên campaign — giữ cả cây campaign khớp (không phân biệt hoa thường)</div>`;
+      <input type="text" id="ceTV" style="width:220px" value="${cur ? esc(cur.v || '') : ''}" placeholder="vd: ornament, christmas">
+      </div><div class="hint" style="margin-top:4px">Lọc theo Tên campaign — giữ cả cây campaign khớp (không phân biệt hoa thường).<br>
+      Nhiều từ ngăn bằng <b>dấu phẩy</b>: <b>chứa</b> = chứa bất kỳ từ nào · <b>không chứa</b> = không có từ nào.</div>`;
   } else if (d.kind === 'num') {
     const op = cur?.op || 'gt', op2 = cur?.op2 || '';
     const opSel = (id, val, blank) => `<select id="${id}" style="width:118px">${blank ? `<option value="" ${val ? '' : 'selected'}>— không —</option>` : ''}${OPS.map(o => `<option value="${o[0]}" ${o[0] === val ? 'selected' : ''}>${o[1]}</option>`).join('')}</select>`;
