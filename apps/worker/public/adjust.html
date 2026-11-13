@@ -1160,6 +1160,7 @@ const MF = { imp: NF('imp', 'Impressions', ''), clk: NF('clk', 'Clicks', ''), ct
   acos: NF('acos', 'ACoS', '%'), roas: NF('roas', 'ROAS', 'x'), cr: NF('cr', 'Purchase rate (CR)', '%') };
 const FILTER_GROUPS = [
   { lvl: 'camp', title: 'Campaign', hint: 'xét dòng Campaign, giữ cả cây', items: [
+    { f: 'name', label: 'Tên campaign', kind: 'text' },
     { f: 'st', label: 'Active status', kind: 'enum', opts: ST_OPTS },
     { f: 'ad', label: 'Loại ads', kind: 'enum', opts: [['SP', 'SP · Products'], ['SB', 'SB · Brands'], ['SD', 'SD · Display']] },
     { f: 'pf', label: 'Portfolio name', kind: 'pf' },
@@ -1190,7 +1191,8 @@ chips = chips.filter(defOf).map(c => c.op === 'between' ? { ...c, op: 'gte', op2
 const fmtUnit = (d, x) => d.unit === '$' ? '$' + x : d.unit === '%' ? x + '%' : d.unit === 'x' ? x + 'x' : String(x);
 function chipText(c) {
   const d = defOf(c); let val;
-  if (d.kind === 'edited') val = c.v === 'only' ? 'chỉ dòng đã sửa' : 'ẩn dòng đã sửa';
+  if (d.kind === 'text') { const lb = { contains: 'chứa', notContains: 'không chứa', is: 'là' }[c.op] || c.op; val = `${lb} "${c.v}"`; }
+  else if (d.kind === 'edited') val = c.v === 'only' ? 'chỉ dòng đã sửa' : 'ẩn dòng đã sửa';
   else if (d.kind === 'pf') val = c.in.length === 1 ? (pfList.find(p => p.value === c.in[0])?.label || c.in[0]) : `${c.in.length} portfolio`;
   else if (d.kind === 'enum') {
     val = (c.f.endsWith('st') && c.in.length === 2 && c.in.includes('enabled') && c.in.includes('paused')) ? 'All but archived'
@@ -1226,7 +1228,14 @@ window.openChipEditor = (lvl, f, idx) => {
   if (idx === undefined) { const j = chips.findIndex(c => c.lvl === lvl && c.f === f); if (j !== -1) idx = j; }
   const cur = idx !== undefined ? chips[idx] : null;
   let body;
-  if (d.kind === 'num') {
+  if (d.kind === 'text') {
+    const op = cur?.op || 'contains';
+    const TOPS = [['contains', 'chứa'], ['notContains', 'không chứa'], ['is', 'là (đúng y)']];
+    body = `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+      <select id="ceTOp" style="width:150px">${TOPS.map(o => `<option value="${o[0]}" ${o[0] === op ? 'selected' : ''}>${o[1]}</option>`).join('')}</select>
+      <input type="text" id="ceTV" style="width:190px" value="${cur ? esc(cur.v || '') : ''}" placeholder="vd: ornament">
+      </div><div class="hint" style="margin-top:4px">Lọc theo Tên campaign — giữ cả cây campaign khớp (không phân biệt hoa thường)</div>`;
+  } else if (d.kind === 'num') {
     const op = cur?.op || 'gt', op2 = cur?.op2 || '';
     const opSel = (id, val, blank) => `<select id="${id}" style="width:118px">${blank ? `<option value="" ${val ? '' : 'selected'}>— không —</option>` : ''}${OPS.map(o => `<option value="${o[0]}" ${o[0] === val ? 'selected' : ''}>${o[1]}</option>`).join('')}</select>`;
     const unitHint = d.unit === '%' ? 'nhập %, vd 30' : d.unit === '$' ? 'USD' : d.unit === 'x' ? 'lần' : '';
@@ -1254,17 +1263,20 @@ window.openChipEditor = (lvl, f, idx) => {
       <button class="btn-sm" onclick="openFilterMenu()">← Danh sách</button>
       <button class="btn-primary" style="padding:5px 14px" onclick="saveChip('${lvl}','${f}',${idx === undefined ? 'undefined' : idx})">Áp dụng</button></div>`;
   $('fPop').style.display = 'block';
-  const first = $('fPop').querySelector('#ceV, #cePfQ'); if (first) first.focus();
+  const first = $('fPop').querySelector('#ceV, #cePfQ, #ceTV'); if (first) first.focus();
   // Gõ số vào ô thứ 2 mà chưa chọn phép so sánh → tự chọn "<" (trường hợp hay dùng nhất: cận trên)
   const v2 = $('fPop').querySelector('#ceV2'); if (v2) v2.addEventListener('input', () => { if (v2.value.trim() && !$('ceOp2').value) $('ceOp2').value = 'lt'; });
-  $('fPop').querySelectorAll('#ceV, #ceV2').forEach(el => el.addEventListener('keydown', (e) => { if (e.key === 'Enter') saveChip(lvl, f, idx); }));
+  $('fPop').querySelectorAll('#ceV, #ceV2, #ceTV').forEach(el => el.addEventListener('keydown', (e) => { if (e.key === 'Enter') saveChip(lvl, f, idx); }));
 };
 window.filterPfList = (q) => { q = q.toLowerCase(); document.querySelectorAll('#cePfList label').forEach(l => { l.style.display = !q || l.dataset.lb.includes(q) ? '' : 'none'; }); };
 window.saveChip = (lvl, f, idx) => {
   const d = grpOf(lvl).items.find(i => i.f === f);
   const err = (m) => { $('ceErr').textContent = m; };
   let c = { lvl, f };
-  if (d.kind === 'num') {
+  if (d.kind === 'text') {
+    c.op = $('ceTOp').value; c.v = String($('ceTV').value || '').trim();
+    if (!c.v) return err('Nhập chữ cần lọc');
+  } else if (d.kind === 'num') {
     const num = (id) => { const x = parseFloat(String($(id)?.value || '').replace(',', '.')); return isNaN(x) ? null : x; };
     c.op = $('ceOp').value; c.v = num('ceV');
     if (c.v === null) return err('Nhập giá trị số');

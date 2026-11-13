@@ -405,6 +405,15 @@ function chipMatch(r, c, editedKeys) {
     if (!r.pfid && !r.pfname) return vals.includes("__none__");
     return vals.includes(r.pfid) || vals.includes(r.pfname);
   }
+  // Chip chữ (vd Tên campaign): chứa / không chứa / là — không phân biệt hoa thường
+  if (c.op === "contains" || c.op === "notContains" || c.op === "is" || c.op === "isNot") {
+    const hay = String(chipValue(r, c.f) ?? "").toLowerCase();
+    const needle = String(c.v ?? "").toLowerCase();
+    if (c.op === "contains") return hay.includes(needle);
+    if (c.op === "notContains") return !hay.includes(needle);
+    if (c.op === "is") return hay === needle;
+    return hay !== needle; // isNot
+  }
   if (Array.isArray(c.in)) {
     if (!c.in.length) return true;
     const v = String(chipValue(r, c.f) ?? "").toLowerCase();
