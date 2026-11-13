@@ -296,6 +296,13 @@ export function queryRows(list, q = {}) {
     }
     out = out.filter((r) => okCids.has(r.cid));
   }
+  // SKU chỉ nằm ở dòng Product Ad → lọc CẢ CÂY campaign có Product Ad mang SKU khớp (như portfolio).
+  if (f.sku) {
+    const s = String(f.sku).toLowerCase();
+    const okCids = new Set();
+    for (const r of list) if (r.sku && r.sku.toLowerCase().includes(s)) okCids.add(r.cid);
+    out = out.filter((r) => okCids.has(r.cid));
+  }
   if (f.matchType) out = out.filter((r) => (r.mt || "").toLowerCase() === f.matchType.toLowerCase());
   if (f.state) out = out.filter((r) => r.st === f.state);
   // Dòng "đã sửa" (đang chờ trong ledger + đã xuất gần đây — server ghép bộ khoá vào q.editedKeys)

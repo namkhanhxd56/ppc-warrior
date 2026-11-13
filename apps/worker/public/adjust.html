@@ -151,6 +151,8 @@
     <div class="bulkbar" id="filterBar">
       <b style="font-size:12px">🔎</b>
       <input type="text" id="fQ" placeholder="Tên campaign / keyword / ASIN / term" style="width:230px">
+      <b style="font-size:12px">SKU</b>
+      <input type="text" id="fSku" placeholder="Lọc theo SKU" style="width:140px" title="Giữ cả cây campaign có Product Ad mang SKU khớp">
       <button class="btn-sm" id="btnFilter">Tìm</button>
       <span id="chipCtl" style="display:contents">
         <span style="position:relative;display:inline-block">
@@ -358,6 +360,15 @@ let bulkUndo = []; // stack snapshot edits trước mỗi lần bulk (để Undo
 let loadingMore = false, totalPages = 1, lastCid = null; // infinite scroll
 let termByKey = new Map(), loadedGroups = 0, termGid = 0, lastAsin = null, termAsinTotals = {}; // Search Term gom nhóm
 let chgHidden = false; // ẩn/hiện bảng đen thay đổi
+let hideEdited = false; // ẩn các DÒNG đã chỉnh (có thay đổi đang chờ) để tập trung dòng chưa chỉnh
+const rowHasEdit = (k) => edits.some((e) => e.k === k);
+// Ẩn/hiện lại các dòng đã chỉnh trên bảng Targets đang hiển thị
+function applyHideEdited() {
+  document.querySelectorAll('#tbMain tr[data-k]').forEach((tr) => {
+    tr.style.display = (hideEdited && rowHasEdit(tr.dataset.k)) ? 'none' : '';
+  });
+}
+window.toggleHideEdited = (on) => { hideEdited = on; applyHideEdited(); };
 
 /* ===== Datasets ===== */
 async function loadDatasets(pickId) {
@@ -445,7 +456,7 @@ function filters() {
     return { ...c, v: Number(c.v) / 100, v2: c.v2 === undefined ? undefined : Number(c.v2) / 100 };
   };
   const entity = [...new Set(entSel.flatMap(id => ENT_PILLS.find(p => p.id === id)?.ents || []))];
-  return { q: $('fQ').value.trim(), entity, chips: chips.map(toServer).filter(Boolean) };
+  return { q: $('fQ').value.trim(), sku: $('fSku') ? $('fSku').value.trim() : '', entity, chips: chips.map(toServer).filter(Boolean) };
 }
 
 const pageSizeFor = () => tab === 'terms' ? 60 : 500;
@@ -465,7 +476,7 @@ function updateLoadInfo(total) {
   $('pgInfo').textContent = `Đã tải ${loaded} / ${total} ${unit}${done ? ' — hết' : ' · cuộn để tải thêm'}`;
 }
 function appendBatch(r) {
-  if (tab === 'targets') { appendTargetRows(r.rows); lastRows.push(...r.rows); }
+  if (tab === 'targets') { appendTargetRows(r.rows); lastRows.push(...r.rows); applyHideEdited(); }
   else { termAsinTotals = { ...termAsinTotals, ...(r.asinTotals || {}) }; appendTermGroups(r.groups); }
 }
 
@@ -527,7 +538,7 @@ const editedCls = (k, field) => edits.some(x => x.k === k && x.field === field) 
 function renderTargetsInit() {
   $('actionBar').innerHTML = `
     <b style="font-size:12px">Bulk (dòng đã tick):</b>
-    <select id="bkField" style="max-width:120px">
+    <select id="bkField" style="max-width:120px" onchange="bkFieldChanged()">
       <option value="bid">Bid ($)</option><option value="bud">Budget ($)</option>
       <option value="pct">Placement %</option><option value="st">State</option>
     </select>
@@ -537,9 +548,15 @@ function renderTargetsInit() {
       <option value="pctUp">Tăng (+%)</option><option value="pctDown">Giảm (−%)</option>
     </select>
     <input type="text" inputmode="decimal" id="bkVal" placeholder="giá trị" style="width:80px">
+    <select id="bkState" style="max-width:150px;display:none">
+      <option value="enabled">▶ Enable (enabled)</option>
+      <option value="paused">⏸ Pause (paused)</option>
+    </select>
     <button class="btn-sm" onclick="applyBulkAdjust()">Áp dụng</button>
     <button class="btn-sm" id="bkUndo" onclick="undoBulk()" ${bulkUndo.length ? '' : 'disabled'} title="Hoàn tác lần bulk gần nhất">↩ Undo</button>
-    <span class="hint">Bid/Budget: Đặt / ±$ / ±% · State: gõ enabled|paused rồi Đặt · áp cho các dòng đã tick</span>`;
+    <label class="chk" style="margin:0 0 0 4px;white-space:nowrap" title="Ẩn các dòng đã có thay đổi đang chờ để tập trung vào dòng chưa chỉnh"><input type="checkbox" id="bkHideEdited" ${hideEdited ? 'checked' : ''} onchange="toggleHideEdited(this.checked)"> 🙈 Ẩn dòng đã chỉnh</label>
+    <span class="hint">Bid/Budget: Đặt / ±$ / ±% · State: chọn Enable / Pause rồi Áp dụng · áp cho các dòng đã tick</span>`;
+  bkFieldChanged();
   $('tableArea').innerHTML = `<table id="tblTargets"><thead><tr>
     <th style="width:28px"><input type="checkbox" onchange="tickAll(this.checked)"></th>
     <th class="l" data-sort="name">Name</th><th data-sort="e">Entity</th><th>Oper.</th><th class="l">Targeting</th><th>SKU</th><th>Start</th><th>End</th>
@@ -590,7 +607,8 @@ function buildTargetRow(x) {
   cells.push(`<td>${x.imp}</td><td>${x.clk}</td><td>${money(x.sp)}</td><td>${money(x.sa)}</td><td>${x.or}</td>
     <td>${pct(x.acos)}</td><td>${x.roas || 0}x</td><td>${pct(x.ctr)}</td><td>${pct(x.cr)}</td><td>${money(x.cpc)}</td>`);
   const cls = [groupStart ? 'grp-start' : '', x.e === 'Campaign' ? 'camp-row' : '', stNow === 'paused' ? 'paused-row' : ''].filter(Boolean).join(' ');
-  return `<tr class="${cls}">${cells.join('')}</tr>`;
+  const hid = hideEdited && rowHasEdit(x.k) ? ' style="display:none"' : '';
+  return `<tr class="${cls}" data-k="${esc(x.k)}"${hid}>${cells.join('')}</tr>`;
 }
 
 function renderTermsInit() {
@@ -695,8 +713,17 @@ window.editEl = (el) => {
   window.edit(d.k, d.field, el.value, d.label || '', d.old);
   const td = el.closest('td'); // tô viền đỏ ô ngay (không cần render lại cả bảng)
   if (td) td.classList.toggle('edited', edits.some(e => e.k === d.k && e.field === d.field));
+  // Đang bật "Ẩn dòng đã chỉnh": dòng vừa sửa tay sẽ ẩn ngay cho người dùng sang dòng kế tiếp
+  if (hideEdited) applyHideEdited();
 };
 window.undoBulk = () => { if (!bulkUndo.length) return; edits = bulkUndo.pop(); renderChanges(); refresh(); };
+// State không có "mode" (±$/±%) — đổi field sang State thì giấu mode + ô giá trị, hiện dropdown Enable/Pause.
+window.bkFieldChanged = () => {
+  const isSt = $('bkField') && $('bkField').value === 'st';
+  if ($('bkMode')) $('bkMode').style.display = isSt ? 'none' : '';
+  if ($('bkVal')) $('bkVal').style.display = isSt ? 'none' : '';
+  if ($('bkState')) $('bkState').style.display = isSt ? '' : 'none';
+};
 window.applyBulkAdjust = () => {
   const field = $('bkField').value, mode = $('bkMode').value;
   const raw = parseFloat($('bkVal').value.replace(',', '.'));
@@ -712,7 +739,7 @@ window.applyBulkAdjust = () => {
     else { old = x.st; applicable = x.e !== 'Bidding Adjustment'; }
     if (!applicable) continue;
     let value;
-    if (field === 'st') value = $('bkVal').value.trim() === 'enabled' ? 'enabled' : 'paused';
+    if (field === 'st') value = $('bkState').value === 'enabled' ? 'enabled' : 'paused';
     else if (mode === 'set') value = raw;
     else if (mode === 'pctUp') value = Math.round(old * (1 + raw / 100) * 100) / 100;
     else if (mode === 'pctDown') value = Math.round(old * (1 - raw / 100) * 100) / 100;
@@ -1117,6 +1144,7 @@ $('tabChanges').onclick = () => setTab('changes');
 $('tabRules').onclick = () => setTab('rules');
 $('btnFilter').onclick = () => { page = 1; refresh(); };
 $('fQ').addEventListener('keydown', (e) => { if (e.key === 'Enter') { page = 1; refresh(); } });
+if ($('fSku')) $('fSku').addEventListener('keydown', (e) => { if (e.key === 'Enter') { page = 1; refresh(); } });
 
 /* ===== FILTER DẠNG CHIP (kiểu Amazon Ads console) =====
    Chỉ giữ filter có số liệu trong file bulk. Bỏ các filter Amazon tính từ báo cáo khác:
@@ -1175,7 +1203,7 @@ function renderChips() {
 }
 const applyChipsChange = () => { saveChips(); renderChips(); closeFPop(); page = 1; refresh(); };
 window.removeChip = (i) => { chips.splice(i, 1); applyChipsChange(); };
-window.clearChips = () => { chips = []; entSel = []; saveEnt(); renderEntPills(); $('fQ').value = ''; applyChipsChange(); };
+window.clearChips = () => { chips = []; entSel = []; saveEnt(); renderEntPills(); $('fQ').value = ''; if ($('fSku')) $('fSku').value = ''; applyChipsChange(); };
 const closeFPop = () => { $('fPop').style.display = 'none'; };
 function openFilterMenu() {
   $('fPop').innerHTML = FILTER_GROUPS.map(g => `<div class="fm-grp">${g.title} <span>— ${g.hint}</span></div>` +
