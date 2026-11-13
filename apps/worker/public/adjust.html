@@ -162,6 +162,7 @@
         <span id="chipArea" style="display:contents"></span>
       </span>
       <span class="hint" id="cntInfo"></span>
+      <span id="selInfo" style="font-size:12px;font-weight:600"></span>
     </div>
 
     <div class="bulkbar" id="actionBar"></div>
@@ -231,7 +232,7 @@ const money = (v) => '$' + Number(v || 0).toFixed(2);
 const fmtYmd = (s) => { s = String(s || ''); return /^\d{8}$/.test(s) ? `${s.slice(6, 8)}/${s.slice(4, 6)}/${s.slice(0, 4)}` : (s || '?'); };
 
 /* ===== Hộp thoại TRONG TRANG — thay alert/confirm/prompt của trình duyệt ===== */
-function dialog({ title, text, input, okLabel = 'OK', cancelLabel = 'Hủy', showCancel = true, okClass = 'btn-primary' }) {
+function dialog({ title, text, input, okLabel = 'OK', cancelLabel = 'Hủy', showCancel = true, okClass = 'btn-primary', extraLabel = '', extraClass = 'btn-sm' }) {
   return new Promise((resolve) => {
     const wrap = document.createElement('div');
     wrap.className = 'dlgWrap';
@@ -241,6 +242,7 @@ function dialog({ title, text, input, okLabel = 'OK', cancelLabel = 'Hủy', sho
       ${input !== undefined ? `<input type="text" id="dlgInput" style="width:100%;margin-bottom:14px" value="${esc(input)}">` : ''}
       <div class="acts">
         ${showCancel ? `<button class="btn-sm" data-act="cancel">${esc(cancelLabel)}</button>` : ''}
+        ${extraLabel ? `<button class="${extraClass}" data-act="extra">${esc(extraLabel)}</button>` : ''}
         <button class="${okClass}" data-act="ok">${esc(okLabel)}</button>
       </div></div>`;
     const done = (v) => { wrap.remove(); document.removeEventListener('keydown', onKey); resolve(v); };
@@ -248,6 +250,7 @@ function dialog({ title, text, input, okLabel = 'OK', cancelLabel = 'Hủy', sho
     wrap.addEventListener('click', (e) => {
       const act = e.target.dataset?.act;
       if (act === 'ok') done(input !== undefined ? (wrap.querySelector('#dlgInput').value) : true);
+      else if (act === 'extra') done('extra');
       else if (act === 'cancel' || e.target === wrap) done(input !== undefined ? null : false);
     });
     document.addEventListener('keydown', onKey);
@@ -424,7 +427,7 @@ $('pmPfInput').addEventListener('change', () => {
   else if (!v) $('pmPortfolio').value = '';
 });
 document.addEventListener('click', (e) => { if (!e.target.closest('#pmPfDD') && e.target !== $('pmPfInput')) $('pmPfDD').style.display = 'none'; });
-$('dsSelect').onchange = () => { dsId = $('dsSelect').value; page = 1; sel.clear(); restoreLedger(); renderChanges(); loadPortfolios(); refresh(); };
+$('dsSelect').onchange = () => { dsId = $('dsSelect').value; page = 1; sel.clear(); updateSelInfo(); restoreLedger(); renderChanges(); loadPortfolios(); refresh(); };
 $('btnRenameDs').onclick = async () => {
   if (!dsId) { alertBox('Chưa có dataset nào — hãy import file bulk trước.', '✎ Đặt tên dataset'); return; }
   const cur = ($('dsSelect').selectedOptions[0]?.text || '').replace(/^📁 /, '').split(' · ')[0];
@@ -476,7 +479,7 @@ function updateLoadInfo(total) {
   $('pgInfo').textContent = `Đã tải ${loaded} / ${total} ${unit}${done ? ' — hết' : ' · cuộn để tải thêm'}`;
 }
 function appendBatch(r) {
-  if (tab === 'targets') { appendTargetRows(r.rows); lastRows.push(...r.rows); applyHideEdited(); }
+  if (tab === 'targets') { appendTargetRows(r.rows); lastRows.push(...r.rows); applyHideEdited(); updateSelInfo(); }
   else { termAsinTotals = { ...termAsinTotals, ...(r.asinTotals || {}) }; appendTermGroups(r.groups); }
 }
 
@@ -661,22 +664,33 @@ window.toggleTermGroup = (gid) => {
   rows.forEach((r) => { r.style.display = show ? '' : 'none'; });
   const t = document.querySelector(`tr.tgroup[data-gid="${gid}"] .tgt`); if (t) t.textContent = show ? '▾' : '▸';
 };
-window.tickTerm = (key, on) => { on ? sel.add(key) : sel.delete(key); };
+window.tickTerm = (key, on) => { on ? sel.add(key) : sel.delete(key); updateSelInfo(); };
 window.tickGroup = (gid, on) => {
   document.querySelectorAll(`.tg-${gid} input[type=checkbox][data-tk]`).forEach((cb) => { cb.checked = on; on ? sel.add(cb.dataset.tk) : sel.delete(cb.dataset.tk); });
+  updateSelInfo();
 };
 
 /* ===== Tick / edit / bulk ===== */
-window.tick = (key, on) => { on ? sel.add(key) : sel.delete(key); };
+// Hiện số dòng đang chọn (so với tổng đã lọc). "Chọn hết" chỉ chọn các dòng ĐÃ TẢI (cuộn vô cực),
+// nên số này cho biết chọn-hết thực sự được bao nhiêu trên tổng khớp.
+function updateSelInfo() {
+  const el = $('selInfo'); if (!el) return;
+  const n = sel.size;
+  el.textContent = n ? ` · đã chọn ${n} dòng` : '';
+  el.style.color = n ? '#2455e6' : '';
+}
+window.tick = (key, on) => { on ? sel.add(key) : sel.delete(key); updateSelInfo(); };
 window.tickAll = (on) => {
   sel.clear();
   if (tab === 'terms') {
     document.querySelectorAll('#tbMain input[type=checkbox][data-tk]').forEach(cb => { cb.checked = on; if (on) sel.add(cb.dataset.tk); });
     document.querySelectorAll('#tbMain tr.tgroup input[type=checkbox]').forEach(cb => { cb.checked = on; });
+    updateSelInfo();
     return;
   }
   if (on) lastRows.map(x => x.k).forEach(k => sel.add(k));
   document.querySelectorAll('#tbMain input[type=checkbox]').forEach(cb => { cb.checked = on; });
+  updateSelInfo();
 };
 // Guardrail: giá trị ngoài ngưỡng an toàn → trả cảnh báo (không chặn, chỉ báo)
 function validateEdit(field, value) {
@@ -755,7 +769,7 @@ window.applyBulkAdjust = () => {
     + capped.slice(0, 8).join('<br>') + (capped.length > 8 ? `<br>… và ${capped.length - 8} dòng khác` : ''), '⛔ Vượt trần tăng bid');
 };
 const pickedTerms = () => [...sel].map(k => termByKey.get(k)).filter(Boolean);
-const uncheckTerms = () => { document.querySelectorAll('#tbMain input[type=checkbox]').forEach(cb => cb.checked = false); sel.clear(); };
+const uncheckTerms = () => { document.querySelectorAll('#tbMain input[type=checkbox]').forEach(cb => cb.checked = false); sel.clear(); updateSelInfo(); };
 window.addNegatives = (mt) => {
   const picked = pickedTerms();
   if (!picked.length) { alertBox('Chưa tick search term nào.', '🚫 Negative'); return; }
@@ -980,14 +994,26 @@ async function doExport() {
   const sheetInfo = Object.entries(info.bySheet || {}).map(([ad, n]) => `${ad} ${n}`).join(' · ');
   setMsg('ok', `✅ ${info.rows} dòng (${info.updateRows} Update + ${info.createRows} Create)${sheetInfo ? ' — ' + sheetInfo : ''}`);
   loadAudit(); // cập nhật nhật ký
-  const clear = await dialog({ title: '✅ Đã tải file bulk',
+  const nEdits = edits.length;
+  const choice = await dialog({ title: '✅ Đã tải file bulk',
     text: `<b>${info.rows}</b> dòng trong 1 file — upload vào Amazon Ads (Bulk operations):<br>
-      • <b>${info.updateRows}</b> dòng Update (${edits.length} sửa) + Create negative (${negatives.length})<br>
+      • <b>${info.updateRows}</b> dòng Update (${nEdits} sửa) + Create negative (${negatives.length})<br>
       • <b>${info.createRows}</b> dòng Create campaign mới (${info.campaigns || 0} campaign / ${creates.length} keyword)
       ${info.missing && info.missing.length ? `<br>• ⚠️ Cột không có trong header dataset, đã bỏ: ${esc(info.missing.join(', '))}` : ''}
-      <br><br>Xoá danh sách thay đổi đang chờ?`,
-    okLabel: '🗑 Xoá danh sách', cancelLabel: 'Giữ lại', okClass: 'btn-ok' });
-  if (clear) { edits = []; negatives = []; creates = []; bulkUndo = []; renderChanges(); refresh(); toast('🗑 Đã xoá danh sách thay đổi'); }
+      <br><br><b>Áp dụng thay đổi</b> = lấy các giá trị đã sửa làm MẶC ĐỊNH mới (hết tô "đã sửa"); sửa thêm sau tính là sửa mới.`,
+    okLabel: '✅ Áp dụng thay đổi', okClass: 'btn-ok',
+    extraLabel: '🗑 Xoá danh sách', extraClass: 'btn-sm',
+    cancelLabel: 'Giữ lại' });
+  if (choice === true) {
+    // Áp dụng vào dataset làm mặc định mới, rồi dọn danh sách chờ
+    let r = {};
+    try { r = await (await fetch('/api/adjust/apply-edits', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: dsId, edits }) })).json(); } catch {}
+    if (!r.ok) { alertBox('⚠️ Không áp dụng được: ' + esc(r.message || 'lỗi server') + '<br><span class="hint">Danh sách thay đổi vẫn được giữ.</span>', '❌ Áp dụng thất bại'); return; }
+    edits = []; negatives = []; creates = []; bulkUndo = []; renderChanges(); await refresh();
+    toast(`✅ Đã áp dụng ${r.applied} thay đổi làm mặc định mới`);
+  } else if (choice === 'extra') {
+    edits = []; negatives = []; creates = []; bulkUndo = []; renderChanges(); refresh(); toast('🗑 Đã xoá danh sách thay đổi');
+  }
 }
 window.doExport = doExport;
 window.exportAll = doExport;
@@ -1133,7 +1159,7 @@ window.exportProps = async () => {
 
 /* ===== Tab / filter / phân trang ===== */
 function setTab(t) {
-  tab = t; page = 1; sel.clear();
+  tab = t; page = 1; sel.clear(); updateSelInfo();
   for (const [id, name] of [['tabTargets', 'targets'], ['tabTerms', 'terms'], ['tabChanges', 'changes'], ['tabRules', 'rules']]) {
     $(id).classList.toggle('active', name === t);
   }
@@ -1259,8 +1285,10 @@ window.openChipEditor = (lvl, f, idx) => {
   }
   $('fPop').innerHTML = `<div class="fm-grp">${esc(grpOf(lvl).title)} · <b style="text-transform:none;color:#1b2330">${esc(d.label)}</b></div>
     <div style="margin:8px 0">${body}</div><span class="msg err" id="ceErr"></span>
-    <div style="display:flex;gap:6px;justify-content:flex-end;margin-top:8px">
+    <div style="display:flex;gap:6px;align-items:center;margin-top:8px">
       <button class="btn-sm" onclick="openFilterMenu()">← Danh sách</button>
+      ${idx !== undefined ? `<button class="btn-sm" style="background:#fde8e8;color:#c0392b" onclick="removeChip(${idx})" title="Tắt / bỏ bộ lọc này">🗑 Bỏ lọc này</button>` : ''}
+      <span style="flex:1"></span>
       <button class="btn-primary" style="padding:5px 14px" onclick="saveChip('${lvl}','${f}',${idx === undefined ? 'undefined' : idx})">Áp dụng</button></div>`;
   $('fPop').style.display = 'block';
   const first = $('fPop').querySelector('#ceV, #cePfQ, #ceTV'); if (first) first.focus();

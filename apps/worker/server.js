@@ -1574,6 +1574,32 @@ app.post("/api/adjust/query", (req, res) => {
   res.json({ ok: true, ...out, meta: ds.meta });
 });
 
+// Áp dụng thay đổi vào DATASET làm MẶC ĐỊNH mới: giá trị đã sửa thành giá trị gốc của dòng
+// → bảng hiển thị giá trị mới (không còn tô "đã sửa"); sửa thêm sau này tính là sửa MỚI (diff với
+// mặc định mới). Giữ nguyên mọi dòng khác. Dùng sau khi đã tải file bulk về.
+app.post("/api/adjust/apply-edits", (req, res) => {
+  try {
+    const { id, edits } = req.body || {};
+    const ds = loadDataset(id);
+    if (!ds) return res.status(404).json({ ok: false, message: "Chưa có dataset" });
+    const STR = new Set(["st", "name", "agname"]);
+    const FIELDS = new Set(["bud", "bid", "st", "pct", "agbid", "name", "agname"]);
+    let applied = 0;
+    for (const ed of Array.isArray(edits) ? edits : []) {
+      if (!ed || !FIELDS.has(ed.field)) continue;
+      const rec = ds.byKey.get(ed.k);
+      if (!rec) continue;
+      rec[ed.field] = STR.has(ed.field) ? String(ed.value) : Number(ed.value);
+      applied++;
+    }
+    // Lưu lại dataset (bỏ byKey khỏi JSON — loadDataset tự dựng lại từ records)
+    const { byKey, ...rest } = ds;
+    fs.mkdirSync(ADJUST_DIR_FN(), { recursive: true });
+    fs.writeFileSync(`${ADJUST_DIR_FN()}/${id}.json`, JSON.stringify(rest));
+    res.json({ ok: true, applied });
+  } catch (e) { res.status(400).json({ ok: false, message: e.message }); }
+});
+
 /** Khoá dòng đã xuất file Update trong N ngày (đọc audit.jsonl — gồm cả xuất thủ công lẫn từ rule).
     Khoá theo ID Amazon nên vẫn khớp khi import file bulk mới hôm sau. Cache theo mtime file. */
 const EDITED_LOOKBACK_DAYS = 7;
