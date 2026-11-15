@@ -2430,7 +2430,7 @@ function bkEnsureVarModal() {
     <div class="tabs" id="bvTabs"></div>
     <div class="bd">
       <div class="col"><div class="tb" id="bvVTb"></div><div class="sc" id="bvVars"></div></div>
-      <div class="col"><div class="tb" id="bvKTb"></div><div class="sc" id="bvKws"></div></div></div>
+      <div class="col"><div class="tb" id="bvKTb"><span id="bvKSum"></span><span style="flex:1"></span><input type="text" id="bvQ" placeholder="Lọc keyword…" autocomplete="off"></div><div class="sc" id="bvKws"></div></div></div>
     <div class="ft"><span class="msg" id="bvSave"></span><span style="flex:1"></span>
       <button type="button" class="btn-sm" id="bvApply" title="Chép biến thể + keyword đã chọn sang các ASIN đang tick ở mục 1 có cùng niche">⎘ Áp cho các ASIN đang chọn cùng niche</button></div></div>`;
   document.body.appendChild(d);
@@ -2460,8 +2460,14 @@ function bkEnsureVarModal() {
     if (t.classList.contains('vchk')) bkVarToggleVariant(t.dataset.key, t.checked);
     else if (t.classList.contains('kchk')) bkVarToggleKw(t.dataset.key, t.dataset.kw, t.checked);
   });
-  $('bvKws').addEventListener('change', (e) => { const t = e.target; if (bkVM && t.classList.contains('rchk')) bkVarToggleKw(t.dataset.key, t.dataset.kw, t.checked); });
-  $('bvKTb').addEventListener('input', (e) => { if (e.target.id === 'bvQ' && bkVM) { bkVM.q = e.target.value.trim().toLowerCase(); bkVarRenderRight(); } });
+  $('bvKws').addEventListener('change', (e) => { const t = e.target; if (!bkVM) return;
+    if (t.id === 'bvKAll') bkVarToggleAllKw(t.checked);
+    else if (t.classList.contains('rchk')) bkVarToggleKw(t.dataset.key, t.dataset.kw, t.checked); });
+  // ô lọc dựng 1 lần (không nằm trong phần render lại) → gõ không mất focus; debounce để không vẽ lại bảng mỗi phím
+  let qTimer = null;
+  $('bvQ').addEventListener('input', (e) => { clearTimeout(qTimer); const v = e.target.value.trim().toLowerCase();
+    qTimer = setTimeout(() => { if (bkVM && bkVM.q !== v) { bkVM.q = v; bkVarRenderRight(); } }, 150); });
+  $('bvQ').addEventListener('keydown', (e) => { if (e.key === 'Escape' && e.target.value) { e.stopPropagation(); e.target.value = ''; clearTimeout(qTimer); if (bkVM) { bkVM.q = ''; bkVarRenderRight(); } } });
   $('bvApply').onclick = bkVarApplyAll;
   $('bvLists').addEventListener('click', (e) => { const c = e.target.closest('.lchip'); if (!c || !bkVM || c.dataset.id === bkVM.listId) return; bkVarSwitch(c.dataset.id); });
   $('bvScan').onclick = bkVarScan;
@@ -2470,7 +2476,7 @@ function bkCloseVarModal() { if ($('bkVarModal')) $('bkVarModal').style.display 
 async function bkOpenVarModal(asin, listId) {
   bkEnsureVarModal(); bkCloseRowSets();
   const c = catalog.find((x) => x.asin === asin); if (!c) return;
-  $('bkVarModal').style.display = 'flex';
+  $('bkVarModal').style.display = 'flex'; $('bvQ').value = '';
   $('bvAsin').textContent = asin; $('bvAsin').href = 'https://www.amazon.com/dp/' + asin;
   $('bvSub').textContent = c.sku || ''; $('bvPTitle').textContent = ''; $('bvLists').textContent = 'Đang tải…';
   $('bvImg').textContent = '…'; $('bvVars').innerHTML = ''; $('bvKws').innerHTML = ''; $('bvTabs').innerHTML = '';
@@ -2554,6 +2560,15 @@ function bkVarToggleKw(key, kw, on) {
     if (key && all.every((k) => ex.has(kwKey(k)))) { sel.delete(key); all.forEach((k) => ex.delete(kwKey(k))); } // bỏ hết keyword = bỏ biến thể
   });
 }
+// Ô tick tổng ở bảng keyword: chọn / bỏ TẤT CẢ keyword đang hiện (theo ô lọc) — gồm cả mục "Đã bỏ chọn".
+// Bỏ hết KHÔNG bỏ tick biến thể (khác tick tay từng dòng) → keyword nằm ở "Đã bỏ chọn", bấm lại ô tổng là chọn lại được.
+function bkVarToggleAllKw(on) {
+  const q = bkVM.q || '', L = bkVM.list, hasV = L.variants.length;
+  bkVarMutate((sel, ex) => {
+    (L.keywords || []).filter((k) => (!q || kwKey(k).includes(q)) && (!hasV || !k.variant || sel.has(vKey(k.group, k.variant))))
+      .forEach((k) => (on ? ex.delete(kwKey(k)) : ex.add(kwKey(k))));
+  });
+}
 function bkVarRender() { bkVarRenderTabs(); bkVarRenderLeft(); bkVarRenderRight(); }
 function bkVarRenderTabs() {
   const { sel, ex } = bkVarState(), L = bkVM.list;
@@ -2601,15 +2616,19 @@ function bkVarRenderRight() {
   const chosen = (L.keywords || []).filter((k) => bkKwChosen(k, sel, ex, L)).sort((a, b) => bkGRank(a.group) - bkGRank(b.group) || (b.sv || 0) - (a.sv || 0));
   const act = chosen.filter((k) => bkGroupsOn.has(gKey(k.group))).length, asinN = (L.asins || []).length;
   const vis = chosen.filter((k) => !q || kwKey(k).includes(q));
-  $('bvKTb').innerHTML = `<span><b>${chosen.length}</b> keyword đã chọn · <b>${act}</b> sẽ chạy (group đã tick ở mục 2)${asinN ? ` · ${asinN} Target ASIN` : ''}</span><span style="flex:1"></span><input type="text" id="bvQ" placeholder="Lọc keyword…" value="${esc(bkVM.q || '')}">`;
+  $('bvKSum').innerHTML = `<b>${chosen.length}</b> keyword đã chọn · <b>${act}</b> sẽ chạy (group đã tick ở mục 2)${asinN ? ` · ${asinN} Target ASIN` : ''}`;
   const rowOf = (k, checked) => { const key = k.variant ? vKey(k.group, k.variant) : '';
     return `<tr class="${bkGroupsOn.has(gKey(k.group)) ? '' : 'dim'}"><td><input type="checkbox" class="rchk" data-key="${esc(key)}" data-kw="${esc(kwKey(k))}"${checked ? ' checked' : ''}></td><td>${esc(k.kw)}</td><td class="n">${bkFmtSv(bkSvOf(k))}</td><td>${esc(k.group || '—')}</td><td>${esc(k.variant || '—')}</td></tr>`; };
   // keyword thuộc biến thể đã tick nhưng bị bỏ chọn → để lại cuối bảng để tick lại nếu lỡ tay
   const dropped = (L.keywords || []).filter((k) => ex.has(kwKey(k)) && (!hasV || !k.variant || sel.has(vKey(k.group, k.variant)))).filter((k) => !q || kwKey(k).includes(q));
-  $('bvKws').innerHTML = (chosen.length ? `<table><thead><tr><th style="width:26px"></th><th>Keyword (bỏ tick để loại)</th><th>SV</th><th>Group</th><th>Biến thể</th></tr></thead><tbody>${vis.slice(0, 1000).map((k) => rowOf(k, true)).join('')}</tbody></table>`
+  const nAll = vis.length + dropped.length;
+  const allBox = `<input type="checkbox" id="bvKAll" title="${q ? 'Chọn / bỏ tất cả keyword khớp ô lọc' : 'Chọn / bỏ tất cả keyword'} (gồm cả mục Đã bỏ chọn)"${vis.length && !dropped.length ? ' checked' : ''}${nAll ? '' : ' disabled'}>`;
+  $('bvKws').innerHTML = (chosen.length || dropped.length ? `<table><thead><tr><th style="width:26px">${allBox}</th><th>Keyword (bỏ tick để loại)</th><th>SV</th><th>Group</th><th>Biến thể</th></tr></thead><tbody>${vis.slice(0, 1000).map((k) => rowOf(k, true)).join('')}</tbody></table>`
       + (vis.length > 1000 ? `<div class="hint">Hiện 1000 / ${vis.length} dòng — dùng ô lọc</div>` : '')
+      + (!nAll && q ? '<div class="hint" style="padding:8px">Không có keyword khớp ô lọc.</div>' : '')
     : `<div class="hint" style="padding:8px">${hasV ? '← Tick biến thể (hoặc từng keyword) ở cột bên trái.' : 'Không có keyword.'}</div>`)
     + (dropped.length ? `<details><summary>Đã bỏ chọn (${dropped.length}) — tick lại để thêm vào</summary><table><tbody>${dropped.slice(0, 500).map((k) => rowOf(k, false)).join('')}</tbody></table></details>` : '');
+  if ($('bvKAll') && vis.length && dropped.length) $('bvKAll').indeterminate = true;   // chọn một phần
 }
 async function bkVarFlush() {
   const vm = bkVM; const save = $('bvSave');
