@@ -61,6 +61,8 @@
   .chgPanel { position:fixed; right:16px; bottom:16px; background:#101828; color:#e8edf6; border-radius:12px;
     padding:12px 16px; font-size:12px; max-width:420px; max-height:45vh; overflow:auto; box-shadow:0 8px 30px rgba(0,0,0,.35); z-index:50; }
   .chgPanel h3 { margin:0 0 8px; font-size:13px; }
+  /* hàng trên cùng (tiêu đề + Ẩn + nút) dính ở đầu khi cuộn danh sách */
+  .chgPanel .chgHd { position:sticky; top:-12px; z-index:2; background:#101828; margin:-12px -16px 2px; padding:12px 16px 4px; border-bottom:1px solid #2a3448; }
   .chgPanel .it { display:flex; gap:8px; align-items:center; padding:3px 0; border-bottom:1px solid #2a3448; }
   .chgPanel .undo { cursor:pointer; color:#ff9c9c; font-weight:700; }
   .hint { font-size:11px; color:#8a94a8; }
@@ -884,18 +886,20 @@ function renderChanges() {
   $('chgPanel').style.padding = '';
   const FIELD_LB = { bid: 'Bid', bud: 'Budget', pct: 'Placement %', st: 'State', agbid: 'Ad Group Bid', name: 'Tên Campaign', agname: 'Tên Ad Group' };
   const warns = edits.filter(e => e.warn).length;
-  $('chgPanel').innerHTML = `<h3>📋 Thay đổi (${n})${warns ? ` · <span style="color:#ffb3b3">⚠️ ${warns} cảnh báo</span>` : ''} <span class="undo" style="float:right;cursor:pointer" onclick="toggleChg()" title="Ẩn bảng">🗕 Ẩn</span></h3>` +
-    `<div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
+  const top = $('chgPanel').scrollTop;   // giữ vị trí cuộn: xoá 1 dòng không nhảy lên đầu
+  $('chgPanel').innerHTML = `<div class="chgHd"><h3>📋 Thay đổi (${n})${warns ? ` · <span style="color:#ffb3b3">⚠️ ${warns} cảnh báo</span>` : ''} <span class="undo" style="float:right;cursor:pointer" onclick="toggleChg()" title="Ẩn bảng">🗕 Ẩn</span></h3>` +
+    `<div style="display:flex;gap:8px;align-items:center;margin-bottom:4px;flex-wrap:wrap">
       <button class="btn-ok" style="padding:6px 14px" onclick="setTab('changes')">📋 Mở module Thay đổi</button>
       <button class="btn-sm" style="padding:6px 12px" onclick="doExport()">📦 Xuất file bulk</button>
       <span class="msg" id="chgExportMsg"></span>
-    </div>` +
+    </div></div>` +
     creates.map((c, i) => `<div class="it"><span class="undo" onclick="removeCreate(${i})">✕</span>
       <span><span class="badge" style="background:#334;color:#9fd8b0">Create</span> 🚀 <b>${esc(c.keyword)}</b> · ${esc(c.asin)}${c.bid ? ' · $' + c.bid : ''}${c.note ? ' · ' + esc(c.note) : ''}</span></div>`).join('') +
     edits.map((e, i) => `<div class="it"><span class="undo" onclick="undoEdit(${i})">✕</span>
       <span>${FIELD_LB[e.field] || e.field}: <b>${esc(e.old)}</b> → <b style="color:#7ef0a8">${esc(e.value)}</b> · ${esc(e.label)}${e.warn ? ` <span style="color:#ffb3b3" title="${esc(e.warn)}">⚠️</span>` : ''}</span></div>`).join('') +
     negatives.map((g, i) => `<div class="it"><span class="undo" onclick="undoNeg(${i})">✕</span>
       <span><span class="badge" style="background:#334;color:#9fd8b0">Create</span> 🚫 ${g.mt === 'negativePhrase' ? 'Phrase' : 'Exact'}: <b>${esc(g.term)}</b> · ${esc((g.name || '').slice(0, 38))}</span></div>`).join('');
+  $('chgPanel').scrollTop = top;
 }
 /* ===== MODULE "THAY ĐỔI" — ngang cấp Campaigns & Targets / Search Terms =====
    Gom mọi thứ đang chờ: sửa bid/budget/state · negative · campaign mới từ search term.

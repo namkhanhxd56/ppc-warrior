@@ -2397,6 +2397,8 @@ function bkEnsureVarModal() {
   #bkVarModal .col + .col{border-left:1px solid #e3e8f0}
   #bkVarModal .tb{padding:8px 14px;border-bottom:1px solid #eef1f7;font-size:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
   #bkVarModal .tb a{cursor:pointer;color:var(--b)} #bkVarModal .tb input[type=text]{padding:4px 8px;font-size:12px;width:150px}
+  #bkVarModal .qrow{display:flex;gap:6px;align-items:center;width:100%} #bkVarModal .qrow select{flex:none;width:auto;padding:4px 6px;font-size:12px}
+  #bkVarModal .qrow input[type=text]{flex:1;width:auto;min-width:0} #bkVarModal #bvKSum{width:100%}
   #bkVarModal .sc{overflow:auto;flex:1;padding:6px 10px 12px}
   #bkVarModal .vs{font-size:11px;color:#667;font-weight:700;margin:8px 0 2px}
   #bkVarModal .vr{display:flex;gap:6px;align-items:center;padding:3px 4px;border-radius:6px;font-size:12.5px}
@@ -2417,7 +2419,7 @@ function bkEnsureVarModal() {
   #bkVarModal td.n{text-align:right;font-variant-numeric:tabular-nums} #bkVarModal tr.dim td{color:#a0a8b8}
   #bkVarModal details{margin-top:10px;font-size:12px} #bkVarModal details summary{cursor:pointer;color:#667}
   #bkVarModal .ft{padding:8px 16px;border-top:1px solid #e3e8f0;display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:12px}
-  @media (max-width:860px){#bkVarModal .bd{grid-template-columns:1fr;overflow:auto;display:block}#bkVarModal .col{display:block;min-height:auto}#bkVarModal .col+.col{border-left:none;border-top:1px solid #e3e8f0}#bkVarModal .sc{max-height:50vh}}`;
+  @media (max-width:860px){#bkVarModal .bd{grid-template-columns:1fr;overflow:auto;display:block}#bkVarModal .col{display:block;min-height:auto}#bkVarModal .col+.col{border-left:none;border-top:1px solid #e3e8f0}#bkVarModal .sc{max-height:50vh}#bkVarModal .col>.tb{position:sticky;top:0;background:#fff;z-index:3}}`;
   document.head.appendChild(st);
   const d = document.createElement('div'); d.id = 'bkVarModal';
   d.innerHTML = `<div class="box"><div class="hd"><div class="pimg" id="bvImg">…</div>
@@ -2430,7 +2432,7 @@ function bkEnsureVarModal() {
     <div class="tabs" id="bvTabs"></div>
     <div class="bd">
       <div class="col"><div class="tb" id="bvVTb"></div><div class="sc" id="bvVars"></div></div>
-      <div class="col"><div class="tb" id="bvKTb"><span id="bvKSum"></span><span style="flex:1"></span><input type="text" id="bvQ" placeholder="Lọc keyword…" autocomplete="off"></div><div class="sc" id="bvKws"></div></div></div>
+      <div class="col"><div class="tb" id="bvKTb"><div class="qrow"><select id="bvQMode" title="Chứa: hiện keyword có ít nhất 1 từ · Không chứa: ẩn keyword có bất kỳ từ nào"><option value="in">Chứa</option><option value="out">Không chứa</option></select><input type="text" id="bvQ" placeholder="Lọc keyword… (nhiều từ ngăn bằng dấu phẩy)" autocomplete="off"></div><div id="bvKSum"></div></div><div class="sc" id="bvKws"></div></div></div>
     <div class="ft"><span class="msg" id="bvSave"></span><span style="flex:1"></span>
       <button type="button" class="btn-sm" id="bvApply" title="Chép biến thể + keyword đã chọn sang các ASIN đang tick ở mục 1 có cùng niche">⎘ Áp cho các ASIN đang chọn cùng niche</button></div></div>`;
   document.body.appendChild(d);
@@ -2467,6 +2469,7 @@ function bkEnsureVarModal() {
   let qTimer = null;
   $('bvQ').addEventListener('input', (e) => { clearTimeout(qTimer); const v = e.target.value.trim().toLowerCase();
     qTimer = setTimeout(() => { if (bkVM && bkVM.q !== v) { bkVM.q = v; bkVarRenderRight(); } }, 150); });
+  $('bvQMode').addEventListener('change', (e) => { if (bkVM) { bkVM.qMode = e.target.value; if (bkVM.q) bkVarRenderRight(); } });
   $('bvQ').addEventListener('keydown', (e) => { if (e.key === 'Escape' && e.target.value) { e.stopPropagation(); e.target.value = ''; clearTimeout(qTimer); if (bkVM) { bkVM.q = ''; bkVarRenderRight(); } } });
   $('bvApply').onclick = bkVarApplyAll;
   $('bvLists').addEventListener('click', (e) => { const c = e.target.closest('.lchip'); if (!c || !bkVM || c.dataset.id === bkVM.listId) return; bkVarSwitch(c.dataset.id); });
@@ -2483,7 +2486,7 @@ async function bkOpenVarModal(asin, listId) {
   const ids = [...new Set([listId, ...bkListsOf(c)])], lists = {};
   for (const id of ids) { const l = await bkLoadList(id); if (l) { l.variants = l.variants || []; lists[id] = l; } }
   if (!lists[listId]) { $('bvLists').textContent = 'Không đọc được list (đã xoá?)'; return; }
-  bkVM = { asin, listId, ids: ids.filter((i) => lists[i]), lists, list: lists[listId], timer: null, dirty: new Set(), tab: '', groups: [], open: new Set(), q: '' };
+  bkVM = { asin, listId, ids: ids.filter((i) => lists[i]), lists, list: lists[listId], timer: null, dirty: new Set(), tab: '', groups: [], open: new Set(), q: '', qMode: $('bvQMode').value };
   // SV hiển thị = số LỚN NHẤT của keyword đó ở mọi bộ của ASIN (các bộ có thể lệch SV)
   bkVM.sv = new Map();
   for (const l of Object.values(lists)) for (const k of l.keywords || []) if (k.sv != null) { const key = kwKey(k); if (!(bkVM.sv.get(key) >= k.sv)) bkVM.sv.set(key, k.sv); }
@@ -2562,10 +2565,17 @@ function bkVarToggleKw(key, kw, on) {
 }
 // Ô tick tổng ở bảng keyword: chọn / bỏ TẤT CẢ keyword đang hiện (theo ô lọc) — gồm cả mục "Đã bỏ chọn".
 // Bỏ hết KHÔNG bỏ tick biến thể (khác tick tay từng dòng) → keyword nằm ở "Đã bỏ chọn", bấm lại ô tổng là chọn lại được.
+// Ô lọc keyword: nhiều từ ngăn bằng dấu phẩy · Chứa = có ít nhất 1 từ · Không chứa = không có từ nào
+function bkQMatch(k) {
+  const terms = (bkVM.q || '').split(',').map((t) => t.trim()).filter(Boolean);
+  if (!terms.length) return true;
+  const s = kwKey(k), hit = terms.some((t) => s.includes(t));
+  return bkVM.qMode === 'out' ? !hit : hit;
+}
 function bkVarToggleAllKw(on) {
-  const q = bkVM.q || '', L = bkVM.list, hasV = L.variants.length;
+  const L = bkVM.list, hasV = L.variants.length;
   bkVarMutate((sel, ex) => {
-    (L.keywords || []).filter((k) => (!q || kwKey(k).includes(q)) && (!hasV || !k.variant || sel.has(vKey(k.group, k.variant))))
+    (L.keywords || []).filter((k) => bkQMatch(k) &&(!hasV || !k.variant || sel.has(vKey(k.group, k.variant))))
       .forEach((k) => (on ? ex.delete(kwKey(k)) : ex.add(kwKey(k))));
   });
 }
@@ -2615,12 +2625,12 @@ function bkVarRenderRight() {
   const hasV = L.variants.length;
   const chosen = (L.keywords || []).filter((k) => bkKwChosen(k, sel, ex, L)).sort((a, b) => bkGRank(a.group) - bkGRank(b.group) || (b.sv || 0) - (a.sv || 0));
   const act = chosen.filter((k) => bkGroupsOn.has(gKey(k.group))).length, asinN = (L.asins || []).length;
-  const vis = chosen.filter((k) => !q || kwKey(k).includes(q));
+  const vis = chosen.filter(bkQMatch);
   $('bvKSum').innerHTML = `<b>${chosen.length}</b> keyword đã chọn · <b>${act}</b> sẽ chạy (group đã tick ở mục 2)${asinN ? ` · ${asinN} Target ASIN` : ''}`;
   const rowOf = (k, checked) => { const key = k.variant ? vKey(k.group, k.variant) : '';
     return `<tr class="${bkGroupsOn.has(gKey(k.group)) ? '' : 'dim'}"><td><input type="checkbox" class="rchk" data-key="${esc(key)}" data-kw="${esc(kwKey(k))}"${checked ? ' checked' : ''}></td><td>${esc(k.kw)}</td><td class="n">${bkFmtSv(bkSvOf(k))}</td><td>${esc(k.group || '—')}</td><td>${esc(k.variant || '—')}</td></tr>`; };
   // keyword thuộc biến thể đã tick nhưng bị bỏ chọn → để lại cuối bảng để tick lại nếu lỡ tay
-  const dropped = (L.keywords || []).filter((k) => ex.has(kwKey(k)) && (!hasV || !k.variant || sel.has(vKey(k.group, k.variant)))).filter((k) => !q || kwKey(k).includes(q));
+  const dropped = (L.keywords || []).filter((k) => ex.has(kwKey(k)) && (!hasV || !k.variant || sel.has(vKey(k.group, k.variant)))).filter(bkQMatch);
   const nAll = vis.length + dropped.length;
   const allBox = `<input type="checkbox" id="bvKAll" title="${q ? 'Chọn / bỏ tất cả keyword khớp ô lọc' : 'Chọn / bỏ tất cả keyword'} (gồm cả mục Đã bỏ chọn)"${vis.length && !dropped.length ? ' checked' : ''}${nAll ? '' : ' disabled'}>`;
   $('bvKws').innerHTML = (chosen.length || dropped.length ? `<table><thead><tr><th style="width:26px">${allBox}</th><th>Keyword (bỏ tick để loại)</th><th>SV</th><th>Group</th><th>Biến thể</th></tr></thead><tbody>${vis.slice(0, 1000).map((k) => rowOf(k, true)).join('')}</tbody></table>`
