@@ -173,6 +173,11 @@
   table.bk td.bkListCell { cursor:pointer; color:var(--b); }
   table.bk td.bkListCell:hover { background:#eef3ff; }
   table.bk td.bkListCell[data-saving] { opacity:.55; }
+  .bkFin { color:var(--b); cursor:pointer; text-decoration:underline dotted; } .bkFin:hover { background:#dfe8ff; }
+  .bkLn { color:var(--b); font-weight:600; text-decoration:underline dotted; cursor:pointer; }
+  .bkLn:hover { background:#dfe8ff; }
+  .bkLn .vc { font-weight:400; font-size:11px; color:#667; }
+  .bkLn .vc.zero { color:#e04545; font-weight:600; }
   table.bk tr.on td { background:#eef3ff; }
   #bkGroups .bkGrp { display:inline-flex; align-items:center; gap:4px; margin:4px 18px 4px 0; padding:3px 8px; border:1px solid #e3e8f0; border-radius:8px; background:#fcfdff; }
   #bkGroups label.chk { display:inline-flex; margin:0; }
@@ -2277,9 +2282,16 @@ async function bkListsForAsin(p) {
   return out;
 }
 /** Gộp keyword của nhiều list (đã lọc theo group) → lọc trùng keyword giữ dòng đầu (ưu tiên group + SV) */
-function bkKeywordsForLists(lists) {
-  const seen = new Set(), out = [];
-  for (const l of lists) for (const k of bkKeywordsFor(l)) { if (!seen.has(k.text)) { seen.add(k.text); out.push(k); } }
+function bkKeywordsForLists(lists, p, meta) {
+  const by = new Map(), out = [];
+  for (const l of lists) for (const k of bkKeywordsFor(l, p, meta)) {
+    const ex = by.get(k.text);
+    if (!ex) { by.set(k.text, k); out.push(k); continue; }
+    if (meta) { // trùng giữa các bộ: giữ 1 dòng, SV lấy số lớn nhất, ghi nhận các bộ chứa nó
+      if (k._m.sv != null && !(ex._m.sv >= k._m.sv)) ex._m.sv = k._m.sv;
+      ex._m.lists.push(...k._m.lists);
+    }
+  }
   return out;
 }
 /** Gộp Target ASIN của nhiều list, lọc trùng */
@@ -2340,6 +2352,7 @@ function bkOpenRowSets(asin, anchor) {
 function bkApplyRowSets(asin, d) {
   const c = catalog.find((x) => x.asin === asin); if (!c) return;
   const ids = [...d.querySelectorAll('.ms-opt input:checked')].map((cb) => cb.value);
+  const added = ids.filter((id) => !bkListsOf(c).includes(id));
   c.kwLists = ids; c.kwList = ids[0] || '';          // đồng bộ kwList (1 bộ) cho các luồng cũ
   bkRender(); bkRenderGroups(); previewNames();
   // Lưu VĨNH VIỄN vào Danh mục Tài sản (giữ nguyên mọi ASIN khác)
@@ -2350,7 +2363,349 @@ function bkApplyRowSets(asin, d) {
     .then((res) => { if (!res.ok) { console.warn('Lưu bộ keyword thất bại:', res.message); alert('⚠️ Lưu bộ keyword cho ' + asin + ' thất bại: ' + (res.message || '')); } })
     .catch((e) => { console.warn('Lưu bộ keyword lỗi:', e); })
     .finally(() => { const el = document.querySelector(`.bkListCell[data-asin="${CSS.escape(asin)}"]`); if (el) delete el.dataset.saving; });
+  // Vừa chọn 1 niche có biến thể → hiện bảng pop-up chọn biến thể ngay
+  if (added.length === 1 && ((bkMeta(added[0]) || {}).variantCount)) { bkCloseRowSets(); bkOpenVarModal(asin, added[0]); }
 }
+
+/* ===== POP-UP NICHE: 4 tab Product · Function · Gift · Occasion, biến thể xổ xuống, chọn/bỏ từng keyword (tự lưu) =====
+   Lưu theo TỪNG ASIN: p.kwVariants[listId] = biến thể đã tick ("group|biến thể"); p.kwExcluded[listId] = keyword bỏ chọn tay.
+   Keyword được chạy = thuộc biến thể đã tick VÀ không nằm trong kwExcluded. */
+const BK_GROUP_ORDER = ['product', 'function', 'gift', 'occasion', 'personalized'];
+const bkGRank = (n) => { const i = BK_GROUP_ORDER.indexOf(gKey(n)); return i < 0 ? 99 : i; };
+const kwKey = (k) => String(k.kw || '').trim().toLowerCase();
+let bkVM = null; // {asin, listId, list, timer, tab, open:Set, q}
+function bkEnsureVarModal() {
+  if ($('bkVarModal')) return;
+  const st = document.createElement('style');
+  st.textContent = `#bkVarModal{display:none;position:fixed;inset:0;background:rgba(16,24,40,.45);z-index:300;align-items:flex-start;justify-content:center;padding:28px 12px}
+  #bkVarModal .box{background:#fff;border-radius:12px;width:min(1180px,96vw);height:calc(100vh - 56px);display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.3)}
+  #bkVarModal .hd{padding:10px 16px;border-bottom:1px solid #e3e8f0;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  #bkVarModal .pimg{width:92px;height:92px;flex:none;border:1px solid #e3e8f0;border-radius:8px;background:#f4f6fa;display:flex;align-items:center;justify-content:center;overflow:hidden;font-size:11px;color:#a0a8b8;text-align:center}
+  #bkVarModal .pimg img{width:100%;height:100%;object-fit:contain;background:#fff}
+  #bkVarModal .pinfo{display:flex;flex-direction:column;gap:2px;min-width:0;max-width:560px}
+  #bkVarModal a.asin{font-size:24px;font-weight:800;color:var(--b);text-decoration:none;letter-spacing:.5px;font-family:ui-monospace,Menlo,monospace} #bkVarModal a.asin:hover{text-decoration:underline}
+  #bkVarModal .ptitle{font-size:12.5px;color:#334;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  #bkVarModal .lnames{font-size:10.5px;color:#889;display:flex;gap:4px;flex-wrap:wrap;align-items:center}
+  #bkVarModal .lchip{padding:1px 7px;border:1px solid #dfe5f2;border-radius:10px;background:#fafbfd;cursor:pointer;color:#667} #bkVarModal .lchip.on{background:#eaf0ff;border-color:var(--b);color:var(--b);font-weight:600}
+  #bkVarModal .hd{align-items:flex-start}
+  #bkVarModal .tabs{display:flex;gap:2px;padding:8px 16px 0;border-bottom:1px solid #e3e8f0;flex-wrap:wrap}
+  #bkVarModal .tab{padding:7px 14px;border:1px solid #e3e8f0;border-bottom:none;border-radius:8px 8px 0 0;background:#f4f6fa;cursor:pointer;font-size:13px;font-weight:600;color:#556;user-select:none}
+  #bkVarModal .tab.on{background:#fff;color:var(--b);box-shadow:inset 0 2px 0 var(--b);margin-bottom:-1px;padding-bottom:8px}
+  #bkVarModal .tab .c{font-weight:400;font-size:11px;color:#667;margin-left:4px} #bkVarModal .tab.zero .c{color:#a0a8b8}
+  #bkVarModal .bd{display:grid;grid-template-columns:minmax(320px,1fr) minmax(320px,1fr);min-height:0;flex:1;overflow:hidden}
+  #bkVarModal .col{display:flex;flex-direction:column;min-height:0}
+  #bkVarModal .col + .col{border-left:1px solid #e3e8f0}
+  #bkVarModal .tb{padding:8px 14px;border-bottom:1px solid #eef1f7;font-size:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  #bkVarModal .tb a{cursor:pointer;color:var(--b)} #bkVarModal .tb input[type=text]{padding:4px 8px;font-size:12px;width:150px}
+  #bkVarModal .sc{overflow:auto;flex:1;padding:6px 10px 12px}
+  #bkVarModal .vs{font-size:11px;color:#667;font-weight:700;margin:8px 0 2px}
+  #bkVarModal .vr{display:flex;gap:6px;align-items:center;padding:3px 4px;border-radius:6px;font-size:12.5px}
+  #bkVarModal .vr:hover{background:#f0f4ff} #bkVarModal .vr.on{background:#eaf0ff}
+  #bkVarModal .car{cursor:pointer;width:18px;text-align:center;color:#667;user-select:none;flex:none} #bkVarModal .car:hover{color:var(--b)}
+  #bkVarModal .vn{cursor:pointer;flex:1} #bkVarModal .m{color:#667;font-size:11px;white-space:nowrap}
+  #bkVarModal .kl{margin:0 0 4px 30px;border-left:2px solid #dfe5f2;padding-left:8px}
+  #bkVarModal label.kr{display:flex;gap:6px;align-items:baseline;padding:1px 3px;font-size:12px;cursor:pointer;border-radius:4px}
+  #bkVarModal label.kr:hover{background:#f0f4ff} #bkVarModal label.kr.off span.t{color:#a0a8b8}
+  #bkVarModal label.kr .sv{margin-left:auto;color:#667;font-size:11px;font-variant-numeric:tabular-nums}
+  #bkVarModal table{border-collapse:collapse;width:100%;font-size:12px}
+  #bkVarModal th,#bkVarModal td{border-bottom:1px solid #eef1f7;padding:3px 6px;text-align:left}
+  #bkVarModal th{background:#f0f3f9;position:sticky;top:0;font-size:11px;z-index:1}
+  #bkVarModal td.n{text-align:right;font-variant-numeric:tabular-nums} #bkVarModal tr.dim td{color:#a0a8b8}
+  #bkVarModal details{margin-top:10px;font-size:12px} #bkVarModal details summary{cursor:pointer;color:#667}
+  #bkVarModal .ft{padding:8px 16px;border-top:1px solid #e3e8f0;display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:12px}
+  @media (max-width:860px){#bkVarModal .bd{grid-template-columns:1fr;overflow:auto;display:block}#bkVarModal .col{display:block;min-height:auto}#bkVarModal .col+.col{border-left:none;border-top:1px solid #e3e8f0}#bkVarModal .sc{max-height:50vh}}`;
+  document.head.appendChild(st);
+  const d = document.createElement('div'); d.id = 'bkVarModal';
+  d.innerHTML = `<div class="box"><div class="hd"><div class="pimg" id="bvImg">…</div>
+      <div class="pinfo"><div style="display:flex;gap:10px;align-items:baseline;flex-wrap:wrap"><a id="bvAsin" class="asin" href="#" target="_blank" rel="noopener" title="Mở trang sản phẩm trên Amazon ở tab mới"></a><span class="hint" id="bvSub"></span>
+        <button type="button" class="btn-sm" id="bvScan" title="Quét ảnh + tên sản phẩm từ Amazon">📷 Quét ảnh</button></div>
+        <div class="ptitle" id="bvPTitle"></div><div class="lnames" id="bvLists"></div></div><span style="flex:1"></span>
+      <a id="bvSrc" class="btn-sm" href="#" target="_blank" rel="noopener" style="text-decoration:none;color:inherit;display:none" title="Mở list keyword ban đầu (KW Biến Thể) ở tab mới">↗ Xem list gốc</a>
+      <a id="bvCat" class="btn-sm" href="/kwlists.html" target="_blank" rel="noopener" style="text-decoration:none;color:inherit" title="Mở Danh mục Target ở tab mới">🗂 Danh mục Target ↗</a>
+      <button type="button" class="btn-sm" id="bvClose">✕ Đóng</button></div>
+    <div class="tabs" id="bvTabs"></div>
+    <div class="bd">
+      <div class="col"><div class="tb" id="bvVTb"></div><div class="sc" id="bvVars"></div></div>
+      <div class="col"><div class="tb" id="bvKTb"></div><div class="sc" id="bvKws"></div></div></div>
+    <div class="ft"><span class="msg" id="bvSave"></span><span style="flex:1"></span>
+      <button type="button" class="btn-sm" id="bvApply" title="Chép biến thể + keyword đã chọn sang các ASIN đang tick ở mục 1 có cùng niche">⎘ Áp cho các ASIN đang chọn cùng niche</button></div></div>`;
+  document.body.appendChild(d);
+  d.addEventListener('click', (e) => { if (e.target === d) bkCloseVarModal(); });
+  $('bvClose').onclick = bkCloseVarModal;
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && $('bkVarModal').style.display === 'flex') bkCloseVarModal(); });
+  $('bvTabs').addEventListener('click', (e) => { const t = e.target.closest('.tab'); if (!t || !bkVM) return; bkVM.tab = t.dataset.g; bkVarRender(); });
+  // toolbar trái: mở/thu tất cả, chọn hết/bỏ hết tab, Nhóm 1–2
+  $('bvVTb').addEventListener('click', (e) => {
+    const a = e.target.closest('[data-act]'); if (!a || !bkVM) return; e.preventDefault();
+    const vs = bkVM.list.variants.filter((v) => gKey(v.group) === gKey(bkVM.tab));
+    if (a.dataset.act === 'open') vs.forEach((v) => bkVM.open.add(vKey(v.group, v.name)));
+    else if (a.dataset.act === 'shut') vs.forEach((v) => bkVM.open.delete(vKey(v.group, v.name)));
+    else { bkVarMutate((sel, ex) => vs.forEach((v) => {
+      const key = vKey(v.group, v.name), on = a.dataset.act === 'all' || (a.dataset.act === 'n12' && v.nhom > 0 && v.nhom <= 2);
+      on ? sel.add(key) : sel.delete(key);
+      for (const k of bkVM.list.keywords) if (k.variant && vKey(k.group, k.variant) === key) ex.delete(kwKey(k));
+    })); return; }
+    bkVarRender();
+  });
+  $('bvVars').addEventListener('click', (e) => {
+    const car = e.target.closest('[data-car]'); if (!car || !bkVM) return;
+    const k = car.dataset.car; bkVM.open.has(k) ? bkVM.open.delete(k) : bkVM.open.add(k); bkVarRender();
+  });
+  $('bvVars').addEventListener('change', (e) => {
+    if (!bkVM) return; const t = e.target;
+    if (t.classList.contains('vchk')) bkVarToggleVariant(t.dataset.key, t.checked);
+    else if (t.classList.contains('kchk')) bkVarToggleKw(t.dataset.key, t.dataset.kw, t.checked);
+  });
+  $('bvKws').addEventListener('change', (e) => { const t = e.target; if (bkVM && t.classList.contains('rchk')) bkVarToggleKw(t.dataset.key, t.dataset.kw, t.checked); });
+  $('bvKTb').addEventListener('input', (e) => { if (e.target.id === 'bvQ' && bkVM) { bkVM.q = e.target.value.trim().toLowerCase(); bkVarRenderRight(); } });
+  $('bvApply').onclick = bkVarApplyAll;
+  $('bvLists').addEventListener('click', (e) => { const c = e.target.closest('.lchip'); if (!c || !bkVM || c.dataset.id === bkVM.listId) return; bkVarSwitch(c.dataset.id); });
+  $('bvScan').onclick = bkVarScan;
+}
+function bkCloseVarModal() { if ($('bkVarModal')) $('bkVarModal').style.display = 'none'; if (bkVM && bkVM.timer) { clearTimeout(bkVM.timer); bkVarFlush(); } bkVM = null; }
+async function bkOpenVarModal(asin, listId) {
+  bkEnsureVarModal(); bkCloseRowSets();
+  const c = catalog.find((x) => x.asin === asin); if (!c) return;
+  $('bkVarModal').style.display = 'flex';
+  $('bvAsin').textContent = asin; $('bvAsin').href = 'https://www.amazon.com/dp/' + asin;
+  $('bvSub').textContent = c.sku || ''; $('bvPTitle').textContent = ''; $('bvLists').textContent = 'Đang tải…';
+  $('bvImg').textContent = '…'; $('bvVars').innerHTML = ''; $('bvKws').innerHTML = ''; $('bvTabs').innerHTML = '';
+  const ids = [...new Set([listId, ...bkListsOf(c)])], lists = {};
+  for (const id of ids) { const l = await bkLoadList(id); if (l) { l.variants = l.variants || []; lists[id] = l; } }
+  if (!lists[listId]) { $('bvLists').textContent = 'Không đọc được list (đã xoá?)'; return; }
+  bkVM = { asin, listId, ids: ids.filter((i) => lists[i]), lists, list: lists[listId], timer: null, dirty: new Set(), tab: '', groups: [], open: new Set(), q: '' };
+  // SV hiển thị = số LỚN NHẤT của keyword đó ở mọi bộ của ASIN (các bộ có thể lệch SV)
+  bkVM.sv = new Map();
+  for (const l of Object.values(lists)) for (const k of l.keywords || []) if (k.sv != null) { const key = kwKey(k); if (!(bkVM.sv.get(key) >= k.sv)) bkVM.sv.set(key, k.sv); }
+  bkVarSwitch(listId, true);
+  bkVarLoadInfo();
+}
+const bkSvOf = (k) => { const v = bkVM.sv.get(kwKey(k)); return v != null ? v : k.sv; };
+const bkFmtSv = (n) => n != null ? Number(n).toLocaleString('en-US') : '';
+function bkVarSwitch(id, first) {
+  const list = bkVM.lists[id]; bkVM.listId = id; bkVM.list = list; bkVM.open = new Set();
+  bkVM.groups = [...new Set([...list.variants.map((v) => v.group), ...(list.keywords || []).map((k) => k.group).filter(Boolean)])].sort((a, b) => bkGRank(a) - bkGRank(b) || a.localeCompare(b));
+  bkVM.tab = bkVM.groups.find((g) => ['product', 'function', 'gift', 'occasion'].includes(gKey(g))) || bkVM.groups[0] || '';
+  const src = list.source && list.source.url;
+  $('bvSrc').style.display = src ? '' : 'none'; if (src) $('bvSrc').href = src;
+  $('bvLists').innerHTML = 'Bộ keyword: ' + bkVM.ids.map((i) => `<span class="lchip${i === id ? ' on' : ''}" data-id="${esc(i)}" title="${bkVM.ids.length > 1 ? 'Bấm để chọn biến thể của bộ này' : ''}">${esc(bkVM.lists[i].name)}</span>`).join('')
+    + (bkVM.ids.length > 1 ? ' <span>— bấm tên bộ để chọn biến thể / keyword của bộ đó</span>' : '');
+  $('bvApply').style.display = list.variants.length ? '' : 'none';
+  if (!first) $('bvSave').textContent = '';
+  bkVarRender();
+}
+// Ảnh + tên sản phẩm của ASIN (đã quét thì hiện; chưa có thì nút 📷 Quét ảnh)
+async function bkVarLoadInfo() {
+  const asin = bkVM && bkVM.asin; if (!asin) return false;
+  let info = null;
+  try { info = ((await (await fetch('/api/asin-info?asins=' + asin)).json()).info || {})[asin]; } catch {}
+  if (!bkVM || bkVM.asin !== asin) return false;
+  $('bvImg').innerHTML = info && info.image ? `<a href="https://www.amazon.com/dp/${asin}" target="_blank" rel="noopener"><img src="${esc(info.image)}" alt=""></a>` : 'chưa có<br>ảnh';
+  $('bvPTitle').textContent = (info && info.title) || '';
+  return !!(info && info.image);
+}
+async function bkVarScan() {
+  if (!bkVM) return; const asin = bkVM.asin, btn = $('bvScan'), orig = btn.textContent;
+  btn.disabled = true; btn.textContent = '⏳ Đang quét…';
+  try {
+    const r = await fetch('/api/competitor-library/scan', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ asins: [asin] }) });
+    const log = await r.text();
+    if (/JOB_ID:/.test(log)) {                                   // chế độ queue: agent trên máy cá nhân quét → chờ ảnh về
+      for (let i = 0; i < 24 && bkVM && bkVM.asin === asin; i++) { await new Promise((x) => setTimeout(x, 5000)); if (await bkVarLoadInfo()) break; }
+    } else await bkVarLoadInfo();
+    if (bkVM && bkVM.asin === asin && /🚨|Đang có phiên/.test(log)) $('bvSave').textContent = log.split('\n').find((x) => /🚨|Đang có phiên/.test(x)) || '';
+  } catch (e) { $('bvSave').className = 'msg err'; $('bvSave').textContent = '✕ Quét ảnh lỗi: ' + e.message; }
+  btn.disabled = false; btn.textContent = orig;
+}
+// trạng thái chọn của ASIN cho list đang mở
+function bkVarState() {
+  const c = catalog.find((x) => x.asin === bkVM.asin);
+  return { c, sel: new Set(((c.kwVariants || {})[bkVM.listId]) || []), ex: new Set(((c.kwExcluded || {})[bkVM.listId]) || []) };
+}
+function bkVarMutate(fn, ids) {
+  const c = catalog.find((x) => x.asin === bkVM.asin);
+  for (const id of ids || [bkVM.listId]) {
+    const sel = new Set(((c.kwVariants || {})[id]) || []), ex = new Set(((c.kwExcluded || {})[id]) || []);
+    fn(sel, ex, id);
+    c.kwVariants = { ...(c.kwVariants || {}), [id]: [...sel] };
+    c.kwExcluded = { ...(c.kwExcluded || {}), [id]: [...ex] };
+    bkVM.dirty.add(id);
+  }
+  bkVarRender(); bkRender(); bkKwSum();
+  $('bvSave').className = 'msg'; $('bvSave').textContent = '⏳ Đang lưu…';
+  clearTimeout(bkVM.timer); bkVM.timer = setTimeout(bkVarFlush, 350);   // auto-save: thao tác liên tục chỉ lưu 1 lần
+}
+const bkVarKws = (key, id) => bkVM.lists[id || bkVM.listId].keywords.filter((k) => k.variant && vKey(k.group, k.variant) === key);
+function bkVarToggleVariant(key, on) {
+  bkVarMutate((sel, ex) => { on ? sel.add(key) : sel.delete(key); bkVarKws(key).forEach((k) => ex.delete(kwKey(k))); }); // tick biến thể = chọn TOÀN BỘ keyword
+}
+function bkVarToggleKw(key, kw, on) {
+  bkVarMutate((sel, ex) => {
+    const all = bkVarKws(key);
+    if (key && !sel.has(key)) {                       // keyword trong biến thể chưa tick: tick biến thể rồi chỉ giữ keyword này
+      if (!on) return;
+      sel.add(key); all.forEach((k) => { if (kwKey(k) !== kw) ex.add(kwKey(k)); }); ex.delete(kw); return;
+    }
+    on ? ex.delete(kw) : ex.add(kw);
+    if (key && all.every((k) => ex.has(kwKey(k)))) { sel.delete(key); all.forEach((k) => ex.delete(kwKey(k))); } // bỏ hết keyword = bỏ biến thể
+  });
+}
+function bkVarRender() { bkVarRenderTabs(); bkVarRenderLeft(); bkVarRenderRight(); }
+function bkVarRenderTabs() {
+  const { sel, ex } = bkVarState(), L = bkVM.list;
+  $('bvTabs').innerHTML = bkVM.groups.map((g) => {
+    const ks = (L.keywords || []).filter((k) => gKey(k.group) === gKey(g));
+    const n = ks.filter((k) => bkKwChosen(k, sel, ex, L)).length;
+    return `<div class="tab${gKey(g) === gKey(bkVM.tab) ? ' on' : ''}${n ? '' : ' zero'}" data-g="${esc(g)}">${esc(g)}<span class="c">${n}/${ks.length} kw</span></div>`;
+  }).join('') || '<span class="hint" style="padding:8px">List chưa có keyword</span>';
+}
+const bkKwChosen = (k, sel, ex, L) => (!(L.variants || []).length || !k.variant || sel.has(vKey(k.group, k.variant))) && !ex.has(kwKey(k));
+function bkVarRenderLeft() {
+  const L = bkVM.list, g = bkVM.tab, { sel, ex } = bkVarState();
+  const sc = $('bvVars'), top = sc.scrollTop;
+  const vs = L.variants.filter((v) => gKey(v.group) === gKey(g));
+  if (!L.variants.length) {
+    $('bvVTb').innerHTML = '';
+    sc.innerHTML = `<div class="hint" style="padding:8px">List này chưa chia biến thể (list tự tạo / nạp file Cerebro) nên Bulk Create lấy <b>mọi keyword</b> của group đã tick. Muốn chọn theo biến thể: nạp niche từ 🧩 KW Biến Thể ở 🗂 Danh mục Target, hoặc gõ biến thể vào cột "Biến thể" của bảng keyword.</div>`; return;
+  }
+  $('bvVTb').innerHTML = `<b>${esc(g)}</b> · ${vs.length} biến thể <span style="flex:1"></span><a data-act="open">▾ Mở tất cả</a><a data-act="shut">▸ Thu tất cả</a><span style="color:#ccd3e0">|</span><a data-act="all">chọn hết</a><a data-act="none">bỏ hết</a><a data-act="n12">chỉ Nhóm 1–2</a>`;
+  const sortV = (a, b) => (a.nhom || 9) - (b.nhom || 9) || (b.sv || 0) - (a.sv || 0) || a.name.localeCompare(b.name);
+  const row = (v) => {
+    const key = vKey(v.group, v.name), kws = bkVarKws(key).sort((a, b) => (b.sv || 0) - (a.sv || 0));
+    const nSel = kws.filter((k) => sel.has(key) && !ex.has(kwKey(k))).length, on = sel.has(key), open = bkVM.open.has(key);
+    const meta = [v.nhom ? 'Nhóm ' + v.nhom : (v.muc || ''), `${nSel}/${kws.length} kw`, v.sv ? 'SV ' + Number(v.sv).toLocaleString('en-US') : ''].filter(Boolean).join(' · ');
+    const tip = [v.muc, v.sat ? 'mức sát ' + v.sat : '', v.soAsin ? v.soAsin + ' ASIN đối thủ' : '', v.rank ? 'rank tốt nhất ' + v.rank : ''].filter(Boolean).join(' · ');
+    return `<div class="vr${on ? ' on' : ''}" title="${esc(tip)}"><span class="car" data-car="${esc(key)}">${open ? '▾' : '▸'}</span>
+        <input type="checkbox" class="vchk" data-key="${esc(key)}" data-part="${on && nSel < kws.length ? 1 : 0}"${on ? ' checked' : ''}>
+        <span class="vn" data-car="${esc(key)}"><b>${esc(v.name)}</b> <span class="m">${esc(meta)}</span></span></div>`
+      + (open ? `<div class="kl">${kws.map((k) => { const c = on && !ex.has(kwKey(k));
+          return `<label class="kr${c ? '' : ' off'}"><input type="checkbox" class="kchk" data-key="${esc(key)}" data-kw="${esc(kwKey(k))}"${c ? ' checked' : ''}><span class="t">${esc(k.kw)}</span><span class="sv">${bkFmtSv(bkSvOf(k))}</span></label>`; }).join('')}</div>` : '');
+  };
+  const aud = vs.filter((v) => v.audience).sort(sortV), oth = vs.filter((v) => !v.audience).sort(sortV);
+  sc.innerHTML = (aud.length ? `<div class="vs">🎯 Đối tượng</div>${aud.map(row).join('')}` : '')
+    + (oth.length ? (aud.length ? '<div class="vs">Biến thể khác</div>' : '') + oth.map(row).join('') : '')
+    || '<div class="hint" style="padding:8px">Nhóm này chưa có biến thể.</div>';
+  sc.querySelectorAll('.vchk[data-part="1"]').forEach((i) => { i.indeterminate = true; }); // chọn một phần keyword
+  sc.scrollTop = top;
+}
+function bkVarRenderRight() {
+  const L = bkVM.list, { c, sel, ex } = bkVarState(), q = bkVM.q || '';
+  const hasV = L.variants.length;
+  const chosen = (L.keywords || []).filter((k) => bkKwChosen(k, sel, ex, L)).sort((a, b) => bkGRank(a.group) - bkGRank(b.group) || (b.sv || 0) - (a.sv || 0));
+  const act = chosen.filter((k) => bkGroupsOn.has(gKey(k.group))).length, asinN = (L.asins || []).length;
+  const vis = chosen.filter((k) => !q || kwKey(k).includes(q));
+  $('bvKTb').innerHTML = `<span><b>${chosen.length}</b> keyword đã chọn · <b>${act}</b> sẽ chạy (group đã tick ở mục 2)${asinN ? ` · ${asinN} Target ASIN` : ''}</span><span style="flex:1"></span><input type="text" id="bvQ" placeholder="Lọc keyword…" value="${esc(bkVM.q || '')}">`;
+  const rowOf = (k, checked) => { const key = k.variant ? vKey(k.group, k.variant) : '';
+    return `<tr class="${bkGroupsOn.has(gKey(k.group)) ? '' : 'dim'}"><td><input type="checkbox" class="rchk" data-key="${esc(key)}" data-kw="${esc(kwKey(k))}"${checked ? ' checked' : ''}></td><td>${esc(k.kw)}</td><td class="n">${bkFmtSv(bkSvOf(k))}</td><td>${esc(k.group || '—')}</td><td>${esc(k.variant || '—')}</td></tr>`; };
+  // keyword thuộc biến thể đã tick nhưng bị bỏ chọn → để lại cuối bảng để tick lại nếu lỡ tay
+  const dropped = (L.keywords || []).filter((k) => ex.has(kwKey(k)) && (!hasV || !k.variant || sel.has(vKey(k.group, k.variant)))).filter((k) => !q || kwKey(k).includes(q));
+  $('bvKws').innerHTML = (chosen.length ? `<table><thead><tr><th style="width:26px"></th><th>Keyword (bỏ tick để loại)</th><th>SV</th><th>Group</th><th>Biến thể</th></tr></thead><tbody>${vis.slice(0, 1000).map((k) => rowOf(k, true)).join('')}</tbody></table>`
+      + (vis.length > 1000 ? `<div class="hint">Hiện 1000 / ${vis.length} dòng — dùng ô lọc</div>` : '')
+    : `<div class="hint" style="padding:8px">${hasV ? '← Tick biến thể (hoặc từng keyword) ở cột bên trái.' : 'Không có keyword.'}</div>`)
+    + (dropped.length ? `<details><summary>Đã bỏ chọn (${dropped.length}) — tick lại để thêm vào</summary><table><tbody>${dropped.slice(0, 500).map((k) => rowOf(k, false)).join('')}</tbody></table></details>` : '');
+}
+async function bkVarFlush() {
+  const vm = bkVM; const save = $('bvSave');
+  if (!vm) return;
+  vm.timer = null;
+  const c = catalog.find((x) => x.asin === vm.asin), asin = vm.asin, ids = [...vm.dirty]; vm.dirty.clear();
+  try {
+    for (const listId of ids) {
+      const r = await (await fetch('/api/catalog/product-kwvariants', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ asin, listId, sel: ((c && c.kwVariants) || {})[listId] || [], excl: ((c && c.kwExcluded) || {})[listId] || [] }) })).json();
+      if (!r.ok) throw new Error(r.message);
+    }
+    if (save) { save.className = 'msg ok'; save.textContent = '✓ Đã tự lưu'; }
+  } catch (e) { if (save) { save.className = 'msg err'; save.textContent = '✕ Chưa lưu được: ' + e.message; } }
+}
+async function bkVarApplyAll() {
+  if (!bkVM) return;
+  if (bkVM.timer) { clearTimeout(bkVM.timer); await bkVarFlush(); }
+  const { asin, listId } = bkVM, src = catalog.find((x) => x.asin === asin);
+  const sel = ((src && src.kwVariants) || {})[listId] || [], excl = ((src && src.kwExcluded) || {})[listId] || [];
+  const targets = bkPicked().filter((p) => p.asin !== asin && bkListsOf(p).includes(listId));
+  if (!targets.length) { $('bvSave').className = 'msg err'; $('bvSave').textContent = 'Không có ASIN nào khác đang chọn (mục 1) mang niche này'; return; }
+  try {
+    const r = await (await fetch('/api/catalog/product-kwvariants', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ asins: targets.map((p) => p.asin), listId, sel, excl }) })).json();
+    if (!r.ok) throw new Error(r.message);
+    targets.forEach((p) => { p.kwVariants = { ...(p.kwVariants || {}), [listId]: sel.slice() }; p.kwExcluded = { ...(p.kwExcluded || {}), [listId]: excl.slice() }; });
+    bkRender(); bkKwSum();
+    $('bvSave').className = 'msg ok'; $('bvSave').textContent = `✓ Đã áp cho ${targets.length} ASIN khác`;
+  } catch (e) { $('bvSave').className = 'msg err'; $('bvSave').textContent = '✕ ' + e.message; }
+}
+
+/* ===== POP-UP "BỘ KEYWORD HOÀN CHỈNH SẼ TẠO" (bấm số keyword ở bảng "Hiện các ASIN đã chọn") =====
+   Chỉ XEM: gộp mọi bộ keyword của ASIN theo group đã tick (mục 2) + biến thể/keyword đã chọn; keyword trùng giữa các bộ
+   chỉ tính 1 lần, SV hiển thị = số lớn nhất. Muốn đổi bộ / keyword → cột "List keyword" ở bảng mục 1. */
+async function bkOpenFinal(asin) {
+  const p = catalog.find((x) => x.asin === asin); if (!p) return;
+  if (!$('bkFinModal')) {
+    const st = document.createElement('style');
+    st.textContent = `#bkFinModal{display:none;position:fixed;inset:0;background:rgba(16,24,40,.45);z-index:300;align-items:flex-start;justify-content:center;padding:28px 12px}
+    #bkFinModal .box{background:#fff;border-radius:12px;width:min(1100px,96vw);max-height:calc(100vh - 56px);display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.3)}
+    #bkFinModal .hd{padding:10px 16px;border-bottom:1px solid #e3e8f0;display:flex;gap:12px;align-items:flex-start}
+    #bkFinModal .pimg{width:84px;height:84px;flex:none;border:1px solid #e3e8f0;border-radius:8px;background:#f4f6fa;display:flex;align-items:center;justify-content:center;overflow:hidden;font-size:11px;color:#a0a8b8;text-align:center}
+    #bkFinModal .pimg img{width:100%;height:100%;object-fit:contain;background:#fff}
+    #bkFinModal a.asin{font-size:24px;font-weight:800;color:var(--b);text-decoration:none;letter-spacing:.5px;font-family:ui-monospace,Menlo,monospace} #bkFinModal a.asin:hover{text-decoration:underline}
+    #bkFinModal .ptitle{font-size:12.5px;color:#334;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+    #bkFinModal .lnames{font-size:10.5px;color:#889}
+    #bkFinModal .tb{padding:8px 16px;border-bottom:1px solid #eef1f7;font-size:12.5px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+    #bkFinModal .tb input{padding:4px 8px;font-size:12px;width:170px}
+    #bkFinModal .sc{overflow:auto;flex:1;padding:0 16px 12px}
+    #bkFinModal table{border-collapse:collapse;width:100%;font-size:12px}
+    #bkFinModal th,#bkFinModal td{border-bottom:1px solid #eef1f7;padding:3px 7px;text-align:left}
+    #bkFinModal th{background:#f0f3f9;position:sticky;top:0;font-size:11px} #bkFinModal td.n{text-align:right;font-variant-numeric:tabular-nums}
+    #bkFinModal .ft{padding:8px 16px;border-top:1px solid #e3e8f0;display:flex;gap:8px;align-items:center}`;
+    document.head.appendChild(st);
+    const d = document.createElement('div'); d.id = 'bkFinModal';
+    d.innerHTML = `<div class="box"><div class="hd"><div class="pimg" id="bfImg">…</div>
+      <div style="min-width:0;flex:1"><div style="display:flex;gap:10px;align-items:baseline;flex-wrap:wrap"><a id="bfAsin" class="asin" href="#" target="_blank" rel="noopener" title="Mở trang sản phẩm trên Amazon ở tab mới"></a><span class="hint" id="bfSub"></span></div>
+        <div class="ptitle" id="bfTitle"></div><div class="lnames" id="bfLists"></div></div>
+      <button type="button" class="btn-sm" id="bfClose">✕ Đóng</button></div>
+      <div class="tb"><span id="bfSum"></span><span style="flex:1"></span><input type="text" id="bfQ" placeholder="Lọc keyword…"></div>
+      <div class="sc" id="bfBody"></div>
+      <div class="ft"><span class="hint">Chỉ xem. Đổi bộ / keyword ở cột <b>List keyword</b> (mục 1).</span><span style="flex:1"></span><button type="button" class="btn-sm" id="bfEdit">✎ Chọn bộ / keyword</button></div></div>`;
+    document.body.appendChild(d);
+    const close = () => { d.style.display = 'none'; };
+    d.addEventListener('click', (e) => { if (e.target === d) close(); });
+    $('bfClose').onclick = close;
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && d.style.display === 'flex') close(); });
+    $('bfQ').addEventListener('input', () => bkFinRender());
+    $('bfEdit').onclick = () => { const a = $('bkFinModal').dataset.asin, c = catalog.find((x) => x.asin === a); close(); if (c && bkListsOf(c)[0]) bkOpenVarModal(a, bkListsOf(c)[0]); };
+  }
+  $('bkFinModal').style.display = 'flex'; $('bkFinModal').dataset.asin = asin;
+  $('bfAsin').textContent = asin; $('bfAsin').href = 'https://www.amazon.com/dp/' + asin;
+  $('bfSub').textContent = p.sku || ''; $('bfTitle').textContent = ''; $('bfImg').textContent = '…'; $('bfQ').value = '';
+  $('bfBody').innerHTML = '<div class="hint" style="padding:10px">⏳ Đang tải…</div>'; $('bfSum').textContent = '';
+  fetch('/api/asin-info?asins=' + asin).then((r) => r.json()).then((d) => {
+    const i = (d.info || {})[asin] || {}; if ($('bkFinModal').dataset.asin !== asin) return;
+    $('bfImg').innerHTML = i.image ? `<a href="https://www.amazon.com/dp/${asin}" target="_blank" rel="noopener"><img src="${esc(i.image)}" alt=""></a>` : 'chưa có<br>ảnh';
+    $('bfTitle').textContent = i.title || '';
+  }).catch(() => {});
+  const lists = await bkListsForAsin(p);
+  if ($('bkFinModal').dataset.asin !== asin) return;
+  const useT = $('bkTargetAsin').checked;
+  bkFin = { rows: bkGroupsOn.size ? bkKeywordsForLists(lists, p, true) : [], targets: useT ? bkTargetsForLists(lists) : [], multi: lists.length > 1,
+    raw: lists.reduce((t, l) => t + bkKeywordsFor(l, p).length, 0) };
+  $('bfLists').textContent = 'Bộ keyword: ' + (lists.map((l) => l.name).join(' · ') || '—');
+  bkFinRender();
+}
+let bkFin = null;
+function bkFinRender() {
+  if (!bkFin) return;
+  const q = $('bfQ').value.trim().toLowerCase(), all = bkFin.rows;
+  const rows = all.filter((k) => !q || k.text.includes(q)).sort((a, b) => (b._m.sv || 0) - (a._m.sv || 0) || a.text.localeCompare(b.text));
+  const dup = bkFin.raw - all.length;
+  $('bfSum').innerHTML = `<b>${all.length}</b> keyword sẽ tạo` + (bkFin.multi && dup > 0 ? ` <span class="hint">(đã gộp ${dup} keyword trùng giữa các bộ, SV lấy số lớn nhất)</span>` : '')
+    + (bkFin.targets.length ? ` · <b>${bkFin.targets.length}</b> Target ASIN` : '') + (q ? ` · đang lọc ${rows.length}` : '');
+  $('bfBody').innerHTML = (all.length ? `<table><thead><tr><th>#</th><th>Keyword</th><th>SV</th><th>Group</th><th>Biến thể</th><th>Bid</th><th>+n ngày</th>${bkFin.multi ? '<th>Bộ</th>' : ''}</tr></thead><tbody>${rows.slice(0, 1500).map((k, i) =>
+      `<tr><td class="n">${i + 1}</td><td>${esc(k.text)}</td><td class="n">${bkFmtSvX(k._m.sv)}</td><td>${esc(k._m.group || '—')}</td><td>${esc(k._m.variant || '—')}</td><td class="n">${k.bid != null ? '$' + k.bid : '—'}</td><td class="n">${k._m.off ? '+' + k._m.off : ''}</td>${bkFin.multi ? `<td>${esc([...new Set(k._m.lists)].join(', '))}</td>` : ''}</tr>`).join('')}</tbody></table>`
+      + (rows.length > 1500 ? `<div class="hint">Hiện 1500 / ${rows.length} dòng — dùng ô lọc</div>` : '')
+    : '<div class="hint" style="padding:10px">Không có keyword nào (kiểm tra group ở mục 2 và biến thể đã chọn).</div>')
+    + (bkFin.targets.length ? `<details style="margin-top:10px"><summary class="hint" style="cursor:pointer">🎯 ${bkFin.targets.length} Target ASIN</summary><div style="font-family:ui-monospace,Menlo,monospace;font-size:12px;line-height:1.7">${bkFin.targets.map((a) => `<a href="https://www.amazon.com/dp/${esc(a)}" target="_blank" rel="noopener" style="margin-right:10px">${esc(a)}</a>`).join('')}</div></details>` : '');
+}
+const bkFmtSvX = (n) => n != null ? Number(n).toLocaleString('en-US') : '';
 
 /** Nhãn các bộ keyword đang gán cho 1 ASIN (tên list) */
 function bkNamesOf(c) { return bkListsOf(c).map((id) => (bkMeta(id) || {}).name || id).filter(Boolean); }
@@ -2366,7 +2721,13 @@ function bkRender() {
     const on = bkSel.has(c.asin), names = bkNamesOf(c), ids = bkListsOf(c);
     // Cột "List keyword" = ô BẤM ĐƯỢC: chọn 1/nhiều bộ cho riêng ASIN này (lưu vĩnh viễn).
     const listCell = names.length
-      ? `${esc(names.join(', '))} <span class="hint">✎</span>`
+      ? ids.map((id) => {
+          const m = bkMeta(id);
+          if (!m) return `<span style="color:#e04545">${esc(id)}</span>`;
+          const nv = m.variantCount || 0, ns = ((c.kwVariants || {})[id] || []).length;
+          const vc = nv ? ` <span class="vc${ns ? '' : ' zero'}">· ${ns}/${nv} biến thể</span>` : '';
+          return `<a class="bkLn" data-list="${esc(id)}" title="Bấm để xem keyword và chọn biến thể">${esc(m.name || id)}${vc}</a>`;
+        }).join(', ') + ' <span class="hint">✎</span>'
       : (ids.length ? '<span style="color:#e04545">bộ đã xoá ✎</span>' : '<span class="hint">+ chọn bộ keyword ✎</span>');
     return `<tr class="${names.length ? '' : 'nolist'}${on ? ' on' : ''}" data-asin="${esc(c.asin)}">
       <td><input type="checkbox" class="bkChk"${on ? ' checked' : ''}></td>
@@ -2391,6 +2752,8 @@ $('bkBody').addEventListener('change', (e) => {
 $('bkBody').addEventListener('click', (e) => {
   const cell = e.target.closest('.bkListCell'); if (!cell) return;
   e.stopPropagation();
+  const ln = e.target.closest('.bkLn');
+  if (ln) { bkOpenVarModal(cell.dataset.asin, ln.dataset.list); return; }   // bấm TÊN list → pop-up keyword + biến thể
   bkOpenRowSets(cell.dataset.asin, cell);
 });
 $('bkAll').onchange = () => {
@@ -2436,7 +2799,8 @@ function bkRenderPicked() {
   $('bkPickedBody').innerHTML = [...ps].sort((a, b) => bad(b) - bad(a) || warn(b) - warn(a)).map((p) => {
     const c = bkCnt[p.asin];
     const listName = bkNamesOf(p).join(' + ') || '—';
-    const cnt = c ? [c.kw ? `<b>${c.kw}</b> keyword` : '', c.ta ? `${c.ta} Target ASIN` : ''].filter(Boolean).join(' · ') : '';
+    const fin = (t) => `<a class="bkFin" data-asin="${esc(p.asin)}" title="Bấm để xem bộ keyword hoàn chỉnh sẽ tạo">${t}</a>`;
+    const cnt = c ? [c.kw ? fin(`<b>${c.kw}</b> keyword`) : '', c.ta ? fin(`${c.ta} Target ASIN`) : ''].filter(Boolean).join(' · ') : '';
     const what = !p.sku ? '<td class="why">thiếu SKU — sẽ bỏ qua</td>'
       : !c ? '<td class="hint">…</td>'
       : c.miss ? `<td class="why${c.skip ? '' : ' part'}" title="${esc(c.miss)}">${cnt ? cnt + ' · ' : ''}${esc(c.miss)} → <b>${bkMissFx(c)}</b></td>`
@@ -2449,6 +2813,7 @@ function bkRenderPicked() {
   }).join('');
 }
 $('bkPickedBody').addEventListener('click', (e) => {
+  const f = e.target.closest('.bkFin'); if (f) { bkOpenFinal(f.dataset.asin); return; }
   if (!e.target.classList.contains('bkX')) return;
   bkSel.delete(e.target.closest('tr').dataset.asin);
   bkRender(); bkChanged();
@@ -2500,12 +2865,19 @@ async function bkLoadList(id) {
   return bkListCache[id];
 }
 /** Keyword của 1 list theo group đã tick — bid: bid tay của keyword → bid group → Bid mặc định; +n theo group */
-function bkKeywordsFor(list) {
+/* Biến thể: list nhập từ KW Biến Thể có list.variants → chỉ lấy keyword thuộc biến thể ASIN này đã tick
+   (lưu ở p.kwVariants[listId] = ["group|biến thể"…]); chưa tick biến thể nào = chưa chọn gì. Keyword không mang
+   biến thể (tự thêm tay) và list cũ không có biến thể → không lọc. */
+const vKey = (g, v) => gKey(g) + '|' + gKey(v);
+function bkExclSet(p, list) { return new Set((((p && p.kwExcluded) || {})[list.id]) || []); }
+function bkVariantSet(p, list) { return (list.variants || []).length ? new Set(((p && p.kwVariants) || {})[list.id] || []) : null; }
+function bkKeywordsFor(list, p, meta) {
+  const vsel = bkVariantSet(p, list), excl = bkExclSet(p, list);
   const def = parseFloat(String($('bkDefBid').value).replace(',', '.'));
   const gOf = (n) => (list.groups || []).find((g) => gKey(g.name) === gKey(n));
   const order = new Map((list.groups || []).map((g, i) => [gKey(g.name), i]));
   const seen = new Set(), out = [];
-  (list.keywords || []).filter((k) => bkGroupsOn.has(gKey(k.group)))
+  (list.keywords || []).filter((k) => bkGroupsOn.has(gKey(k.group)) && (!vsel || !k.variant || vsel.has(vKey(k.group, k.variant))) && !excl.has(String(k.kw || '').trim().toLowerCase()))
     .sort((a, b) => (order.get(gKey(a.group)) ?? 999) - (order.get(gKey(b.group)) ?? 999) || (b.sv || 0) - (a.sv || 0))
     .forEach((k) => {
       const text = String(k.kw || '').trim().toLowerCase();
@@ -2516,7 +2888,7 @@ function bkKeywordsFor(list) {
         : over > 0 ? over
         : g && g.bid != null && g.bid !== '' ? Number(g.bid) : (def > 0 ? def : null);
       const off = g ? (Number(g.offset) || 0) : 0;
-      out.push({ text, bid, bids: null, ...(off ? { offset: off } : {}) });
+      out.push({ text, bid, bids: null, ...(off ? { offset: off } : {}), ...(meta ? { _m: { sv: k.sv, group: k.group, variant: k.variant || '', lists: [list.name], off } } : {}) });
     });
   return out;
 }
@@ -2527,14 +2899,16 @@ function bkCheckLists(p, lists, useT) {
     const why = (p && bkSetIds(p).length) ? 'bộ keyword không đọc được (đã xoá?)' : 'chưa chọn bộ keyword cho ASIN này';
     return { kw: 0, ta: 0, skip: true, miss: why };
   }
-  const kw = bkGroupsOn.size ? bkKeywordsForLists(lists).length : 0, ta = useT ? bkTargetsForLists(lists).length : 0, miss = [];
+  const kw = bkGroupsOn.size ? bkKeywordsForLists(lists, p).length : 0, ta = useT ? bkTargetsForLists(lists).length : 0, miss = [];
   if (bkGroupsOn.size && !kw) {
     const by = new Map();
     lists.forEach((l) => (l.keywords || []).filter((k) => String(k.kw || '').trim()).forEach((k) => {
       const e = by.get(gKey(k.group)) || { name: String(k.group || '').trim() || '(không group)', n: 0 };
       e.n++; by.set(gKey(k.group), e);
     }));
-    miss.push(!by.size ? 'chưa có keyword nào'
+    const noVar = lists.filter((l) => (l.variants || []).length && !(bkVariantSet(p, l) || new Set()).size);
+    if (noVar.length) miss.push(`chưa chọn biến thể cho ${noVar.map((l) => '"' + l.name + '"').join(', ')} (bấm tên list ở cột List keyword để chọn)`);
+    else miss.push(!by.size ? 'chưa có keyword nào'
       : `không có keyword ở group đã tick (keyword nằm ở: ${[...by.values()].map((e) => `${e.name} ${e.n}`).join(', ')})`);
   }
   if (useT && !ta) miss.push('không có Target ASIN');
@@ -2587,7 +2961,7 @@ async function runBulk() {
     if (!p.sku) { skipped.push(`${p.asin}: thiếu SKU`); continue; }
     const lists = await bkListsForAsin(p);
     if (!lists.length) { skipped.push(`${p.asin}: ${bkCheckLists(p, lists, useT).miss}`); continue; }
-    const keywords = bkKeywordsForLists(lists), targetAsins = useT ? bkTargetsForLists(lists) : [];
+    const keywords = bkKeywordsForLists(lists, p), targetAsins = useT ? bkTargetsForLists(lists) : [];
     if (!keywords.length && !targetAsins.length) { skipped.push(`${p.asin}: ${bkCheckLists(p, lists, useT).miss}`); continue; }
     const payload = { ...base, keywords, targetAsins,
       info: { ...base.info, sku: p.sku, asin: p.asin, products: [{ asin: p.asin, sku: p.sku, type: p.type || 'FBA' }],
@@ -2637,8 +3011,8 @@ $('btnLowest').onclick = async () => {
     say('', `⏳ ${++i}/${ps.length} · ${esc(p.asin)}…`);
     if (!p.sku) { skipped.push(`${p.asin}: thiếu SKU`); continue; }
     const lists = await bkListsForAsin(p);
-    const keywords = bkKeywordsForLists(lists);
-    if (!keywords.length) { skipped.push(`${p.asin}: không có keyword ở group đã chọn`); continue; }
+    const keywords = bkKeywordsForLists(lists, p);
+    if (!keywords.length) { skipped.push(`${p.asin}: không có keyword ở group + biến thể đã chọn`); continue; }
     const payload = { ...base, keywords, targetAsins: [],
       info: { ...base.info, sku: p.sku, asin: p.asin, products: [{ asin: p.asin, sku: p.sku, type: p.type || 'FBA' }], type: p.type || 'FBA', category: p.category || '' },
       portfolios: { ...base.portfolios, global: p.portfolioId || '' },

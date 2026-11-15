@@ -596,6 +596,26 @@ export function compLibPatch(mainAsin, compAsin, patch) {
   for (const f of ["enabled", "favorite"]) if (patch[f] !== undefined) lib.groups[main][comp][f] = patch[f];
   writeCompLib(lib);
 }
+/* Ảnh + tiêu đề theo ASIN (mọi ASIN, không cần nằm trong Library) — popup niche ở Bulk Create hiện để biết đang làm sản phẩm nào.
+   Điền khi quét (competitor-library/scan hoặc agent trả về); chưa có thì lấy tạm từ Library / tracking. */
+const ASININFO_FILE = () => path.join(userDataDir(), "asin-info.json");
+export function asinInfoSave(asin, { title, image }) {
+  const a = String(asin || "").toUpperCase();
+  if (!/^[A-Z0-9]{10}$/.test(a) || (!title && !image)) return;
+  const all = readJson(ASININFO_FILE(), {});
+  all[a] = { ...(all[a] || {}), ...(title ? { title: String(title).slice(0, 300) } : {}), ...(image ? { image: String(image).slice(0, 600) } : {}), at: new Date().toISOString() };
+  ensureDirs(); writeJsonAtomic(ASININFO_FILE(), all, 1);
+}
+export function asinInfoGet(asins) {
+  const all = readJson(ASININFO_FILE(), {}), lib = getCompetitorLibrary().groups || {}, out = {};
+  for (const raw of asins || []) {
+    const a = String(raw || "").toUpperCase(); if (!/^[A-Z0-9]{10}$/.test(a)) continue;
+    let info = all[a] || {};
+    if (!info.image || !info.title) for (const g of Object.values(lib)) if (g[a]) { info = { image: info.image || g[a].image, title: info.title || g[a].title }; break; }
+    out[a] = { image: info.image || null, title: info.title || null };
+  }
+  return out;
+}
 /** Quét trang sản phẩm: cập nhật comp ở MỌI nhóm chứa nó (ảnh/title chỉ điền lần đầu, Sale theo ngày). */
 export function compLibSaveScan(compAsin, { title, image, sales, price, date }) {
   const lib = getCompetitorLibrary();
@@ -718,6 +738,10 @@ export function listCatalog() {
       // kwLists: NHIỀU bộ keyword gán cho 1 ASIN (Bulk Create chọn riêng từng ASIN). Tương thích ngược:
       // ASIN cũ chỉ có kwList (1 bộ) → coi như mảng 1 phần tử.
       kwLists: Array.isArray(p.kwLists) && p.kwLists.length ? p.kwLists : (p.kwList ? [p.kwList] : []),
+      // kwVariants: biến thể đã chọn cho từng niche (list) của ASIN: { listId: ["group|biến thể", …] }
+      kwVariants: p.kwVariants && typeof p.kwVariants === "object" ? p.kwVariants : {},
+      // kwExcluded: keyword BỎ CHỌN tay trong các biến thể đã tick: { listId: ["keyword", …] }
+      kwExcluded: p.kwExcluded && typeof p.kwExcluded === "object" ? p.kwExcluded : {},
       category: p.category || ""
     }))
     .sort((a, b) => (a.acc || "~").localeCompare(b.acc || "~") || (a.list || "~").localeCompare(b.list || "~") || a.asin.localeCompare(b.asin));
@@ -763,7 +787,32 @@ export function setProductKwLists(asin, ids) {
   const products = { ...(s.products || {}) };
   const clean = [...new Set((Array.isArray(ids) ? ids : []).map((x) => String(x || "").trim()).filter(Boolean))].slice(0, 20);
   const cur = products[a] || { acc: "", sku: "", type: "FBA" };
-  products[a] = { ...cur, kwLists: clean, kwList: clean[0] || "", updatedAt: new Date().toISOString() };
+  const kv = Object.fromEntries(Object.entries(cur.kwVariants || {}).filter(([id]) => clean.includes(id))); // bỏ lựa chọn của niche đã gỡ
+  const kx = Object.fromEntries(Object.entries(cur.kwExcluded || {}).filter(([id]) => clean.includes(id)));
+  products[a] = { ...cur, kwLists: clean, kwList: clean[0] || "", kwVariants: kv, kwExcluded: kx, updatedAt: new Date().toISOString() };
+  fs.writeFileSync(LAUNCH_FILE(), JSON.stringify({ ...s, products, updatedAt: new Date().toISOString() }, null, 2));
+  return listCatalog();
+}
+
+/** Lưu biến thể đã chọn của 1 niche cho một hoặc nhiều ASIN (auto-save từ Bulk Create).
+ *  sel = mảng "group|biến thể" (chữ thường). Chỉ đụng kwVariants[listId], giữ nguyên mọi trường khác. */
+export function setProductKwVariants(asins, listId, sel, excl) {
+  const id = String(listId || "").trim();
+  if (!id) throw new Error("Thiếu list");
+  const s = getLaunchSettings();
+  const products = { ...(s.products || {}) };
+  const clean = [...new Set((Array.isArray(sel) ? sel : []).map((x) => String(x || "").trim().toLowerCase()).filter((x) => x.includes("|")))].slice(0, 5000);
+  const cleanEx = Array.isArray(excl) ? [...new Set(excl.map((x) => String(x || "").trim().toLowerCase()).filter(Boolean))].slice(0, 20000) : null;
+  let n = 0;
+  for (const raw of Array.isArray(asins) ? asins : [asins]) {
+    const a = String(raw || "").trim().toUpperCase();
+    if (!/^[A-Z0-9]{10}$/.test(a)) continue;
+    const cur = products[a] || { acc: "", sku: "", type: "FBA" };
+    products[a] = { ...cur, kwVariants: { ...(cur.kwVariants || {}), [id]: clean },
+      ...(cleanEx ? { kwExcluded: { ...(cur.kwExcluded || {}), [id]: cleanEx } } : {}), updatedAt: new Date().toISOString() };
+    n++;
+  }
+  if (!n) throw new Error("ASIN không hợp lệ");
   fs.writeFileSync(LAUNCH_FILE(), JSON.stringify({ ...s, products, updatedAt: new Date().toISOString() }, null, 2));
   return listCatalog();
 }
@@ -843,6 +892,7 @@ function dedupKw(arr) {
     if (ex) {
       if (numOrNull(ex.sv) == null && numOrNull(k.sv) != null) ex.sv = k.sv;
       if (!ex.group && k.group) ex.group = k.group;
+      if (!ex.variant && k.variant) ex.variant = k.variant;
       if (numOrNull(ex.bid) == null && numOrNull(k.bid) != null) ex.bid = k.bid;
       continue;
     }
@@ -975,15 +1025,39 @@ export function kwGroupOp(op = {}) {
   throw new Error("Thao tác group không hợp lệ");
 }
 
+/** Biến thể của list (cấu trúc nhập từ tool "KW Biến Thể"): mỗi nhóm Product/Function/Gift/Occasion có nhiều biến thể;
+ *  biến thể của Gift có thể là ĐỐI TƯỢNG (audience). Keyword trỏ biến thể theo TÊN (k.variant) + group. */
+function cleanVariants(arr, canon) {
+  const seen = new Set(), out = [];
+  for (const v of Array.isArray(arr) ? arr : []) {
+    const name = String(v?.name || "").trim().slice(0, 80);
+    const group = canon.get(String(v?.group || "").trim().toLowerCase()) || "";
+    if (!name || !group) continue;
+    const key = group.toLowerCase() + "|" + name.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ group, name, audience: v.audience === true,
+      nhom: numOrNull(v.nhom), muc: String(v.muc || "").slice(0, 30), sat: numOrNull(v.sat),
+      soAsin: numOrNull(v.soAsin), rank: numOrNull(v.rank), sv: numOrNull(v.sv), soKw: numOrNull(v.soKw) });
+  }
+  return out;
+}
 function cleanKwList(l) {
   const canon = new Map(getKwGroups().map((g) => [g.name.toLowerCase(), g.name]));
   const keywords = dedupKw(l.keywords).map((k) => ({ kw: k.kw, sv: numOrNull(k.sv),
-    group: canon.get(String(k.group || "").trim().toLowerCase()) || "", bid: numOrNull(k.bid) }));
+    group: canon.get(String(k.group || "").trim().toLowerCase()) || "", bid: numOrNull(k.bid),
+    variant: String(k.variant || "").trim().slice(0, 80) }));
   const groups = []; // group nằm ở bộ chung (kw-groups.json), list không lưu riêng nữa
   // Target ASIN của list (đối thủ / ASIN muốn chạy Product Targeting) — Tạo Campaign kéo vào ô Target ASINs
   const asins = [...new Set((Array.isArray(l.asins) ? l.asins : [])
     .map((a) => String(a || "").trim().toUpperCase()).filter((a) => /^[A-Z0-9]{10}$/.test(a)))].slice(0, 5000);
+  const src = l.source && typeof l.source === "object" ? l.source : null;
+  const source = src && String(src.url || "").trim()
+    ? { url: String(src.url).trim().slice(0, 500), slug: String(src.slug || "").trim().slice(0, 120),
+        name: String(src.name || "").trim().slice(0, 120), importedAt: String(src.importedAt || "").slice(0, 40) }
+    : null;
   return { id: l.id, name: String(l.name || "").trim().slice(0, 80) || "List không tên", groups, keywords, asins,
+    variants: cleanVariants(l.variants, canon), source,
     shareSlug: String(l.shareSlug || "").trim(), // giữ qua mỗi lần lưu — xem setKwShareSlug() bên dưới
     rev: Number(l.rev) || 0, updatedAt: new Date().toISOString() };
 }
@@ -1019,7 +1093,8 @@ export function getKwVersion(id, at) { return kwHistRead(id).find((v) => v.at ==
 export function listKwLists() {
   const groups = getKwGroups(); // gọi TRƯỚC kwListsAll: lần đầu sẽ chuyển dữ liệu sang group chung
   return kwListsAll().map((l) => ({ id: l.id, name: l.name, groups, kwCount: (l.keywords || []).length,
-    asinCount: (l.asins || []).length, updatedAt: l.updatedAt, rev: Number(l.rev) || 0, shareSlug: l.shareSlug || "" }))
+    asinCount: (l.asins || []).length, updatedAt: l.updatedAt, rev: Number(l.rev) || 0, shareSlug: l.shareSlug || "",
+    variantCount: (l.variants || []).length, sourceUrl: l.source?.url || "" }))
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 export function getKwList(id) {

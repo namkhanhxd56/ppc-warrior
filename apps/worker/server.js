@@ -587,6 +587,7 @@ app.post("/api/agent/lib-result", (req, res) => {
   for (const it of items || []) {
     if (!/^[A-Z0-9]{10}$/.test(String(it.asin || ""))) continue;
     store.compLibSaveScan(it.asin, { title: it.title, image: it.image, sales: it.sales, price: it.price, date: it.date || new Date().toISOString().slice(0, 10) });
+    store.asinInfoSave(it.asin, { title: it.title, image: it.image });
   }
   if (jobId) store.completeJob(jobId, null);
   res.json({ ok: true, saved: (items || []).length });
@@ -1047,6 +1048,15 @@ app.post("/api/catalog/product-kwlists", (req, res) => {
   } catch (e) { res.status(400).json({ ok: false, message: e.message }); }
 });
 
+// Lưu biến thể đã chọn của 1 niche (list) cho 1 hoặc nhiều ASIN — auto-save từ Bulk Create.
+app.post("/api/catalog/product-kwvariants", (req, res) => {
+  try {
+    const { asin, asins, listId, sel, excl } = req.body || {};
+    const products = store.setProductKwVariants(Array.isArray(asins) ? asins : [asin], listId, sel, excl);
+    res.json({ ok: true, products });
+  } catch (e) { res.status(400).json({ ok: false, message: e.message }); }
+});
+
 app.post("/api/catalog/portfolios", (req, res) => {
   try {
     const rows = req.body?.rows;
@@ -1224,8 +1234,8 @@ app.get("/api/kwlists/export-all", (req, res) => {
   const lists = store.listKwLists().map((s) => store.getKwList(s.id)).filter(Boolean);
   const wb = XLSX.utils.book_new();
   const kwRows = [];
-  for (const l of lists) for (const k of l.keywords || []) kwRows.push({ "List": l.name, "Keyword": k.kw, "Search Volume": k.sv ?? "", "Group": k.group || "" });
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(kwRows, { header: ["List", "Keyword", "Search Volume", "Group"] }), "Keywords");
+  for (const l of lists) for (const k of l.keywords || []) kwRows.push({ "List": l.name, "Keyword": k.kw, "Search Volume": k.sv ?? "", "Group": k.group || "", "Biến thể": k.variant || "" });
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(kwRows, { header: ["List", "Keyword", "Search Volume", "Group", "Biến thể"] }), "Keywords");
   if (withAsin) {
     const asinRows = [];
     for (const l of lists) for (const a of l.asins || []) asinRows.push({ "List": l.name, "Target ASIN": a });
@@ -1270,9 +1280,9 @@ app.get("/api/kwlists/:id/export", (req, res) => {
   const gOf = (n) => (l.groups || []).find((g) => g.name === n);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet((l.keywords || []).map((k) => ({
-    "Keyword": k.kw, "Search Volume": k.sv ?? "", "Group": k.group || "", "Bid": k.bid ?? "",
+    "Keyword": k.kw, "Search Volume": k.sv ?? "", "Group": k.group || "", "Biến thể": k.variant || "", "Bid": k.bid ?? "",
     "Bid group": gOf(k.group)?.bid ?? "", "+n ngày": gOf(k.group)?.offset || 0
-  })), { header: ["Keyword", "Search Volume", "Group", "Bid", "Bid group", "+n ngày"] }), "Keywords");
+  })), { header: ["Keyword", "Search Volume", "Group", "Biến thể", "Bid", "Bid group", "+n ngày"] }), "Keywords");
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet((l.groups || []).map((g) => ({
     "Group": g.name, "Bid mặc định": g.bid ?? "", "+n ngày": g.offset || 0
   })), { header: ["Group", "Bid mặc định", "+n ngày"] }), "Groups");
@@ -1295,7 +1305,7 @@ app.post("/api/kwlists/import-file", (req, res, next) => uploadKw.single("file")
     const rows = (n) => (sheet(n) ? XLSX.utils.sheet_to_json(sheet(n), { defval: "" }) : []);
     const num = (v) => { const x = parseFloat(String(v).replace(",", ".")); return isNaN(x) ? null : x; };
     const groups = rows("Groups").map((r) => ({ name: r["Group"], bid: num(r["Bid mặc định"]), offset: num(r["+n ngày"]) || 0 }));
-    const keywords = rows("Keywords").map((r) => ({ kw: r["Keyword"], sv: num(r["Search Volume"]), group: String(r["Group"] || ""), bid: num(r["Bid"]) }));
+    const keywords = rows("Keywords").map((r) => ({ kw: r["Keyword"], sv: num(r["Search Volume"]), group: String(r["Group"] || ""), bid: num(r["Bid"]), variant: String(r["Biến thể"] || "") }));
     // group có trong Keywords mà thiếu ở Groups (file sửa tay) → vẫn giữ, lấy bid/+n từ cột phụ
     for (const r of rows("Keywords")) {
       const gn = String(r["Group"] || "").trim();
@@ -1305,6 +1315,87 @@ app.post("/api/kwlists/import-file", (req, res, next) => uploadKw.single("file")
     const base = String(req.body?.name || req.file.originalname.replace(/\.[^.]+$/, "")).trim().slice(0, 70) || "List từ file";
     const l = store.createKwList(base + " (từ file)", { groups, keywords, asins });
     res.json({ ok: true, list: l });
+  } catch (e) { res.status(400).json({ ok: false, message: e.message }); }
+});
+
+/* ===== NẠP LIST TỪ TOOL "KW BIẾN THỂ" (bộ keyword đối thủ đã chia biến thể) =====
+   Cấu trúc nguồn: 4 nhóm Product / Function / Gift / Occasion, mỗi nhóm có nhiều biến thể; biến thể của Gift có
+   thể là ĐỐI TƯỢNG (doi_tuong). Ta lấy các biến thể đã chọn ("chon") — bỏ biến thể bị Loại và keyword
+   "chưa phân loại" — thành 1 list (= 1 niche): keyword mang group + variant, list nhớ link gốc để mở xem lại.
+   Chỉ gọi tới máy chủ KW Biến Thể đã cho phép (KWBT_ORIGIN / KWBT_HOSTS) để khỏi bị lợi dụng gọi URL tuỳ ý. */
+const KWBT_ORIGIN = (process.env.KWBT_ORIGIN || "https://web-production-f71ebe.up.railway.app").replace(/\/+$/, "");
+const kwbtHosts = () => new Set([new URL(KWBT_ORIGIN).host, ...String(process.env.KWBT_HOSTS || "").split(",").map((x) => x.trim()).filter(Boolean)]);
+const KWBT_GROUP = { "KW PRODUCT": "Product", "PRODUCT": "Product", "FUNCTION": "Function", "KW GIFTS": "Gift", "GIFT": "Gift", "KW GIFT": "Gift",
+  "PERSONALIZED": "Personalized", "SEASONAL": "Occasion", "OCCASION": "Occasion" };
+const KWBT_DEFAULT_BID = { Product: 0.64, Function: 0.59, Gift: 0.54 }; // chỉ dùng khi group CHƯA có trong bộ group chung
+function parseKwbtRef(input) {
+  const t = String(input || "").trim();
+  if (!t) throw new Error("Dán link bộ keyword (…/kw-list/BSV627-…) hoặc mã BSV");
+  let origin = KWBT_ORIGIN, slug = t;
+  if (/^https?:\/\//i.test(t)) {
+    const u = new URL(t);
+    if (!kwbtHosts().has(u.host)) throw new Error(`Máy chủ ${u.host} chưa được cho phép — chỉ nạp từ ${[...kwbtHosts()].join(", ")} (thêm vào biến môi trường KWBT_HOSTS nếu cần)`);
+    const m = u.pathname.match(/\/(?:kw-list|api\/lists)\/([^/]+)/);
+    if (!m) throw new Error("Link không đúng dạng …/kw-list/<tên bộ>");
+    origin = u.origin; slug = decodeURIComponent(m[1]);
+  }
+  slug = slug.replace(/\.[a-z]+$/i, "");
+  if (!/^[\w.\-]{2,120}$/.test(slug)) throw new Error("Tên bộ keyword không hợp lệ");
+  return { origin, slug };
+}
+async function kwbtGet(url) {
+  const r = await fetch(url, { signal: AbortSignal.timeout(30000), headers: { Accept: "application/json" } });
+  const d = await r.json().catch(() => null);
+  if (!r.ok || !d || d.ok === false) throw new Error(`KW Biến Thể trả lỗi ${r.status}${d?.error ? ": " + d.error : ""}`);
+  return d;
+}
+async function fetchKwbt(input) {
+  const { origin, slug } = parseKwbtRef(input);
+  const [meta, bt] = await Promise.all([kwbtGet(`${origin}/api/lists/${encodeURIComponent(slug)}`), kwbtGet(`${origin}/api/lists/${encodeURIComponent(slug)}/bien-the`)]);
+  const m = meta.list || meta;
+  if (bt.trong || !Array.isArray(bt.chon)) throw new Error("Bộ này chưa có dữ liệu biến thể (chưa quét xong ASIN nào)");
+  const keywords = [], variants = [];
+  for (const v of bt.chon) {
+    const group = KWBT_GROUP[String(v.sheet || "").toUpperCase()] || String(bt.ten_sheet?.[v.sheet] || v.sheet || "").trim();
+    if (!group || !v.ten) continue;
+    variants.push({ group, name: v.ten, audience: v.doi_tuong === true, nhom: v.nhom, muc: v.muc, sat: v.sat, soAsin: v.so_asin, rank: v.rank, sv: v.sv, soKw: (v.kw || []).length });
+    for (const k of v.kw || []) if (k.keyword) keywords.push({ kw: k.keyword, sv: k.sv ?? null, group, variant: v.ten, bid: null });
+  }
+  if (!keywords.length) throw new Error("Bộ này không có keyword nào thuộc biến thể đã chọn");
+  const slugOut = m.slug || slug;
+  return { name: String(m.ten || slugOut).slice(0, 80), keywords, variants, asins: Array.isArray(m.asins) ? m.asins : (bt.asins || []),
+    source: { url: m.link || `${origin}/kw-list/${slugOut}`, slug: slugOut, name: m.ten || slugOut, importedAt: new Date().toISOString() } };
+}
+app.post("/api/kwlists/import-kwbt", async (req, res) => {
+  try {
+    const d = await fetchKwbt(req.body?.url);
+    const groups = [...new Set(d.variants.map((v) => v.group))].map((name) => ({ name, bid: KWBT_DEFAULT_BID[name] ?? null, offset: 0 }));
+    const dupe = store.listKwLists().find((l) => l.sourceUrl && l.sourceUrl === d.source.url);
+    if (dupe && !req.body?.allowDuplicate)
+      return res.status(409).json({ ok: false, duplicate: { id: dupe.id, name: dupe.name }, message: `Bộ này đã được nạp thành list "${dupe.name}" — dùng "⟳ Nạp lại từ list gốc" ở list đó để cập nhật` });
+    const l = store.createKwList(d.name, { groups, keywords: d.keywords, variants: d.variants, asins: d.asins, source: d.source });
+    res.json({ ok: true, list: l, stats: { keywords: d.keywords.length, variants: d.variants.length } });
+  } catch (e) { res.status(400).json({ ok: false, message: e.message }); }
+});
+// Nạp lại từ list gốc: cập nhật SV + biến thể, thêm keyword mới, bỏ keyword gốc không còn; GIỮ bid tay và keyword tự thêm (không có biến thể)
+app.post("/api/kwlists/:id/refresh-source", async (req, res) => {
+  try {
+    const cur = store.getKwList(req.params.id);
+    if (!cur) return res.status(404).json({ ok: false, message: "Không tìm thấy list" });
+    if (!cur.source?.url) throw new Error("List này không nạp từ KW Biến Thể nên không có list gốc để nạp lại");
+    const d = await fetchKwbt(cur.source.url);
+    const fresh = new Map(d.keywords.map((k) => [k.kw.trim().toLowerCase(), k]));
+    const keep = []; let updated = 0, removed = 0, added = 0;
+    for (const k of cur.keywords) {
+      const f = fresh.get(String(k.kw).trim().toLowerCase());
+      if (f) { keep.push({ ...k, sv: f.sv ?? k.sv, group: f.group, variant: f.variant }); fresh.delete(String(k.kw).trim().toLowerCase()); updated++; }
+      else if (k.variant) removed++;            // từng nạp từ gốc nhưng gốc đã bỏ
+      else keep.push(k);                         // keyword tự thêm → giữ
+    }
+    for (const f of fresh.values()) { keep.push(f); added++; }
+    const asins = [...new Set([...(cur.asins || []), ...d.asins])];
+    const saved = store.saveKwList(cur.id, { ...cur, keywords: keep, variants: d.variants, asins, source: { ...d.source } }, { force: true, kind: "trước khi nạp lại từ list gốc" });
+    res.json({ ok: true, list: saved, stats: { updated, added, removed } });
   } catch (e) { res.status(400).json({ ok: false, message: e.message }); }
 });
 app.delete("/api/kwlists/:id", (req, res) => res.json({ ok: store.deleteKwList(req.params.id) }));
@@ -2084,6 +2175,8 @@ app.post("/api/competitor-pick", (req, res) => {
 /* ===== COMPETITOR LIBRARY ===== */
 app.get("/api/competitor-library", (req, res) => res.json(store.getCompetitorLibrary()));
 
+// Ảnh + tiêu đề theo ASIN (popup niche ở Bulk Create). Chưa có → quét bằng POST /api/competitor-library/scan {asins}
+app.get("/api/asin-info", (req, res) => res.json({ ok: true, info: store.asinInfoGet(String(req.query.asins || "").split(",")) }));
 app.post("/api/competitor-library/add", (req, res) => {
   const main = String(req.body?.main || "").trim().toUpperCase();
   if (!/^[A-Z0-9]{10}$/.test(main)) return res.status(400).json({ error: "Chọn ASIN chính trước" });
@@ -2144,6 +2237,7 @@ app.post("/api/competitor-library/scan", async (req, res) => {
           return { title, image, sales: m ? m[1] : null, price };
         });
         store.compLibSaveScan(a, { ...info, date: today });
+        store.asinInfoSave(a, info);
         log(`🔍 [${i + 1}/${asins.length}] ${a} → ${info.title ? info.title.slice(0, 50) + "…" : "(không đọc được title)"} · Sale: ${info.sales || "_"} · Giá: ${info.price || "_"}`);
       } catch (e) {
         log(`⚠️ [${i + 1}/${asins.length}] ${a} lỗi: ${e.message}`);

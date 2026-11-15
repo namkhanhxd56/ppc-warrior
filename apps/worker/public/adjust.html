@@ -26,6 +26,8 @@
   .btn-sm { padding:5px 12px; font-size:12px; background:#eef1f7; }
   table { border-collapse:collapse; width:100%; font-size:12px; }
   th, td { border:1px solid #e3e8f0; padding:4px 7px; text-align:left; white-space:nowrap; }
+  .selBadge { display:inline-flex; align-items:center; gap:4px; padding:3px 11px; border-radius:14px; background:#eef1f7; color:#667; font-size:12.5px; font-weight:700; white-space:nowrap; font-variant-numeric:tabular-nums; }
+  .selBadge.on { background:#2455e6; color:#fff; }
   th { background:#f0f3f9; position:sticky; top:0; z-index:2; cursor:pointer; user-select:none; }
   td input, td select { padding:3px 6px; font-size:12px; border-radius:5px; }
   .scroll { overflow:auto; max-height:520px; border-radius:8px; }
@@ -480,7 +482,7 @@ function updateLoadInfo(total) {
 }
 function appendBatch(r) {
   if (tab === 'targets') { appendTargetRows(r.rows); lastRows.push(...r.rows); applyHideEdited(); updateSelInfo(); }
-  else { termAsinTotals = { ...termAsinTotals, ...(r.asinTotals || {}) }; appendTermGroups(r.groups); }
+  else { termAsinTotals = { ...termAsinTotals, ...(r.asinTotals || {}) }; appendTermGroups(r.groups); updateSelInfo(); }
 }
 
 // Nạp lại từ đầu (đổi dataset/tab/filter/sort) — cuộn vô cực sẽ tải tiếp
@@ -540,7 +542,7 @@ const editedCls = (k, field) => edits.some(x => x.k === k && x.field === field) 
 
 function renderTargetsInit() {
   $('actionBar').innerHTML = `
-    <b style="font-size:12px">Bulk (dòng đã tick):</b>
+    <b style="font-size:12px">Bulk (dòng đã tick):</b> <span class="selBadge" title="Số dòng đang tick"></span>
     <select id="bkField" style="max-width:120px" onchange="bkFieldChanged()">
       <option value="bid">Bid ($)</option><option value="bud">Budget ($)</option>
       <option value="pct">Placement %</option><option value="st">State</option>
@@ -618,7 +620,7 @@ function buildTargetRow(x) {
 
 function renderTermsInit() {
   $('actionBar').innerHTML = `
-    <b style="font-size:12px">Search term đã tick:</b>
+    <b style="font-size:12px">Search term đã tick:</b> <span class="selBadge" title="Số search term đang tick"></span>
     <button class="btn-sm" style="background:#fde8e8;color:#c0392b" onclick="addNegatives('negativeExact')">🚫 Negative Exact</button>
     <button class="btn-sm" style="background:#fde8e8;color:#c0392b" onclick="addNegatives('negativePhrase')">🚫 Negative Phrase</button>
     <button class="btn-sm" style="background:#e8f5ec;color:#157a3d" onclick="promoteTerms()">🚀 Tạo Campaign (keyword)</button>
@@ -678,6 +680,15 @@ function updateSelInfo() {
   const n = sel.size;
   el.textContent = n ? ` · đã chọn ${n} dòng` : '';
   el.style.color = n ? '#2455e6' : '';
+  setSelBadges();
+}
+// Huy hiệu đếm ở thanh thao tác (Bulk / Search term): "☑ đã chọn n / tổng"
+function setSelBadges() {
+  const n = sel.size, total = tab === 'terms' ? (typeof termByKey !== 'undefined' ? termByKey.size : 0) : (lastRows ? lastRows.length : 0);
+  document.querySelectorAll('.selBadge').forEach((b) => {
+    b.textContent = `☑ Đã chọn ${n.toLocaleString('en-US')}${total ? ' / ' + total.toLocaleString('en-US') : ''}`;
+    b.classList.toggle('on', n > 0);
+  });
 }
 window.tick = (key, on) => { on ? sel.add(key) : sel.delete(key); updateSelInfo(); };
 window.tickAll = (on) => {
@@ -1122,6 +1133,7 @@ function renderProposals() {
   </tr>`).join('');
   $('propArea').innerHTML = `
     <div class="bulkbar">
+      <span class="selBadge" id="propBadge" title="Số đề xuất đang tick"></span>
       <button class="btn-sm" onclick="approveProps(false)">✓ Duyệt dòng chọn</button>
       <button class="btn-sm" onclick="approveProps(true)">✓✓ Duyệt tất cả</button>
       <button class="btn-sm" style="background:#fde8e8;color:#c0392b" onclick="rejectProps()">✕ Bỏ dòng chọn</button>
@@ -1130,10 +1142,17 @@ function renderProposals() {
       <span id="propMsg" class="msg"></span>
     </div>
     <div class="scroll" style="max-height:420px"><table><thead><tr>
-      <th style="width:28px"><input type="checkbox" checked onchange="document.querySelectorAll('.propck').forEach(c=>c.checked=this.checked)"></th>
+      <th style="width:28px"><input type="checkbox" checked onchange="document.querySelectorAll('.propck').forEach(c=>c.checked=this.checked);updatePropBadge()"></th>
       <th>Rule</th><th class="l">Campaign</th><th>Entity</th><th class="l">Target</th><th>Field</th><th>Đổi</th><th class="l">Lý do</th>
     </tr></thead><tbody>${rows}</tbody></table></div>`;
+  updatePropBadge();
 }
+function updatePropBadge() {
+  const b = $('propBadge'); if (!b) return;
+  const n = document.querySelectorAll('.propck:checked').length, t = document.querySelectorAll('.propck').length;
+  b.textContent = `☑ Đã chọn ${n} / ${t}`; b.classList.toggle('on', n > 0);
+}
+document.addEventListener('change', (e) => { if (e.target.closest && e.target.closest('#propArea') && e.target.type === 'checkbox') updatePropBadge(); });
 
 const selectedPropIds = () => [...document.querySelectorAll('.propck')].filter(c => c.checked).map(c => lastProposals[+c.dataset.i].id);
 window.approveProps = async (all) => {
