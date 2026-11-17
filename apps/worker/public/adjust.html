@@ -1422,14 +1422,15 @@ $('tableArea').addEventListener('scroll', () => {
 
 /* ===== Nhật ký chỉnh sửa (audit log các file Update đã xuất) ===== */
 const AUDIT_LB = { bid: 'Bid', bud: 'Budget', pct: 'Placement %', st: 'State', agbid: 'Ad Group Bid', name: 'Tên Campaign', agname: 'Tên Ad Group' };
+let auditEntries = []; // dòng nhật ký đang hiển thị — nút ⬇ Tải lại file tra theo vị trí
 async function loadAudit() {
   const qs = new URLSearchParams();
   if ($('auditThisDs').checked && dsId) qs.set('dataset', dsId);
   const r = await (await fetch('/api/adjust/audit?' + qs)).json();
-  const entries = r.entries || [];
+  const entries = auditEntries = r.entries || [];
   $('auditInfo').textContent = `${entries.length} lần xuất`;
   if (!entries.length) { $('auditArea').innerHTML = '<span class="hint">Chưa có lần xuất nào.</span>'; return; }
-  $('auditArea').innerHTML = entries.map((e) => {
+  $('auditArea').innerHTML = entries.map((e, i) => {
     const when = String(e.at || '').replace('T', ' ').slice(0, 19);
     const src = e.source === 'rules' ? '🤖 rule' : '✍️ tự sửa';
     // Thứ tự: ASIN · Entity · Tên  →  Trường: cũ→mới
@@ -1447,11 +1448,33 @@ async function loadAudit() {
     return `<div class="subcard" style="margin:6px 0;padding:8px 10px">
       <div style="cursor:pointer" onclick="const d=this.nextElementSibling;d.style.display=d.style.display==='none'?'block':'none'">
         <b>${when}</b> · ${src} · <b>${e.edits || 0}</b> sửa + <b>${e.negatives || 0}</b> negative${e.creates ? ` + <b>${e.creates}</b> campaign mới` : ''} · <span class="hint">${esc(e.dataset || '')}</span> <span class="hint">▸ chi tiết</span>
+        ${e.detail ? `<button class="btn-sm" style="float:right" title="Dựng lại đúng file của lần xuất này (quên lưu / lạc file)" onclick="event.stopPropagation();redownloadAudit(${i},this)">⬇ Tải lại file</button>` : ''}
       </div>
       <div style="display:none;margin-top:6px;border-top:1px solid #eef1f7;padding-top:6px">${dets || '<span class="hint">—</span>'}</div>
     </div>`;
   }).join('');
 }
+// Tải lại file của 1 lần xuất cũ: server dựng lại từ chi tiết đã lưu trong nhật ký (không ghi thêm dòng nhật ký)
+window.redownloadAudit = async (i, btn) => {
+  const e = auditEntries[i]; if (!e) return;
+  const old = btn.textContent; btn.disabled = true; btn.textContent = '⏳...';
+  try {
+    const res = await fetch('/api/adjust/audit/redownload', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ at: e.at, dataset: e.dataset }) });
+    if (!res.ok) { const j = await res.json().catch(() => ({})); alertBox(esc(j.message || ('Lỗi ' + res.status)), '❌ Không tải lại được file'); return; }
+    const info = JSON.parse(res.headers.get('X-Adjust-Info') || '{}');
+    const a = document.createElement('a'); a.href = URL.createObjectURL(await res.blob());
+    // Tên file theo GIỜ MÁY lúc xuất gốc (VD ...-2026-11-17-22h47) → biết ngay là file của lần nào
+    const t = new Date(e.at), p2 = (n) => String(n).padStart(2, '0');
+    a.download = `bulk-${e.source === 'rules' ? 'update' : 'adjust'}-${e.dataset}-${t.getFullYear()}-${p2(t.getMonth() + 1)}-${p2(t.getDate())}-${p2(t.getHours())}h${p2(t.getMinutes())}.xlsx`;
+    a.click();
+    btn.textContent = `✅ ${info.rows} dòng`;
+    if (info.createRows) alertBox(`File có <b>${info.createRows}</b> dòng Create campaign mới — Start Date đặt lại là <b>hôm nay</b> (Amazon không nhận ngày quá khứ).<br>Nếu file này thực ra đã upload rồi thì đừng upload lại, kẻo tạo trùng campaign.`, 'ℹ️ Lưu ý');
+    setTimeout(() => { btn.textContent = old; btn.disabled = false; }, 4000);
+    return;
+  } catch (err) { alertBox(esc(err.message), '❌ Không tải lại được file'); }
+  btn.textContent = old; btn.disabled = false;
+};
 $('btnAuditReload').onclick = loadAudit;
 $('auditThisDs').onchange = loadAudit;
 

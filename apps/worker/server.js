@@ -1774,6 +1774,38 @@ app.post("/api/adjust/export", (req, res) => {
   }
 });
 
+/** Dựng workbook XUẤT GỘP (Update + negative + campaign mới) — dùng cho xuất mới VÀ tải lại từ nhật ký,
+    để file tải lại giống hệt cách dựng lúc xuất. Không ghi audit (nơi gọi tự quyết). */
+function buildAdjustWorkbook(ds, edits, negatives, creates) {
+  assertBidCap(ds.byKey, edits);
+  const sheets = buildUpdateSheets(ds, edits, negatives);
+  const updateRows = sheets.flatMap((x) => x.rows);
+  let createRows = [], campaigns = 0, missing = [];
+  if (Array.isArray(creates) && creates.length) {
+    const built = buildHarvestCreateRows(creates.map((c) => ({
+      asin: c.asin, keyword: c.keyword, bid: c.bid || null,
+      note: c.note, portfolioId: c.pf, campaignMode: c.mode
+    })));
+    campaigns = built.campaigns;
+    if (!ds.header?.length) throw new Error("Dataset không có sheet Sponsored Products — không tạo được campaign SP mới");
+    const m = remapToDatasetHeader(built.rows, ds.header);
+    createRows = m.rows; missing = m.missing;
+  }
+  const rows = [...updateRows, ...createRows];
+  if (!rows.length) throw new Error("Không có thay đổi nào để xuất");
+  // SP: Update + Create chung 1 sheet; SB/SD: mỗi loại 1 sheet riêng (chỉ Update)
+  const wb = XLSX.utils.book_new();
+  const bySheet = {};
+  for (const x of sheets) {
+    const xr = x.ad === "SP" ? [...x.rows, ...createRows] : x.rows;
+    if (!xr.length) continue;
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(xr, { header: x.header }), x.sheet);
+    bySheet[x.ad] = xr.length;
+  }
+  const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx", compression: true });
+  return { buf, info: { rows: rows.length, updateRows: updateRows.length, createRows: createRows.length, campaigns, missing, bySheet } };
+}
+
 // XUẤT GỘP — 1 file duy nhất cho toàn bộ module "Thay đổi":
 // dòng Update (sửa bid/budget/state/tên) + dòng Create (negative + campaign mới từ search term).
 // Amazon đọc theo cột Operation nên Update và Create nằm chung 1 sheet được.
@@ -1782,43 +1814,17 @@ app.post("/api/adjust/export-all", (req, res) => {
     const { id, edits, negatives, creates } = req.body || {};
     const ds = loadDataset(id);
     if (!ds) throw new Error("Dataset không tồn tại");
-    assertBidCap(ds.byKey, edits);
-    const sheets = buildUpdateSheets(ds, edits, negatives);
-    const updateRows = sheets.flatMap((x) => x.rows);
-    let createRows = [], campaigns = 0, missing = [];
-    if (Array.isArray(creates) && creates.length) {
-      const built = buildHarvestCreateRows(creates.map((c) => ({
-        asin: c.asin, keyword: c.keyword, bid: c.bid || null,
-        note: c.note, portfolioId: c.pf, campaignMode: c.mode
-      })));
-      campaigns = built.campaigns;
-      if (!ds.header?.length) throw new Error("Dataset không có sheet Sponsored Products — không tạo được campaign SP mới");
-      const m = remapToDatasetHeader(built.rows, ds.header);
-      createRows = m.rows; missing = m.missing;
-    }
-    const rows = [...updateRows, ...createRows];
-    if (!rows.length) throw new Error("Không có thay đổi nào để xuất");
-    // SP: Update + Create chung 1 sheet; SB/SD: mỗi loại 1 sheet riêng (chỉ Update)
-    const wb = XLSX.utils.book_new();
-    const bySheet = {};
-    for (const x of sheets) {
-      const xr = x.ad === "SP" ? [...x.rows, ...createRows] : x.rows;
-      if (!xr.length) continue;
-      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(xr, { header: x.header }), x.sheet);
-      bySheet[x.ad] = xr.length;
-    }
-    const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx", compression: true });
+    const { buf, info } = buildAdjustWorkbook(ds, edits, negatives, creates);
     fs.mkdirSync(ADJUST_DIR_FN(), { recursive: true });
     const audit = { at: new Date().toISOString(), dataset: id, source: "manual",
       edits: (edits || []).length, negatives: (negatives || []).length, creates: (creates || []).length,
       detail: { edits, negatives, creates } };
     fs.appendFileSync(`${ADJUST_DIR_FN()}/audit.jsonl`, JSON.stringify(audit) + "\n");
-    if (campaigns) store.saveExportSnapshot({ source: "adjust-all", campaigns, rows: createRows.length }, buf);
+    if (info.campaigns) store.saveExportSnapshot({ source: "adjust-all", campaigns: info.campaigns, rows: info.createRows }, buf);
     res.setHeader("Content-Disposition",
       `attachment; filename="bulk-adjust-${id}-${new Date().toISOString().slice(0, 10)}.xlsx"`);
     res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-    res.setHeader("X-Adjust-Info", JSON.stringify({ rows: rows.length,
-      updateRows: updateRows.length, createRows: createRows.length, campaigns, missing, bySheet }));
+    res.setHeader("X-Adjust-Info", JSON.stringify(info));
     res.send(buf);
   } catch (e) {
     res.status(400).json({ ok: false, message: e.message });
@@ -1834,6 +1840,31 @@ app.get("/api/adjust/audit", (req, res) => {
   entries.reverse(); // mới nhất trước
   const limit = Math.min(500, Number(req.query.limit) || 100);
   res.json({ ok: true, entries: entries.slice(0, limit) });
+});
+
+// TẢI LẠI file đã xuất từ 1 dòng nhật ký (quên lưu / lạc file). Nhật ký giữ nguyên edits/negatives/creates
+// đã gửi lúc xuất → dựng lại bằng đúng dataset đó. KHÔNG ghi thêm dòng nhật ký (cùng 1 lần xuất).
+// Dòng Create (campaign mới) lấy Start Date = hôm nay: Amazon không nhận Start Date ở quá khứ.
+app.post("/api/adjust/audit/redownload", (req, res) => {
+  try {
+    const { at, dataset } = req.body || {};
+    let lines = [];
+    try { lines = fs.readFileSync(`${ADJUST_DIR_FN()}/audit.jsonl`, "utf8").split("\n").filter(Boolean); } catch {}
+    let entry = null;
+    for (const l of lines) { let e; try { e = JSON.parse(l); } catch { continue; } if (e.at === at && e.dataset === dataset) entry = e; }
+    if (!entry) throw new Error("Không tìm thấy lần xuất này trong nhật ký");
+    if (!entry.detail) throw new Error("Lần xuất này không lưu chi tiết — không dựng lại được file");
+    const ds = loadDataset(dataset);
+    if (!ds) throw new Error(`Dataset "${dataset}" không còn trên server — không dựng lại được file`);
+    const { edits = [], negatives = [], creates = [] } = entry.detail;
+    const { buf, info } = buildAdjustWorkbook(ds, edits, negatives, creates);
+    const stamp = String(at).slice(0, 16).replace("T", "-").replace(":", "");
+    res.setHeader("Content-Disposition",
+      `attachment; filename="bulk-${entry.source === "rules" ? "update" : "adjust"}-${dataset}-${stamp}.xlsx"`);
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("X-Adjust-Info", JSON.stringify(info));
+    res.send(buf);
+  } catch (e) { res.status(400).json({ ok: false, message: e.message }); }
 });
 
 /* ===================== MODULE ADJUST A3: rule engine (dry-run → proposals → export) ===================== */
