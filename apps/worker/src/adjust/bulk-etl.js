@@ -650,6 +650,17 @@ export function buildUpdateRows(header, recordsByKey, edits, negatives, ad = "SP
       if (rec.e === "Campaign") set("Budget", rec.bud ?? "");
     }
 
+    // ⚠️ Dòng Update Campaign giữ nguyên bộ cột file gốc → ô để TRỐNG bị Amazon hiểu là XOÁ giá trị:
+    // Portfolio ID trống = đá campaign ra khỏi portfolio, End Date trống = bỏ ngày kết thúc.
+    // → luôn ghi lại giá trị HIỆN TẠI (SP/SB/SD đều có cột Portfolio ID ở dòng Campaign).
+    if (rec.e === "Campaign") {
+      if (has.has("Portfolio ID")) {
+        if (!rec.pfid && rec.pfname) throw new Error(`Campaign "${rec.name || rec.cid}" thuộc portfolio "${rec.pfname}" nhưng dataset không có Portfolio ID — import lại file bulk rồi xuất lại (để trống sẽ bị đá khỏi portfolio)`);
+        set("Portfolio ID", rec.pfid || "");
+      }
+      if (rec.ed) set("End Date", rec.ed);
+    }
+
     const map = FIELD_TO_COL_AD[ad] || FIELD_TO_COL;
     for (const [f, v] of Object.entries(fields)) set(map[f], v);
     rows.push(row);
