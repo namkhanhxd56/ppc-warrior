@@ -2266,6 +2266,8 @@ let bkGroupsOn = new Set();  // tên group đã tick (chữ thường — list c
 const bkListCache = {};      // id → list đầy đủ (keywords, groups, asins)
 let bkListMeta = [];         // tóm tắt /api/kwlists
 const gKey = (s) => String(s || '').trim().toLowerCase();
+// vẽ lại vùng mà giữ mục đang xổ / vị trí cuộn / ô đang gõ — hàm chung ở nav.js
+const keepView = (el, fn) => (window.keepUi || ((e, f) => f()))(el, fn);
 const bkMeta = (id) => id ? bkListMeta.find((l) => l.id === id) : null;
 const pfLabelOf = (id) => { const p = pfDir.find((x) => x.id === id); return p ? `${p.name || '(chưa đặt tên)'} · ${id}` : (id || ''); };
 function bkPicked() { return catalog.filter((c) => bkSel.has(c.asin)); }
@@ -2633,11 +2635,11 @@ function bkVarRenderRight() {
   const dropped = (L.keywords || []).filter((k) => ex.has(kwKey(k)) && (!hasV || !k.variant || sel.has(vKey(k.group, k.variant)))).filter(bkQMatch);
   const nAll = vis.length + dropped.length;
   const allBox = `<input type="checkbox" id="bvKAll" title="${q ? 'Chọn / bỏ tất cả keyword khớp ô lọc' : 'Chọn / bỏ tất cả keyword'} (gồm cả mục Đã bỏ chọn)"${vis.length && !dropped.length ? ' checked' : ''}${nAll ? '' : ' disabled'}>`;
-  $('bvKws').innerHTML = (chosen.length || dropped.length ? `<table><thead><tr><th style="width:26px">${allBox}</th><th>Keyword (bỏ tick để loại)</th><th>SV</th><th>Group</th><th>Biến thể</th></tr></thead><tbody>${vis.slice(0, 1000).map((k) => rowOf(k, true)).join('')}</tbody></table>`
+  keepView($('bvKws'), () => { $('bvKws').innerHTML = (chosen.length || dropped.length ?`<table><thead><tr><th style="width:26px">${allBox}</th><th>Keyword (bỏ tick để loại)</th><th>SV</th><th>Group</th><th>Biến thể</th></tr></thead><tbody>${vis.slice(0, 1000).map((k) => rowOf(k, true)).join('')}</tbody></table>`
       + (vis.length > 1000 ? `<div class="hint">Hiện 1000 / ${vis.length} dòng — dùng ô lọc</div>` : '')
       + (!nAll && q ? '<div class="hint" style="padding:8px">Không có keyword khớp ô lọc.</div>' : '')
     : `<div class="hint" style="padding:8px">${hasV ? '← Tick biến thể (hoặc từng keyword) ở cột bên trái.' : 'Không có keyword.'}</div>`)
-    + (dropped.length ? `<details><summary>Đã bỏ chọn (${dropped.length}) — tick lại để thêm vào</summary><table><tbody>${dropped.slice(0, 500).map((k) => rowOf(k, false)).join('')}</tbody></table></details>` : '');
+    + (dropped.length ? `<details data-key="dropped"><summary>Đã bỏ chọn (${dropped.length}) — tick lại để thêm vào</summary><table><tbody>${dropped.slice(0, 500).map((k) => rowOf(k, false)).join('')}</tbody></table></details>` : ''); });
   if ($('bvKAll') && vis.length && dropped.length) $('bvKAll').indeterminate = true;   // chọn một phần
 }
 async function bkVarFlush() {
@@ -2735,11 +2737,11 @@ function bkFinRender() {
   const dup = bkFin.raw - all.length;
   $('bfSum').innerHTML = `<b>${all.length}</b> keyword sẽ tạo` + (bkFin.multi && dup > 0 ? ` <span class="hint">(đã gộp ${dup} keyword trùng giữa các bộ, SV lấy số lớn nhất)</span>` : '')
     + (bkFin.targets.length ? ` · <b>${bkFin.targets.length}</b> Target ASIN` : '') + (q ? ` · đang lọc ${rows.length}` : '');
-  $('bfBody').innerHTML = (all.length ? `<table><thead><tr><th>#</th><th>Keyword</th><th>SV</th><th>Group</th><th>Biến thể</th><th>Bid</th><th>+n ngày</th>${bkFin.multi ? '<th>Bộ</th>' : ''}</tr></thead><tbody>${rows.slice(0, 1500).map((k, i) =>
+  keepView($('bfBody'), () => { $('bfBody').innerHTML = (all.length ?`<table><thead><tr><th>#</th><th>Keyword</th><th>SV</th><th>Group</th><th>Biến thể</th><th>Bid</th><th>+n ngày</th>${bkFin.multi ? '<th>Bộ</th>' : ''}</tr></thead><tbody>${rows.slice(0, 1500).map((k, i) =>
       `<tr><td class="n">${i + 1}</td><td>${esc(k.text)}</td><td class="n">${bkFmtSvX(k._m.sv)}</td><td>${esc(k._m.group || '—')}</td><td>${esc(k._m.variant || '—')}</td><td class="n">${k.bid != null ? '$' + k.bid : '—'}</td><td class="n">${k._m.off ? '+' + k._m.off : ''}</td>${bkFin.multi ? `<td>${esc([...new Set(k._m.lists)].join(', '))}</td>` : ''}</tr>`).join('')}</tbody></table>`
       + (rows.length > 1500 ? `<div class="hint">Hiện 1500 / ${rows.length} dòng — dùng ô lọc</div>` : '')
     : '<div class="hint" style="padding:10px">Không có keyword nào (kiểm tra group ở mục 2 và biến thể đã chọn).</div>')
-    + (bkFin.targets.length ? `<details style="margin-top:10px"><summary class="hint" style="cursor:pointer">🎯 ${bkFin.targets.length} Target ASIN</summary><div style="font-family:ui-monospace,Menlo,monospace;font-size:12px;line-height:1.7">${bkFin.targets.map((a) => `<a href="https://www.amazon.com/dp/${esc(a)}" target="_blank" rel="noopener" style="margin-right:10px">${esc(a)}</a>`).join('')}</div></details>` : '');
+    + (bkFin.targets.length ? `<details data-key="targets" style="margin-top:10px"><summary class="hint" style="cursor:pointer">🎯 ${bkFin.targets.length} Target ASIN</summary><div style="font-family:ui-monospace,Menlo,monospace;font-size:12px;line-height:1.7">${bkFin.targets.map((a) => `<a href="https://www.amazon.com/dp/${esc(a)}" target="_blank" rel="noopener" style="margin-right:10px">${esc(a)}</a>`).join('')}</div></details>` : ''); });
 }
 const bkFmtSvX = (n) => n != null ? Number(n).toLocaleString('en-US') : '';
 

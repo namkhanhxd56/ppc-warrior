@@ -745,7 +745,18 @@ window.editEl = (el) => {
   // Đang bật "Ẩn dòng đã chỉnh": dòng vừa sửa tay sẽ ẩn ngay cho người dùng sang dòng kế tiếp
   if (hideEdited) applyHideEdited();
 };
-window.undoBulk = () => { if (!bulkUndo.length) return; edits = bulkUndo.pop(); renderChanges(); refresh(); };
+// Đồng bộ ô đang hiện với danh sách edits TẠI CHỖ (giá trị, viền "đã sửa", dòng paused, ẩn dòng đã chỉnh).
+// Trước đây bulk edit / undo gọi refresh() → tải lại từ trang 1, bảng nhảy về đầu, mất chỗ đang xem.
+function syncEditedCells() {
+  document.querySelectorAll('#tbMain [data-k][data-field]').forEach((el) => {
+    const { k, field, old } = el.dataset, v = editedVal(k, field, old);
+    el.value = field === 'pct' ? Number(v || 0).toFixed(2) : v;
+    const td = el.closest('td'); if (td) td.classList.toggle('edited', !!editedCls(k, field));
+    if (field === 'st') { const tr = el.closest('tr'); if (tr) tr.classList.toggle('paused-row', v === 'paused'); }
+  });
+  applyHideEdited();
+}
+window.undoBulk = () => { if (!bulkUndo.length) return; edits = bulkUndo.pop(); renderChanges(); syncEditedCells(); };
 // State không có "mode" (±$/±%) — đổi field sang State thì giấu mode + ô giá trị, hiện dropdown Enable/Pause.
 window.bkFieldChanged = () => {
   const isSt = $('bkField') && $('bkField').value === 'st';
@@ -777,7 +788,7 @@ window.applyBulkAdjust = () => {
     if (overBidCap(field, value, old)) { capped.push(`${esc(x.kw || x.ex || x.name || x.k)}: $${old} → $${value} (tối đa $${bidCap(old)})`); continue; }
     window.edit(x.k, field, value, (x.name || '').slice(0, 40), old);
   }
-  refresh();
+  syncEditedCells();
   if (capped.length) alertBox(`<b>${capped.length}</b> dòng KHÔNG được đổi vì tăng quá ${MAX_BID_UP_PCT}% so với bid gốc:<br>`
     + capped.slice(0, 8).join('<br>') + (capped.length > 8 ? `<br>… và ${capped.length - 8} dòng khác` : ''), '⛔ Vượt trần tăng bid');
 };
@@ -871,11 +882,11 @@ function restoreLedger() {
   catch { edits = []; negatives = []; creates = []; }
 }
 window.toggleChg = () => { chgHidden = !chgHidden; renderChanges(); };
-function renderChanges() {
+function renderChanges(opts = {}) {
   saveLedger();
   const n = edits.length + negatives.length + creates.length;
   $('tabChanges').textContent = `📋 Thay đổi${n ? ' (' + n + ')' : ''}`;
-  if (tab === 'changes') renderChangesTab();
+  if (tab === 'changes' && !opts.keepTab) renderChangesTab();
   if (!n) { $('chgPanel').style.display = 'none'; return; }
   $('chgPanel').style.display = 'block';
   if (chgHidden) { // đã ẩn → chỉ hiện nút nhỏ để mở lại
@@ -964,7 +975,7 @@ function renderChangesTab() {
 window.editCreate = (i, field, v) => {
   if (!creates[i]) return;
   creates[i][field] = field === 'bid' ? (parseFloat(String(v).replace(',', '.')) || null) : String(v).trim();
-  renderChanges();
+  renderChanges({ keepTab: true }); // KHÔNG vẽ lại bảng đang gõ (mất ô vừa Tab tới) — ô đã mang giá trị mới
 };
 window.removeCreate = (i) => { creates.splice(i, 1); renderChanges(); };
 window.clearChanges = async () => {
@@ -974,11 +985,8 @@ window.clearChanges = async () => {
   toast('🗑 Đã xoá toàn bộ danh sách thay đổi');
 };
 window.undoEdit = (i) => {
-  const e = edits[i]; edits.splice(i, 1); renderChanges();
-  if (e) document.querySelectorAll(`#tbMain [data-k="${CSS.escape(e.k)}"][data-field="${e.field}"]`).forEach(el => {
-    const td = el.closest('td'); if (td) td.classList.remove('edited');
-    el.value = e.field === 'pct' ? Number(e.old || 0).toFixed(2) : e.old; // khôi phục giá trị hiển thị
-  });
+  edits.splice(i, 1); renderChanges();
+  syncEditedCells(); // khôi phục giá trị hiển thị + bỏ viền "đã sửa" + hiện lại dòng nếu đang ẩn dòng đã chỉnh
 };
 window.undoNeg = (i) => { negatives.splice(i, 1); renderChanges(); };
 

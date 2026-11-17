@@ -636,12 +636,14 @@ function filtered() {
   });
   return out;
 }
+// vẽ lại vùng mà giữ vị trí cuộn / ô đang gõ / mục đang xổ — hàm chung ở nav.js
+const keepView = (el, fn) => (window.keepUi || ((e, f) => f()))(el, fn);
 function renderKw() {
   const rows = filtered();
   visKw = rows.map((k) => k.kw);
   if (curIdx >= visKw.length) curIdx = anchorIdx = -1;
   const gOpts = (cv) => `<option value=""${cv ? '' : ' selected'}>(chưa phân group)</option>` + cur.groups.map((g) => `<option value="${esc(g.name)}"${g.name === cv ? ' selected' : ''}>${esc(g.name)}</option>`).join('');
-  $('kBody').innerHTML = rows.slice(0, shown).map((k) => {
+  keepView($('kBody'), () => { $('kBody').innerHTML = rows.slice(0, shown).map((k) => {
     const g = groupOf(k.group);
     return `<tr data-kw="${esc(k.kw)}">
       <td class="c"><input type="checkbox" class="tk" ${sel.has(k.kw) ? 'checked' : ''}></td>
@@ -652,7 +654,7 @@ function renderKw() {
       <td data-copy="${effBid(k) ?? ''}"><input type="text" inputmode="decimal" class="kb${k.bid != null ? ' manual' : ''}" value="${k.bid ?? ''}" placeholder="${g && g.bid != null ? g.bid : '—'}" title="${k.bid != null ? 'Bid sửa tay — xoá trống để theo bid group' : 'Theo bid group'}"></td>
       <td class="txt hint" data-copy="+${g ? g.offset || 0 : 0}">+${g ? g.offset || 0 : 0} ngày</td>
       <td class="del"><button title="Xoá keyword">✕</button></td></tr>`;
-  }).join('');
+  }).join(''); });
   syncTicks(); markCursor();
   $('moreInfo').textContent = rows.length > shown ? `Đang hiện ${shown} / ${rows.length}` : '';
   $('btnMore').style.display = rows.length > shown ? '' : 'none';
@@ -781,7 +783,12 @@ $('kBody').addEventListener('change', (e) => {
     return;
   }
   if (e.target.classList.contains('kg')) { k.group = e.target.value; setDirty(true); renderAll(); return; }
-  if (e.target.classList.contains('kb')) { k.bid = numOrNull(e.target.value); setDirty(true); renderKw(); }
+  if (e.target.classList.contains('kb')) {   // cập nhật TẠI CHỖ — vẽ lại cả bảng làm mất ô vừa Tab tới
+    k.bid = numOrNull(e.target.value); setDirty(true);
+    e.target.value = k.bid ?? ''; e.target.classList.toggle('manual', k.bid != null);
+    e.target.title = k.bid != null ? 'Bid sửa tay — xoá trống để theo bid group' : 'Theo bid group';
+    const td = e.target.closest('td'); if (td) td.dataset.copy = effBid(k) ?? '';
+  }
   if (e.target.classList.contains('kv')) { k.variant = e.target.value.trim().slice(0, 80); setDirty(true); renderVariants(); }
 });
 $('kBody').addEventListener('click', (e) => {

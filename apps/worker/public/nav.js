@@ -2,6 +2,45 @@
    Trước đây mỗi trang tự chép lại danh sách menu nên chúng trôi dạt mỗi nơi một kiểu:
    trang Tài khoản thiếu hẳn Danh mục / Phân tích Keyword / Data, còn chip tài khoản ở góc
    phải thì chỉ trang Check Ranking mới có. Thêm trang mới giờ chỉ sửa mảng PAGES dưới đây. */
+
+/* keepUi(el, render) — VẼ LẠI 1 VÙNG mà GIỮ trạng thái người dùng đang thao tác.
+   Lỗi hệ thống từng gặp: tick 1 dòng / gõ 1 ký tự → cả vùng dựng lại bằng innerHTML → mục <details>
+   đang xổ đóng lại, nội dung ngắn đi nên khung cuộn nhảy lên đầu, ô đang gõ mất focus.
+   Giữ lại: vị trí cuộn của vùng + mọi khung cuộn bao ngoài + trang; <details> đang xổ (theo data-key,
+   không có thì theo thứ tự); ô đang focus (theo id, hoặc theo dòng data-k/data-kw/data-key + class) + con trỏ.
+   Dùng: keepUi($('bvKws'), () => { $('bvKws').innerHTML = html; }). Trang gọi qua (window.keepUi || ((e, f) => f())). */
+window.keepUi = function (el, render) {
+  if (!el) return render();
+  const scrollers = [];
+  for (let p = el; p && p !== document.body && p !== document.documentElement; p = p.parentElement)
+    if (p.scrollHeight > p.clientHeight) scrollers.push([p, p.scrollTop]);
+  const winY = window.scrollY, winX = window.scrollX;
+  const keyOf = (d, i) => (d.dataset.key ? "k:" + d.dataset.key : "i:" + i);
+  const open = new Map([...el.querySelectorAll("details")].map((d, i) => [keyOf(d, i), d.open]));
+  const a = document.activeElement;
+  let foc = null;
+  if (a && a !== el && el.contains(a)) {
+    const row = a.closest("[data-k],[data-kw],[data-key]");
+    const rowSel = row ? ["data-k", "data-kw", "data-key"].filter((n) => row.hasAttribute(n))
+      .map((n) => `[${n}="${CSS.escape(row.getAttribute(n))}"]`).join("") : "";
+    let s = null, e = null; try { s = a.selectionStart; e = a.selectionEnd; } catch {}
+    foc = { id: a.id, tag: a.tagName.toLowerCase(), cls: [...a.classList].map((c) => "." + CSS.escape(c)).join(""), rowSel, s, e };
+  }
+  const out = render();
+  [...el.querySelectorAll("details")].forEach((d, i) => { const k = keyOf(d, i); if (open.has(k)) d.open = open.get(k); });
+  for (const [p, t] of scrollers) p.scrollTop = t;
+  if (window.scrollY !== winY || window.scrollX !== winX) window.scrollTo(winX, winY);
+  if (foc) {
+    let t = foc.id ? document.getElementById(foc.id) : null;
+    if (!t && foc.rowSel) { const row = el.querySelector(foc.rowSel); if (row) t = row.querySelector(foc.tag + foc.cls); }
+    if (t && el.contains(t)) {
+      t.focus({ preventScroll: true });
+      if (foc.s != null) try { t.setSelectionRange(foc.s, foc.e); } catch {}
+    }
+  }
+  return out;
+};
+
 (function () {
   const PAGES = [
     ["/", "📊 Check Ranking"],
