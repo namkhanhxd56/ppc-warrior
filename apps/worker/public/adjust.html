@@ -184,7 +184,7 @@
   <!-- ===== 3. Nhật ký chỉnh sửa ===== -->
   <div class="card">
     <h2>📜 Nhật ký chỉnh sửa (các file Update đã xuất)</h2>
-    <p class="sub">Mỗi lần bấm Lưu & Tải file Update đều được ghi lại: thời điểm, dataset, nguồn (tự sửa / rule), số thay đổi + negative. Bấm 1 dòng để xem chi tiết old→new.</p>
+    <p class="sub">Mỗi lần bấm Lưu & Tải file Update đều được ghi lại: thời điểm, dataset, nguồn (tự sửa / rule), số thay đổi + negative. Bấm 1 dòng để xem chi tiết old→new. Chỉ tải lại được file của 10 lần xuất gần nhất.</p>
     <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
       <label style="margin:0"><input type="checkbox" id="auditThisDs"> chỉ dataset đang chọn</label>
       <button class="btn-sm" id="btnAuditReload">↻ Tải nhật ký</button>
@@ -1433,27 +1433,41 @@ async function loadAudit() {
   $('auditArea').innerHTML = entries.map((e, i) => {
     const when = String(e.at || '').replace('T', ' ').slice(0, 19);
     const src = e.source === 'rules' ? '🤖 rule' : '✍️ tự sửa';
+    return `<div class="subcard" style="margin:6px 0;padding:8px 10px">
+      <div style="cursor:pointer" onclick="toggleAuditDetail(${i},this.nextElementSibling)">
+        <b>${when}</b> · ${src} · <b>${e.edits || 0}</b> sửa + <b>${e.negatives || 0}</b> negative${e.creates ? ` + <b>${e.creates}</b> campaign mới` : ''} · <span class="hint">${esc(e.dataset || '')}</span> <span class="hint">▸ chi tiết</span>
+        ${e.canRedownload ? `<button class="btn-sm" style="float:right" title="Dựng lại đúng file của lần xuất này (quên lưu / lạc file)" onclick="event.stopPropagation();redownloadAudit(${i},this)">⬇ Tải lại file</button>` : ''}
+      </div>
+      <div style="display:none;margin-top:6px;border-top:1px solid #eef1f7;padding-top:6px"></div>
+    </div>`;
+  }).join('');
+}
+// Chi tiết old→new tải riêng khi bấm mở (1 lần xuất có thể tới hàng nghìn dòng), mở lại thì dùng bản đã tải
+window.toggleAuditDetail = async (i, box) => {
+  if (box.style.display !== 'none') { box.style.display = 'none'; return; }
+  box.style.display = 'block';
+  if (box.dataset.loaded) return;
+  const e = auditEntries[i]; if (!e) return;
+  box.innerHTML = '<span class="hint">⏳ Đang tải chi tiết...</span>';
+  try {
+    const r = await (await fetch('/api/adjust/audit/detail?' + new URLSearchParams({ at: e.at, dataset: e.dataset }))).json();
+    if (!r.ok) throw new Error(r.message || 'Lỗi tải chi tiết');
     // Thứ tự: ASIN · Entity · Tên  →  Trường: cũ→mới
-    const dets = (e.detail?.edits || []).map((x) => {
+    const dets = (r.detail.edits || []).map((x) => {
       const ent = String(x.k || '').split('|')[0] || '';
       const asin = ((x.label || '').match(/B0[A-Z0-9]{8}/) || [''])[0];
       return `<div class="hint">• <b>${esc(asin || '—')}</b> · ${esc(ent)} · ${esc(x.label || '')} — <b>${AUDIT_LB[x.field] || x.field}</b>: ${esc(x.old)} → <b style="color:#157a3d">${esc(x.value)}</b></div>`;
     }).join('')
-      + (e.detail?.negatives || []).map((n) => {
+      + (r.detail.negatives || []).map((n) => {
         const asin = ((n.name || '').match(/B0[A-Z0-9]{8}/) || [''])[0];
         return `<div class="hint">• <b>${esc(asin || '—')}</b> · Negative Keyword (Create) · ${esc((n.name || '').slice(0, 40))} — 🚫 ${n.mt === 'negativePhrase' ? 'Phrase' : 'Exact'}: <b>${esc(n.term)}</b></div>`;
       }).join('')
-      + (e.detail?.creates || []).map((c) =>
+      + (r.detail.creates || []).map((c) =>
         `<div class="hint">• <b>${esc(c.asin || '—')}</b> · Campaign mới (Create) · 🚀 <b>${esc(c.keyword)}</b>${c.bid ? ' — bid <b>' + esc(c.bid) + '</b>' : ''}${c.note ? ' · ' + esc(c.note) : ''}${c.pf ? ' · pf ' + esc(c.pf) : ''}</div>`).join('');
-    return `<div class="subcard" style="margin:6px 0;padding:8px 10px">
-      <div style="cursor:pointer" onclick="const d=this.nextElementSibling;d.style.display=d.style.display==='none'?'block':'none'">
-        <b>${when}</b> · ${src} · <b>${e.edits || 0}</b> sửa + <b>${e.negatives || 0}</b> negative${e.creates ? ` + <b>${e.creates}</b> campaign mới` : ''} · <span class="hint">${esc(e.dataset || '')}</span> <span class="hint">▸ chi tiết</span>
-        ${e.detail ? `<button class="btn-sm" style="float:right" title="Dựng lại đúng file của lần xuất này (quên lưu / lạc file)" onclick="event.stopPropagation();redownloadAudit(${i},this)">⬇ Tải lại file</button>` : ''}
-      </div>
-      <div style="display:none;margin-top:6px;border-top:1px solid #eef1f7;padding-top:6px">${dets || '<span class="hint">—</span>'}</div>
-    </div>`;
-  }).join('');
-}
+    box.innerHTML = dets || '<span class="hint">—</span>';
+    box.dataset.loaded = '1';
+  } catch (err) { box.innerHTML = `<span class="hint">❌ ${esc(err.message)}</span>`; }
+};
 // Tải lại file của 1 lần xuất cũ: server dựng lại từ chi tiết đã lưu trong nhật ký (không ghi thêm dòng nhật ký)
 window.redownloadAudit = async (i, btn) => {
   const e = auditEntries[i]; if (!e) return;

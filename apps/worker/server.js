@@ -1832,14 +1832,31 @@ app.post("/api/adjust/export-all", (req, res) => {
 });
 
 // Nhật ký chỉnh sửa (mọi lần xuất file Update — thủ công hoặc từ rule)
-app.get("/api/adjust/audit", (req, res) => {
+const AUDIT_REDOWNLOAD_MAX = 10; // chỉ cho tải lại file của 10 lần xuất gần nhất (tính trên MỌI dataset)
+/** Toàn bộ nhật ký, mới nhất trước. */
+function readAuditEntries() {
   let lines = [];
   try { lines = fs.readFileSync(`${ADJUST_DIR_FN()}/audit.jsonl`, "utf8").split("\n").filter(Boolean); } catch { lines = []; }
-  let entries = lines.map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
-  if (req.query.dataset) entries = entries.filter((e) => e.dataset === req.query.dataset);
-  entries.reverse(); // mới nhất trước
+  return lines.map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean).reverse();
+}
+// Danh sách chỉ trả phần TÓM TẮT: 1 lần xuất có thể mang hàng nghìn dòng old→new (85 lần ≈ 6MB),
+// gửi hết thì mỗi lần mở trang đều phải tải + vẽ cả khối đó. Chi tiết lấy riêng khi bấm vào dòng.
+app.get("/api/adjust/audit", (req, res) => {
+  const all = readAuditEntries();
+  const recent = new Set(all.slice(0, AUDIT_REDOWNLOAD_MAX));
+  const list = req.query.dataset ? all.filter((e) => e.dataset === req.query.dataset) : all;
   const limit = Math.min(500, Number(req.query.limit) || 100);
-  res.json({ ok: true, entries: entries.slice(0, limit) });
+  res.json({ ok: true, redownloadMax: AUDIT_REDOWNLOAD_MAX, entries: list.slice(0, limit).map((e) => {
+    const { detail, ...head } = e;
+    return { ...head, hasDetail: !!detail, canRedownload: !!detail && recent.has(e) };
+  }) });
+});
+
+// Chi tiết old→new của 1 lần xuất — chỉ tải khi người dùng bấm mở dòng đó
+app.get("/api/adjust/audit/detail", (req, res) => {
+  const e = readAuditEntries().find((x) => x.at === req.query.at && x.dataset === req.query.dataset);
+  if (!e) return res.status(404).json({ ok: false, message: "Không tìm thấy lần xuất này trong nhật ký" });
+  res.json({ ok: true, detail: e.detail || {} });
 });
 
 // TẢI LẠI file đã xuất từ 1 dòng nhật ký (quên lưu / lạc file). Nhật ký giữ nguyên edits/negatives/creates
@@ -1848,11 +1865,11 @@ app.get("/api/adjust/audit", (req, res) => {
 app.post("/api/adjust/audit/redownload", (req, res) => {
   try {
     const { at, dataset } = req.body || {};
-    let lines = [];
-    try { lines = fs.readFileSync(`${ADJUST_DIR_FN()}/audit.jsonl`, "utf8").split("\n").filter(Boolean); } catch {}
-    let entry = null;
-    for (const l of lines) { let e; try { e = JSON.parse(l); } catch { continue; } if (e.at === at && e.dataset === dataset) entry = e; }
-    if (!entry) throw new Error("Không tìm thấy lần xuất này trong nhật ký");
+    const all = readAuditEntries();
+    const pos = all.findIndex((e) => e.at === at && e.dataset === dataset);
+    if (pos < 0) throw new Error("Không tìm thấy lần xuất này trong nhật ký");
+    if (pos >= AUDIT_REDOWNLOAD_MAX) throw new Error(`Chỉ tải lại được ${AUDIT_REDOWNLOAD_MAX} lần xuất gần nhất`);
+    const entry = all[pos];
     if (!entry.detail) throw new Error("Lần xuất này không lưu chi tiết — không dựng lại được file");
     const ds = loadDataset(dataset);
     if (!ds) throw new Error(`Dataset "${dataset}" không còn trên server — không dựng lại được file`);
