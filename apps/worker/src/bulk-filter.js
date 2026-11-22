@@ -16,6 +16,7 @@
       được giữ; campaign không có trong file thì dò mã B0… trong tên campaign/portfolio.
    Sheet khác (Config, Brand Assets, SP_COLUMN_IDS, sheet rỗng…) giữ nguyên. */
 import * as XLSX from "xlsx";
+import { writeXlsxCompact } from "./xlsx-zip.js";
 
 const ASIN_RE = /\bB0[A-Z0-9]{8}\b/g;
 const asinsIn = (s) => (String(s ?? "").toUpperCase().match(ASIN_RE) || []);
@@ -152,6 +153,7 @@ export function filterBulk(buffer, { asins = [], skuToAsin = {}, portfolioIds = 
   report.mineMissing = [...mine].filter((a) => !seenAsins.has(a)).sort();
   report.othersRemoved = [...seenAsins.entries()].filter(([a]) => !mine.has(a)).length;
 
-  const out = XLSX.write(wb, { type: "buffer", bookType: "xlsx", compression: true, cellStyles: true });
+  // SheetJS tự nén thì file ra nặng gấp ~3 file gốc → nén bằng zlib (xem xlsx-zip.js)
+  const out = writeXlsxCompact(wb, { cellStyles: true });
   return { buffer: out, report };
 }
