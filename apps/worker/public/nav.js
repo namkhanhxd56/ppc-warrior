@@ -50,6 +50,7 @@ window.keepUi = function (el, render) {
     ["/launching.html", "🚀 Tạo Campaign"],
     ["/bulk.html", "📦 Bulk Create"],
     ["/adjust.html", "⚙️ Điều chỉnh Campaign"],
+    ["/bulk-filter.html", "✂️ Lọc Bulk"],
     ["/data.html", "📈 Data"]
   ];
   const header = document.querySelector("header");

@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PPC Warrior — Lọc Bulk</title>
+<style>
+  :root { --b:#2455e6; --ok:#1a9e50; --bad:#e04545; --warn:#d98a00; --mut:#667; }
+  * { box-sizing:border-box; }
+  body { font-family:-apple-system,Segoe UI,Arial,sans-serif; margin:0; background:#f4f6fa; color:#1b2330; }
+  header { background:#101828; color:#fff; padding:14px 24px; display:flex; align-items:center; gap:14px; flex-wrap:wrap; }
+  header h1 { font-size:17px; margin:0; }
+  main { max-width:980px; margin:20px auto; padding:0 16px; }
+  .card { background:#fff; border:1px solid #e3e8f0; border-radius:12px; padding:18px 20px; margin-bottom:16px; }
+  .card > h2 { font-size:14px; margin:0 0 4px; }
+  .sub { font-size:12px; color:var(--mut); margin:0 0 12px; line-height:1.5; }
+  label.lb { font-size:11.5px; color:var(--mut); display:block; margin:12px 0 6px; font-weight:600; }
+  textarea { width:100%; min-height:72px; padding:8px 10px; border:1px solid #ccd3e0; border-radius:7px; font:12.5px ui-monospace,Menlo,monospace; resize:vertical; }
+  textarea:focus { outline:2px solid #c7d5ff; border-color:var(--b); }
+  button { padding:9px 18px; border:none; border-radius:7px; cursor:pointer; font-size:13px; font-weight:600; }
+  button:focus-visible { outline:2px solid #8aa6ff; outline-offset:2px; }
+  .btn-primary { background:var(--b); color:#fff; }
+  .btn-primary:disabled { background:#9fb2ea; cursor:default; }
+  .btn-ok { background:var(--ok); color:#fff; text-decoration:none; display:inline-block; padding:9px 18px; border-radius:7px; font-size:13px; font-weight:600; }
+  .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  .accs { display:flex; gap:8px; flex-wrap:wrap; }
+  .acc { display:flex; align-items:center; gap:6px; border:1px solid #d6dde9; border-radius:20px; padding:5px 12px; font-size:12.5px; cursor:pointer; background:#fff; }
+  .acc input { margin:0; }
+  .acc.on { background:#eef3ff; border-color:#b9cbff; }
+  .acc small { color:var(--mut); }
+  .drop { border:2px dashed #c4cede; border-radius:12px; padding:26px 16px; text-align:center; cursor:pointer; color:var(--mut); font-size:13px; background:#fafbfd; }
+  .drop.over { border-color:var(--b); background:#eef3ff; }
+  .drop b { color:#1b2330; }
+  .msg { font-size:12.5px; margin-top:10px; } .msg.err { color:var(--bad); } .msg.ok { color:var(--ok); }
+  .count { font-size:12.5px; margin-top:8px; }
+  .count b { color:var(--b); }
+  table { border-collapse:collapse; width:100%; font-size:12.5px; margin:8px 0; }
+  th, td { border-bottom:1px solid #e9edf3; padding:7px 8px; text-align:right; }
+  th { color:var(--mut); font-weight:600; font-size:11.5px; }
+  td.l, th.l { text-align:left; }
+  td.rm { color:var(--bad); }
+  .warn { background:#fef6e4; border:1px solid #f2dca6; color:#7a5200; border-radius:8px; padding:9px 12px; font-size:12px; margin-top:10px; line-height:1.55; }
+  .mono { font-family:ui-monospace,Menlo,monospace; font-size:11.5px; word-break:break-all; }
+  .spin { display:inline-block; width:12px; height:12px; border:2px solid #c7d5ff; border-top-color:var(--b); border-radius:50%; animation:sp .8s linear infinite; vertical-align:-2px; margin-right:6px; }
+  @keyframes sp { to { transform:rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .spin { animation:none; } }
+  [hidden] { display:none !important; }
+</style>
+</head>
+<body>
+<header>
+  <h1>⚔️ PPC Warrior</h1>
+  <nav></nav><!-- nav.js dựng menu — sửa danh sách trang ở public/nav.js -->
+</header>
+<main>
+
+  <div class="card">
+    <h2>1. ASIN tôi quản lý</h2>
+    <p class="sub">Lấy từ <a href="/catalog.html">Danh mục Tài sản</a> của tài khoản đang đăng nhập. Chọn Acc nếu chỉ muốn giữ ASIN của một vài acc; có thể dán thêm ASIN ngoài danh mục.</p>
+    <label class="acc on" style="display:inline-flex"><input type="checkbox" id="useCat" checked> Dùng Danh mục Tài sản</label>
+    <div id="accBox">
+      <label class="lb">Acc</label>
+      <div class="accs" id="accs"><span class="sub">Đang tải danh mục…</span></div>
+    </div>
+    <label class="lb" for="paste">Dán thêm ASIN (mỗi dòng 1 mã, hoặc cách nhau dấu phẩy)</label>
+    <textarea id="paste" placeholder="B0HQFQTYCC&#10;B0HNMHXP53"></textarea>
+    <div class="count" id="count"></div>
+  </div>
+
+  <div class="card">
+    <h2>2. File bulk Amazon</h2>
+    <p class="sub">File tải ở Bulk operations (.xlsx). Tool giữ nguyên mọi sheet và cột, chỉ bỏ dòng không thuộc ASIN của bạn ở các sheet <b>Sponsored Products</b>, <b>Portfolios</b>, <b>Search Term Report</b> (và SB/SD nếu file có).</p>
+    <div class="drop" id="drop" tabindex="0" role="button" aria-label="Chọn file bulk">
+      <div id="dropTxt">Kéo thả file vào đây hoặc <b>bấm để chọn file</b></div>
+    </div>
+    <input type="file" id="file" accept=".xlsx" hidden>
+    <div class="row" style="margin-top:12px">
+      <button class="btn-primary" id="run" disabled>✂️ Lọc file</button>
+      <span class="msg" id="msg" style="margin:0"></span>
+    </div>
+  </div>
+
+  <div class="card" id="result" hidden>
+    <h2>3. Kết quả</h2>
+    <div id="resBody"></div>
+  </div>
+
+</main>
+<script src="/nav.js"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const fmt = (n) => Number(n || 0).toLocaleString("vi-VN");
+const LS = "ppcw_bf_accs";
+let catalog = [], file = null;
+
+function pastedAsins() {
+  return [...new Set(($("paste").value.toUpperCase().match(/\bB0[A-Z0-9]{8}\b/g) || []))];
+}
+function selectedAccs() {
+  return [...document.querySelectorAll("#accs input:checked")].map((x) => x.value);
+}
+function mineCount() {
+  const set = new Set(pastedAsins());
+  if ($("useCat").checked) {
+    const accs = selectedAccs();
+    for (const p of catalog) if (!accs.length || accs.includes(p.acc || "")) set.add(p.asin);
+  }
+  return set.size;
+}
+function refresh() {
+  const n = mineCount();
+  $("accBox").hidden = !$("useCat").checked;
+  $("useCat").parentElement.classList.toggle("on", $("useCat").checked);
+  document.querySelectorAll("#accs .acc").forEach((l) => l.classList.toggle("on", l.querySelector("input").checked));
+  const accs = selectedAccs();
+  $("count").innerHTML = n
+    ? `Sẽ giữ lại <b>${fmt(n)}</b> ASIN${$("useCat").checked && accs.length ? ` (Acc: ${accs.map(esc).join(", ") || "chưa ghi Acc"})` : ""}.`
+    : `<span style="color:var(--bad)">Chưa có ASIN nào — chọn Acc hoặc dán ASIN.</span>`;
+  $("run").disabled = !file || !n;
+  try { localStorage.setItem(LS, JSON.stringify(accs)); } catch {}
+}
+
+async function loadCatalog() {
+  try {
+    const r = await fetch("/api/catalog").then((x) => x.json());
+    catalog = r.products || [];
+  } catch { catalog = []; }
+  const by = new Map();
+  for (const p of catalog) by.set(p.acc || "", (by.get(p.acc || "") || 0) + 1);
+  let saved = [];
+  try { saved = JSON.parse(localStorage.getItem(LS) || "[]"); } catch {}
+  if (!catalog.length) {
+    $("accs").innerHTML = `<span class="sub">Danh mục Tài sản đang trống — <a href="/catalog.html">nạp danh mục</a> hoặc dán ASIN bên dưới.</span>`;
+  } else {
+    $("accs").innerHTML = [...by.entries()].sort((a, b) => (a[0] || "~").localeCompare(b[0] || "~")).map(([acc, n]) =>
+      `<label class="acc"><input type="checkbox" value="${esc(acc)}" ${saved.includes(acc) ? "checked" : ""}> ${acc ? esc(acc) : "<i>Chưa ghi Acc</i>"} <small>${n}</small></label>`
+    ).join("") + `<span class="sub" style="align-self:center;margin:0">Không tick Acc nào = giữ cả ${fmt(catalog.length)} ASIN trong danh mục</span>`;
+  }
+  document.querySelectorAll("#accs input").forEach((x) => (x.onchange = refresh));
+  refresh();
+}
+
+function pick(f) {
+  if (!f) return;
+  if (!/\.xlsx$/i.test(f.name)) { $("msg").className = "msg err"; $("msg").textContent = "Cần file .xlsx tải từ Amazon Bulk operations."; return; }
+  file = f;
+  $("dropTxt").innerHTML = `📄 <b>${esc(f.name)}</b> · ${(f.size / 1048576).toFixed(1)} MB — bấm để đổi file`;
+  $("msg").textContent = "";
+  refresh();
+}
+$("drop").onclick = () => $("file").click();
+$("drop").onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); $("file").click(); } };
+$("file").onchange = (e) => pick(e.target.files[0]);
+["dragenter", "dragover"].forEach((t) => $("drop").addEventListener(t, (e) => { e.preventDefault(); $("drop").classList.add("over"); }));
+["dragleave", "drop"].forEach((t) => $("drop").addEventListener(t, (e) => { e.preventDefault(); $("drop").classList.remove("over"); }));
+$("drop").addEventListener("drop", (e) => pick(e.dataTransfer.files[0]));
+$("useCat").onchange = refresh;
+$("paste").oninput = refresh;
+
+const KIND = { campaign: "Campaign", portfolio: "Portfolio", searchterm: "Search term" };
+$("run").onclick = async () => {
+  $("run").disabled = true;
+  $("msg").className = "msg"; $("msg").innerHTML = `<span class="spin"></span>Đang tải lên và lọc… file lớn mất khoảng 10–30 giây`;
+  $("result").hidden = true;
+  const fd = new FormData();
+  fd.append("useCatalog", $("useCat").checked ? "1" : "0");
+  fd.append("accs", selectedAccs().join("|"));
+  fd.append("asins", pastedAsins().join(","));
+  fd.append("file", file);
+  try {
+    const r = await fetch("/api/bulk-filter", { method: "POST", body: fd }).then((x) => x.json());
+    if (!r.ok) throw new Error(r.message || "Lọc không thành công");
+    $("msg").className = "msg ok"; $("msg").textContent = "Đã lọc xong.";
+    render(r);
+  } catch (e) {
+    $("msg").className = "msg err"; $("msg").textContent = `${e.message}. Kiểm tra lại file rồi bấm Lọc file lần nữa.`;
+  } finally { refresh(); }
+};
+
+function render(r) {
+  const R = r.report;
+  const rows = R.sheets.map((s) => `<tr><td class="l">${esc(s.name)} <small style="color:var(--mut)">${KIND[s.kind] || ""}</small></td>
+    <td>${fmt(s.before)}</td><td><b>${fmt(s.after)}</b></td><td class="rm">−${fmt(s.before - s.after)}</td></tr>`).join("");
+  const c = R.campaigns;
+  let html = `<table><thead><tr><th class="l">Sheet</th><th>Dòng gốc</th><th>Còn lại</th><th>Đã bỏ</th></tr></thead><tbody>${rows}</tbody></table>
+    <p class="sub" style="margin:6px 0 0">Giữ <b>${fmt(c.kept)}</b>/${fmt(c.total)} campaign — ${fmt(c.by.ad)} nhận theo Product Ad, ${fmt(c.by.name)} theo tên campaign, ${fmt(c.by.pf)} theo portfolio.
+    Đã bỏ campaign của ${fmt(R.othersRemoved)} ASIN khác. ASIN của bạn có campaign trong file: ${fmt(R.mineFound)}/${fmt(R.mine)}.</p>`;
+  if (R.mineMissing.length) html += `<div class="warn">⚠️ ${fmt(R.mineMissing.length)} ASIN của bạn không có campaign nào trong file này (chưa chạy ads, hoặc thuộc acc khác):
+    <div class="mono" style="margin-top:4px">${R.mineMissing.map(esc).join(", ")}</div></div>`;
+  html += `<div class="row" style="margin-top:14px"><a class="btn-ok" href="/api/bulk-filter/${encodeURIComponent(r.id)}">⬇️ Tải file đã lọc</a>
+    <span class="sub" style="margin:0">${esc(r.name)} · ${(r.size / 1048576).toFixed(1)} MB</span></div>`;
+  $("resBody").innerHTML = html;
+  $("result").hidden = false;
+  $("result").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+loadCatalog();
+</script>
+</body>
+</html>

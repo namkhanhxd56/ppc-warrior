@@ -17,12 +17,13 @@ import { DEFAULT_RULES } from "./src/adjust/default-rules.js";
 import { buildMetrics, summarize, cellOf, buildAsinDaily } from "./src/data/consolidate.js";
 import { importAdsBulk, importBusiness, importInventory, preview as previewImport, FIELD_SPECS } from "./src/data/imports.js";
 import { evaluateAsin } from "./src/data/evaluate.js";
+import { filterBulk } from "./src/bulk-filter.js";
 import * as store from "./src/db/file-store.js";
 import * as auth from "./src/auth.js";
 import { als, runAsUser, userDataDir } from "./src/db/user-context.js";
 
 dotenv.config();
-export const APP_VERSION = "0.49.6"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
+export const APP_VERSION = "0.50.0"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
 
 // RUN_MODE:
 // - "local" (mặc định): bấm Kiểm tra là scrape NGAY trên máy này (dùng 1 người, chạy local)
@@ -1587,6 +1588,50 @@ function cacheGet(id) {
   return ds;
 }
 const uploadBig = multer({ dest: "./data/uploads", limits: { fileSize: 300 * 1024 * 1024 } });
+
+/* ===== LỌC BULK THEO ASIN MÌNH QUẢN LÝ (src/bulk-filter.js) =====
+   Tải file bulk Amazon lên → bỏ mọi campaign/portfolio/search term không thuộc ASIN của mình.
+   ASIN "của mình" = Danh mục Tài sản của tài khoản đang đăng nhập (lọc thêm theo Acc nếu chọn)
+   và/hoặc danh sách dán tay. File kết quả lưu tạm trong phân vùng user, giữ 5 lần gần nhất. */
+const BF_DIR = () => `${userDataDir()}/bulk-filter`;
+app.post("/api/bulk-filter", (req, res, next) => uploadBig.single("file")(req, res, next), (req, res) => {
+  const tmp = req.file?.path;
+  try {
+    if (!req.file) throw new Error("Chưa chọn file bulk");
+    const useCatalog = req.body?.useCatalog !== "0";
+    const accs = String(req.body?.accs || "").split("|").map((x) => x.trim()).filter(Boolean);
+    const pasted = String(req.body?.asins || "").toUpperCase().match(/\b[A-Z0-9]{10}\b/g) || [];
+    const cat = useCatalog ? store.listCatalog().filter((p) => !accs.length || accs.includes(p.acc || "")) : [];
+    const asins = [...new Set([...cat.map((p) => p.asin), ...pasted.filter((a) => /^B0/.test(a))])];
+    if (!asins.length) throw new Error(useCatalog ? "Danh mục Tài sản (theo Acc đã chọn) chưa có ASIN nào — dán danh sách ASIN vào ô bên dưới" : "Chưa dán ASIN nào");
+    const skuToAsin = Object.fromEntries(cat.filter((p) => p.sku).map((p) => [p.sku, p.asin]));
+    const portfolioIds = cat.map((p) => p.portfolioId).filter(Boolean);
+    const { buffer, report } = filterBulk(fs.readFileSync(tmp), { asins, skuToAsin, portfolioIds });
+
+    fs.mkdirSync(BF_DIR(), { recursive: true });
+    const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    const base = String(req.file.originalname || "bulk.xlsx").replace(/\.xlsx$/i, "").replace(/[^\w.-]+/g, "_").slice(0, 80);
+    const name = `${base}-ASIN-cua-toi.xlsx`;
+    fs.writeFileSync(`${BF_DIR()}/${id}.xlsx`, buffer);
+    fs.writeFileSync(`${BF_DIR()}/${id}.json`, JSON.stringify({ name, at: new Date().toISOString(), report }));
+    // dọn: chỉ giữ 5 lần gần nhất
+    const olds = fs.readdirSync(BF_DIR()).filter((f) => f.endsWith(".json")).sort().reverse().slice(5);
+    for (const f of olds) for (const ext of [".json", ".xlsx"]) fs.rmSync(`${BF_DIR()}/${f.replace(/\.json$/, ext)}`, { force: true });
+    res.json({ ok: true, id, name, size: buffer.length, report });
+  } catch (e) {
+    res.status(400).json({ ok: false, message: e.message });
+  } finally { if (tmp) fs.rmSync(tmp, { force: true }); }
+});
+app.get("/api/bulk-filter/:id", (req, res) => {
+  const id = String(req.params.id).replace(/[^a-z0-9]/g, "");
+  const f = `${BF_DIR()}/${id}.xlsx`;
+  if (!id || !fs.existsSync(f)) return res.status(404).json({ ok: false, message: "File đã hết hạn — lọc lại" });
+  let name = "bulk-ASIN-cua-toi.xlsx";
+  try { name = JSON.parse(fs.readFileSync(`${BF_DIR()}/${id}.json`, "utf8")).name || name; } catch {}
+  res.setHeader("Content-Disposition", `attachment; filename="${name}"`);
+  res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+  res.send(fs.readFileSync(f));
+});
 
 function adjustIndex() {
   try { return JSON.parse(fs.readFileSync(`${ADJUST_DIR_FN()}/index.json`, "utf8")); } catch { return []; }
