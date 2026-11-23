@@ -24,7 +24,7 @@ import { als, runAsUser, userDataDir } from "./src/db/user-context.js";
 import { keepUserCtx } from "./src/upload-ctx.js"; // multer làm rơi phân vùng user với file lớn — xem file
 
 dotenv.config();
-export const APP_VERSION = "0.51.0"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
+export const APP_VERSION = "0.51.1"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
 
 // RUN_MODE:
 // - "local" (mặc định): bấm Kiểm tra là scrape NGAY trên máy này (dùng 1 người, chạy local)
@@ -1884,7 +1884,8 @@ function buildAdjustWorkbook(ds, edits, negatives, creates, pfBudgets) {
 function buildPortfolioBudgetRows(ds, pfBudgets) {
   if (!Array.isArray(pfBudgets) || !pfBudgets.length) return [];
   const pfMap = new Map((ds.portfolios || []).map((p) => [p.pfid, p]));
-  const today = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+  // Giờ Los Angeles (Amazon Ads US) — UTC lệch sang ngày hôm sau từ 16-17h chiều LA
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Los_Angeles", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date()).replace(/-/g, "");
   return pfBudgets.map((b) => {
     const pfid = String(b.pfid || "").trim();
     const cur = pfMap.get(pfid);

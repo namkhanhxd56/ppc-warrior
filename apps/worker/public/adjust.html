@@ -336,7 +336,7 @@ function makeResizable(tableId) {
   });
 }
 
-const UI_VERSION = '0.51.0';
+const UI_VERSION = '0.51.1';
 /* ===== THANH TIẾN ĐỘ QUÉT RANKING (dùng chung mọi trang) =====
    Lượt quét sống ở HÀNG ĐỢI trên server, không phải ở tab nào. Trước đây chuyển sang trang
    này là mất dấu — tệ hơn, bản cũ còn làm CHẾT luôn lượt quét vì vòng lặp điều phối nằm ở
@@ -380,6 +380,10 @@ let negatives = [];  // {cid, agid, term, mt, name}
 let creates = [];     // campaign mới chờ xuất: {asin, keyword, bid, note, pf, pfLabel, mode, src}
 let pfBudgets = [];   // budget portfolio chờ xuất: {pfid, name, old, amount (null = No Cap), start}
 let pfStart = '';     // Start Date mới (YYYY-MM-DD) áp cho mọi portfolio đổi budget — trống = giữ ngày cũ
+let pfToday = true;   // ô "Today": Start Date = ngày hôm nay theo giờ Los Angeles (mặc định BẬT) — thắng pfStart
+// Ngày hôm nay theo giờ Los Angeles (giờ của Amazon Ads US) dạng YYYY-MM-DD — tính lúc xuất, không lưu cứng
+const laToday = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Los_Angeles', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+const pfStartOut = () => (pfToday ? laToday() : pfStart).replace(/-/g, ''); // YYYYMMDD gửi server, '' = giữ ngày cũ
 let pfHasBudgets = false;
 let lastRows = [];
 let sel = new Set(); // key (targets) hoặc index term đang tick
@@ -453,8 +457,11 @@ function renderPfCard() {
       ${nPend ? `<span class="badge" style="background:#fff3d6;color:#8a5a00">${nPend} budget chờ xuất</span>` : ''}
       <span class="hint" style="font-weight:400">sửa ô <b>Budget mới</b> → vào 📋 Thay đổi, xuất chung file bulk (sheet Portfolios)</span>
       <span style="margin-left:auto;display:inline-flex;gap:6px;align-items:center;font-weight:400;font-size:12px">
-        Start Date khi xuất <input type="date" id="pfStart" value="${esc(pfStart)}" onchange="setPfStart(this.value)" style="padding:3px 6px" title="Trống = giữ Start Date hiện tại của từng portfolio">
-        ${pfStart ? `<span class="chip-clear" onclick="setPfStart('')">giữ ngày cũ</span>` : '<span class="hint">trống = giữ ngày cũ</span>'}
+        Start Date khi xuất
+        <label style="display:inline-flex;gap:4px;align-items:center;margin:0;font-weight:600;cursor:pointer" title="Start Date = hôm nay theo giờ Los Angeles, tính lúc bấm xuất file">
+          <input type="checkbox" id="pfToday" ${pfToday ? 'checked' : ''} onchange="setPfToday(this.checked)"> Today <span class="hint">(giờ LA)</span></label>
+        <input type="date" id="pfStart" value="${esc(pfToday ? laToday() : pfStart)}" ${pfToday ? 'disabled' : ''} onchange="setPfStart(this.value)" style="padding:3px 6px" title="Bỏ tick Today để chọn ngày khác · trống = giữ Start Date hiện tại của từng portfolio">
+        ${pfToday ? '' : pfStart ? `<span class="chip-clear" onclick="setPfStart('')">giữ ngày cũ</span>` : '<span class="hint">trống = giữ ngày cũ</span>'}
       </span></h3>
     ${pfHasBudgets ? '' : `<div class="hint" style="color:#9a6400;margin-bottom:6px">⚠️ Dataset này import trước khi tool đọc sheet Portfolios — chưa có budget hiện tại. Import lại file bulk (có sheet Portfolios) để xem và sửa budget.</div>`}
     <div class="scroll" style="max-height:300px"><table style="width:auto;max-width:100%"><thead><tr>
@@ -477,6 +484,7 @@ window.setPfBudget = (pfid, raw) => {
   renderChanges(); renderPfCard();
 };
 window.setPfStart = (v) => { pfStart = v || ''; saveLedger(); renderPfCard(); if (tab === 'changes') renderChangesTab(); };
+window.setPfToday = (on) => { pfToday = !!on; saveLedger(); renderPfCard(); if (tab === 'changes') renderChangesTab(); };
 
 // File bulk Create cần Portfolio ID. Dataset cũ không lưu cột "Portfolio ID" → lấy dãy số dài
 // trong TÊN portfolio (quy ước đặt tên "... - 113687439046910"). Không tìm được thì để trống, gõ tay.
@@ -956,10 +964,10 @@ window.confirmPromote = async () => {
 };
 
 /* ===== Panel thay đổi + export ===== */
-function saveLedger() { if (dsId) localStorage.setItem('ppcw_adj_' + dsId, JSON.stringify({ edits, negatives, creates, pfBudgets, pfStart })); }
+function saveLedger() { if (dsId) localStorage.setItem('ppcw_adj_' + dsId, JSON.stringify({ edits, negatives, creates, pfBudgets, pfStart, pfToday })); }
 function restoreLedger() {
-  try { const p = JSON.parse(localStorage.getItem('ppcw_adj_' + dsId)); edits = p.edits || []; negatives = p.negatives || []; creates = p.creates || []; pfBudgets = p.pfBudgets || []; pfStart = p.pfStart || ''; }
-  catch { edits = []; negatives = []; creates = []; pfBudgets = []; pfStart = ''; }
+  try { const p = JSON.parse(localStorage.getItem('ppcw_adj_' + dsId)); edits = p.edits || []; negatives = p.negatives || []; creates = p.creates || []; pfBudgets = p.pfBudgets || []; pfStart = p.pfStart || ''; pfToday = p.pfToday !== false; }
+  catch { edits = []; negatives = []; creates = []; pfBudgets = []; pfStart = ''; pfToday = true; }
 }
 const nChanges = () => edits.length + negatives.length + creates.length + pfBudgets.length;
 const pfBudLabel = (v) => v === null || v === undefined ? 'No Cap' : money(v);
@@ -1052,7 +1060,7 @@ function renderChangesTab() {
     </div>
     <div class="chg-sec">
       <h3>💼 Budget portfolio <span class="badge">${pfBudgets.length}</span>
-        <span class="hint" style="font-weight:400">xuất vào sheet <b>Portfolios</b> (Operation Update) cùng file · Start Date: ${pfStart ? '<b>' + esc(pfStart) + '</b> cho mọi dòng' : 'giữ ngày cũ của từng portfolio'}</span></h3>
+        <span class="hint" style="font-weight:400">xuất vào sheet <b>Portfolios</b> (Operation Update) cùng file · Start Date: ${pfToday ? '<b>Today ' + fmtYmd(pfStartOut()) + '</b> (giờ LA) cho mọi dòng' : pfStart ? '<b>' + fmtYmd(pfStartOut()) + '</b> cho mọi dòng' : 'giữ ngày cũ của từng portfolio'}</span></h3>
       ${pfBudgets.length ? `<div class="scroll" style="max-height:260px"><table><thead><tr>
         <th style="width:28px"></th><th class="l">Portfolio</th><th>ID</th><th>Cũ → Mới</th>
       </tr></thead><tbody>${pfBudgets.map((b, i) => `<tr>
@@ -1099,7 +1107,7 @@ async function doExport() {
   if (warns && !await confirmBox(`Có <b>${warns}</b> giá trị ngoài ngưỡng an toàn (⚠️). Vẫn xuất file?`, '⚠️ Kiểm tra lại', 'Vẫn xuất')) return;
   setMsg('', '⏳ Đang tạo file...');
   const res = await fetch('/api/adjust/export-all', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ id: dsId, edits, negatives, creates, pfBudgets: pfBudgets.map(b => ({ ...b, start: pfStart.replace(/-/g, '') })) }) });
+    body: JSON.stringify({ id: dsId, edits, negatives, creates, pfBudgets: pfBudgets.map(b => ({ ...b, start: pfStartOut() })) }) });
   if (!res.ok) {
     const e = await res.json().catch(() => ({}));
     setMsg('err', '❌ ' + (e.message || res.status));
@@ -1129,7 +1137,7 @@ async function doExport() {
   if (choice === true) {
     // Áp dụng vào dataset làm mặc định mới, rồi dọn danh sách chờ
     let r = {};
-    try { r = await (await fetch('/api/adjust/apply-edits', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: dsId, edits, pfBudgets: pfBudgets.map(b => ({ ...b, start: pfStart.replace(/-/g, '') })) }) })).json(); } catch {}
+    try { r = await (await fetch('/api/adjust/apply-edits', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: dsId, edits, pfBudgets: pfBudgets.map(b => ({ ...b, start: pfStartOut() })) }) })).json(); } catch {}
     if (!r.ok) { alertBox('⚠️ Không áp dụng được: ' + esc(r.message || 'lỗi server') + '<br><span class="hint">Danh sách thay đổi vẫn được giữ.</span>', '❌ Áp dụng thất bại'); return; }
     const nPf = pfBudgets.length;
     edits = []; negatives = []; creates = []; pfBudgets = []; bulkUndo = []; renderChanges(); await loadPortfolios(); await refresh();

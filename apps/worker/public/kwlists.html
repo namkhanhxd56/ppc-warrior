@@ -242,7 +242,7 @@ const numOrNull = (v) => { const s = String(v ?? '').trim(); if (!s) return null
 const svNum = (v) => { const s = String(v ?? '').trim(); if (!s) return null; const n = parseFloat(s.replace(/[^0-9.\-]/g, '')); return isNaN(n) ? null : n; };
 const fmtSv = (n) => n == null ? '' : Number(n).toLocaleString('en-US');
 
-const UI_VERSION = '0.51.0';
+const UI_VERSION = '0.51.1';
 (async () => {
   try { const v = (await (await fetch('/api/version')).json()).version; if (v !== UI_VERSION) throw new Error(v); }
   catch (e) { $('verWarn').style.display = 'block'; $('verWarn').textContent = `⚠️ Server phiên bản cũ (${e.message}) — hãy restart (npm start).`; }
