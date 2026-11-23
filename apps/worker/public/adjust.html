@@ -41,6 +41,9 @@
   .msg { font-size:12.5px; } .msg.ok { color:var(--ok); } .msg.err { color:var(--bad); }
   .edited { background:#fff6d9 !important; outline:2px solid var(--bad); outline-offset:-2px; } /* ô đã sửa: viền đỏ */
   .paused-row td { opacity:.55; }
+  /* Tầng cha (campaign / ad group) đang tắt — kể cả vừa sửa Pause chưa xuất → dòng con mờ hẳn, VẪN sửa được */
+  .parent-off td { opacity:.38; }
+  .parent-off:hover td, .parent-off td:focus-within { opacity:.8; }
   .camp-row { background:#eef4ff; } .camp-row b { color:#1b3a86; }
   tr.grp-start td { border-top:2px solid #97a9cf; } /* vạch tách campaign */
   td.mut { color:#aab3c2; }
@@ -336,7 +339,7 @@ function makeResizable(tableId) {
   });
 }
 
-const UI_VERSION = '0.51.1';
+const UI_VERSION = '0.52.0';
 /* ===== THANH TIẾN ĐỘ QUÉT RANKING (dùng chung mọi trang) =====
    Lượt quét sống ở HÀNG ĐỢI trên server, không phải ở tab nào. Trước đây chuyển sang trang
    này là mất dấu — tệ hơn, bản cũ còn làm CHẾT luôn lượt quét vì vòng lặp điều phối nằm ở
@@ -664,6 +667,24 @@ function appendTargetRows(rows) {
   const tb = $('tbMain'); if (!tb) return;
   tb.insertAdjacentHTML('beforeend', rows.map(buildTargetRow).join(''));
 }
+/* Dòng con của campaign / ad group đang tắt: trạng thái cha = thay đổi đang chờ (vừa sửa Pause/Enable)
+   nếu có, không thì State trong file bulk (server gắn sẵn pst / agst). Khoá dòng cha tính như rowKey. */
+const parentKey = (ad, ent, cid, agid) => (ad && ad !== 'SP' ? ad + ':' : '') + [ent, cid, agid || '', '', '', '', ''].join('|');
+function parentOff(ad, cid, agid, e, pst, agst) {
+  if (e === 'Campaign') return '';
+  const cSt = editedVal(parentKey(ad, 'Campaign', cid), 'st', pst || '');
+  if (cSt && cSt !== 'enabled') return `Campaign đang ${cSt} — dòng này vẫn sửa được`;
+  if (e === 'Ad Group' || e === 'Bidding Adjustment' || !agid) return '';
+  const aSt = editedVal(parentKey(ad, 'Ad Group', cid, agid), 'st', agst || '');
+  return aSt && aSt !== 'enabled' ? `Ad group đang ${aSt} — dòng này vẫn sửa được` : '';
+}
+function updateParentDim() {
+  document.querySelectorAll('#tbMain tr[data-cid]').forEach((tr) => {
+    const d = tr.dataset, off = parentOff(d.ad, d.cid, d.agid, d.e, d.pst, d.agst);
+    tr.classList.toggle('parent-off', !!off);
+    if (off) tr.title = off; else tr.removeAttribute('title');
+  });
+}
 function buildTargetRow(x) {
   const DASH = '<td class="mut">—</td>', EMPTY = '<td></td>';
   const groupStart = x.cid !== lastCid; lastCid = x.cid;
@@ -703,9 +724,12 @@ function buildTargetRow(x) {
   else cells.push(stSel(), DASH, numCell('bid', x.bid), DASH);
   cells.push(`<td>${x.imp}</td><td>${x.clk}</td><td>${money(x.sp)}</td><td>${money(x.sa)}</td><td>${x.or}</td>
     <td>${pct(x.acos)}</td><td>${x.roas || 0}x</td><td>${pct(x.ctr)}</td><td>${pct(x.cr)}</td><td>${money(x.cpc)}</td>`);
-  const cls = [groupStart ? 'grp-start' : '', x.e === 'Campaign' ? 'camp-row' : '', stNow === 'paused' ? 'paused-row' : ''].filter(Boolean).join(' ');
+  const off = parentOff(x.ad, x.cid, x.agid, x.e, x.pst, x.agst);
+  const cls = [groupStart ? 'grp-start' : '', x.e === 'Campaign' ? 'camp-row' : '', stNow === 'paused' ? 'paused-row' : '', off ? 'parent-off' : ''].filter(Boolean).join(' ');
   const hid = hideEdited && rowHasEdit(x.k) ? ' style="display:none"' : '';
-  return `<tr class="${cls}" data-k="${esc(x.k)}"${hid}>${cells.join('')}</tr>`;
+  // data-* tầng cha để cập nhật độ mờ tại chỗ khi vừa Pause/Enable campaign hoặc ad group (updateParentDim)
+  const par = x.e === 'Campaign' ? '' : ` data-ad="${esc(x.ad || '')}" data-cid="${esc(x.cid)}" data-agid="${esc(x.agid || '')}" data-e="${esc(x.e)}" data-pst="${esc(x.pst || '')}" data-agst="${esc(x.agst || '')}"`;
+  return `<tr class="${cls}" data-k="${esc(x.k)}"${par}${off ? ` title="${off}"` : ''}${hid}>${cells.join('')}</tr>`;
 }
 
 function renderTermsInit() {
@@ -832,6 +856,7 @@ window.editEl = (el) => {
   if (td) td.classList.toggle('edited', edits.some(e => e.k === d.k && e.field === d.field));
   // Đang bật "Ẩn dòng đã chỉnh": dòng vừa sửa tay sẽ ẩn ngay cho người dùng sang dòng kế tiếp
   if (hideEdited) applyHideEdited();
+  if (d.field === 'st') updateParentDim(); // vừa Pause/Enable campaign / ad group → dòng con mờ / sáng lại ngay
 };
 // Đồng bộ ô đang hiện với danh sách edits TẠI CHỖ (giá trị, viền "đã sửa", dòng paused, ẩn dòng đã chỉnh).
 // Trước đây bulk edit / undo gọi refresh() → tải lại từ trang 1, bảng nhảy về đầu, mất chỗ đang xem.
@@ -843,6 +868,7 @@ function syncEditedCells() {
     if (field === 'st') { const tr = el.closest('tr'); if (tr) tr.classList.toggle('paused-row', v === 'paused'); }
   });
   applyHideEdited();
+  updateParentDim();
 }
 window.undoBulk = () => { if (!bulkUndo.length) return; edits = bulkUndo.pop(); renderChanges(); syncEditedCells(); };
 // State không có "mode" (±$/±%) — đổi field sang State thì giấu mode + ô giá trị, hiện dropdown Enable/Pause.

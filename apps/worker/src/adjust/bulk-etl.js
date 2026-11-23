@@ -252,6 +252,24 @@ export function etlBulk(buffer, filename) {
   };
 }
 
+/* TRẠNG THÁI TẦNG CHA cho mọi dòng (23/11/2026) — UI làm MỜ dòng con khi campaign / ad group cha
+   đang tắt (paused/archived), vẫn cho sửa. Lấy từ chính dòng Campaign / Ad Group trong dataset
+   (cột "State") nên dataset import từ trước cũng có, khỏi import lại. SB/SD có ID riêng → khoá kèm ad.
+   pst = State của campaign cha, agst = State của ad group cha ("" = không có / không tìm thấy). */
+export function stampParentStates(ds) {
+  const camp = new Map(), ag = new Map();
+  const key = (r, id) => (r.ad || "SP") + ":" + id;
+  for (const r of ds.records || []) {
+    if (r.e === "Campaign") camp.set(key(r, r.cid), r.st);
+    else if (r.e === "Ad Group") ag.set(key(r, r.cid + "|" + r.agid), r.st);
+  }
+  for (const r of ds.records || []) {
+    if (r.e === "Campaign") continue;
+    r.pst = camp.get(key(r, r.cid)) || r.cst || "";
+    if (r.e !== "Ad Group" && r.agid) r.agst = ag.get(key(r, r.cid + "|" + r.agid)) || "";
+  }
+}
+
 /* ============================================================
    GẮN ASIN CHO MỌI DÒNG — qua Product Ad cùng ad group, không moi từ TÊN campaign
    ============================================================
