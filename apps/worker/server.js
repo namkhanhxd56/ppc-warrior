@@ -21,9 +21,10 @@ import { filterBulk } from "./src/bulk-filter.js";
 import * as store from "./src/db/file-store.js";
 import * as auth from "./src/auth.js";
 import { als, runAsUser, userDataDir } from "./src/db/user-context.js";
+import { keepUserCtx } from "./src/upload-ctx.js"; // multer làm rơi phân vùng user với file lớn — xem file
 
 dotenv.config();
-export const APP_VERSION = "0.50.2"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
+export const APP_VERSION = "0.50.3"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
 
 // RUN_MODE:
 // - "local" (mặc định): bấm Kiểm tra là scrape NGAY trên máy này (dùng 1 người, chạy local)
@@ -1122,7 +1123,7 @@ app.post("/api/catalog/manager", (req, res) => {
 
 /* ===================== DANH MỤC TARGET (list → group → keyword, + Target ASIN) =====================
    Độc lập với "Phân tích Keyword". Nạp từ file H10 / Amazon SQP / csv-xlsx tự làm (tự nhận dạng). */
-const uploadKw = multer({ dest: "./data/uploads", limits: { fileSize: 40 * 1024 * 1024 } });
+const uploadKw = keepUserCtx(multer({ dest: "./data/uploads", limits: { fileSize: 40 * 1024 * 1024 } }));
 
 /* ===== CHIA SẺ LIST qua URL /kwlist/<slug> (công khai — xem PUBLIC_PATHS phía trên) =====
    Dữ liệu chia theo phân vùng user (file-store.js), nhưng link chia sẻ KHÔNG đăng nhập nên
@@ -1587,7 +1588,7 @@ function cacheGet(id) {
   adjustCache.delete(k); adjustCache.set(k, ds); // vừa dùng → đẩy xuống cuối
   return ds;
 }
-const uploadBig = multer({ dest: "./data/uploads", limits: { fileSize: 300 * 1024 * 1024 } });
+const uploadBig = keepUserCtx(multer({ dest: "./data/uploads", limits: { fileSize: 300 * 1024 * 1024 } }));
 
 /* ===== LỌC BULK THEO ASIN MÌNH QUẢN LÝ (src/bulk-filter.js) =====
    Tải file bulk Amazon lên → bỏ mọi campaign/portfolio/search term không thuộc ASIN của mình.
@@ -1596,6 +1597,21 @@ const uploadBig = multer({ dest: "./data/uploads", limits: { fileSize: 300 * 102
    Trả file NGAY trong response (báo cáo nằm ở header X-Filter-Report). Bản đầu lưu tạm file trên
    server rồi cho tải qua link riêng → server khởi động lại (deploy / hết RAM) là link báo "hết hạn".
    filterBulk chạy đồng bộ → nhiều người lọc cùng lúc thì xử lý lần lượt, RAM không cộng dồn. */
+// "Lưu ASIN": danh sách ASIN dán tay + Acc đã tick + bật/tắt Danh mục — lưu theo TÀI KHOẢN (đổi máy vẫn còn)
+const BF_PREFS = () => `${userDataDir()}/bulk-filter-prefs.json`;
+app.get("/api/bulk-filter/prefs", (req, res) => {
+  try { res.json({ ok: true, prefs: JSON.parse(fs.readFileSync(BF_PREFS(), "utf8")) }); }
+  catch { res.json({ ok: true, prefs: null }); }
+});
+app.put("/api/bulk-filter/prefs", express.json(), (req, res) => {
+  const b = req.body || {};
+  const asins = [...new Set((Array.isArray(b.asins) ? b.asins : []).map((a) => String(a).trim().toUpperCase()).filter((a) => /^B0[A-Z0-9]{8}$/.test(a)))].slice(0, 5000);
+  const accs = (Array.isArray(b.accs) ? b.accs : []).map((a) => String(a).slice(0, 40)).slice(0, 50);
+  const prefs = { asins, accs, useCatalog: b.useCatalog !== false, savedAt: new Date().toISOString() };
+  fs.mkdirSync(userDataDir(), { recursive: true });
+  fs.writeFileSync(BF_PREFS(), JSON.stringify(prefs, null, 1));
+  res.json({ ok: true, prefs });
+});
 app.post("/api/bulk-filter", (req, res, next) => uploadBig.single("file")(req, res, next), (req, res) => {
   const tmp = req.file?.path;
   try {
@@ -2023,7 +2039,7 @@ app.post("/api/adjust/proposals/export", (req, res) => {
 });
 
 /* ===== Import file bulk daily → chỉ số ads theo ASIN (Spent, Sales ads, ACoS...) ===== */
-const uploadMw = multer({ dest: "./data/uploads" });
+const uploadMw = keepUserCtx(multer({ dest: "./data/uploads" }));
 const upload = uploadMw;
 
 app.post("/api/import-bulk", upload.single("file"), (req, res) => {

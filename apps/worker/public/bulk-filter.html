@@ -20,6 +20,8 @@
   button { padding:9px 18px; border:none; border-radius:7px; cursor:pointer; font-size:13px; font-weight:600; }
   button:focus-visible { outline:2px solid #8aa6ff; outline-offset:2px; }
   .btn-primary { background:var(--b); color:#fff; }
+  .btn-sm { padding:7px 14px; font-size:12.5px; background:#eef1f7; color:#1b2330; }
+  .btn-sm:hover { background:#e2e7f1; }
   .btn-primary:disabled { background:#9fb2ea; cursor:default; }
   .btn-ok { background:var(--ok); color:#fff; text-decoration:none; display:inline-block; padding:9px 18px; border-radius:7px; font-size:13px; font-weight:600; }
   .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
@@ -63,8 +65,14 @@
       <div class="accs" id="accs"><span class="sub">Đang tải danh mục…</span></div>
     </div>
     <label class="lb" for="paste">Dán thêm ASIN (mỗi dòng 1 mã, hoặc cách nhau dấu phẩy)</label>
-    <textarea id="paste" placeholder="B0HQFQTYCC&#10;B0HNMHXP53"></textarea>
-    <div class="count" id="count"></div>
+    <textarea id="paste" placeholder="Ví dụ: B0XXXXXXXX (ô đang trống)"></textarea>
+    <div class="row" style="margin-top:8px;justify-content:space-between">
+      <div class="count" id="count" style="margin:0"></div>
+      <div class="row" style="gap:8px">
+        <span class="sub" id="saveSt" style="margin:0"></span>
+        <button class="btn-sm" id="save" title="Lưu ASIN dán tay + Acc đã tick vào tài khoản — lần sau mở trang là có sẵn">💾 Lưu ASIN</button>
+      </div>
+    </div>
   </div>
 
   <div class="card">
@@ -92,7 +100,7 @@ const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const fmt = (n) => Number(n || 0).toLocaleString("vi-VN");
 const LS = "ppcw_bf_accs";
-let catalog = [], file = null;
+let catalog = [], file = null, saved = null; // saved = bản đã lưu trên server (Lưu ASIN)
 
 function pastedAsins() {
   return [...new Set(($("paste").value.toUpperCase().match(/\bB0[A-Z0-9]{8}\b/g) || []))];
@@ -119,22 +127,47 @@ function refresh() {
     : `<span style="color:var(--bad)">Chưa có ASIN nào — chọn Acc hoặc dán ASIN.</span>`;
   $("run").disabled = !file || !n;
   try { localStorage.setItem(LS, JSON.stringify(accs)); } catch {}
+  saveState();
 }
+const curPrefs = () => ({ asins: pastedAsins(), accs: selectedAccs(), useCatalog: $("useCat").checked });
+const sameAs = (a, b) => !!a && !!b && a.useCatalog === b.useCatalog
+  && [...a.asins].sort().join() === [...b.asins].sort().join() && [...a.accs].sort().join() === [...b.accs].sort().join();
+function saveState() {
+  const c = curPrefs();
+  if (saved && sameAs(c, saved)) {
+    const t = new Date(saved.savedAt);
+    $("saveSt").innerHTML = `<span style="color:var(--ok)">✓ Đã lưu</span> ${fmt(saved.asins.length)} ASIN dán tay${saved.accs.length ? " · Acc " + saved.accs.map(esc).join(", ") : ""} · ${t.toLocaleString("vi-VN", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit" })}`;
+  } else $("saveSt").innerHTML = saved ? `<span style="color:var(--warn)">Có thay đổi chưa lưu</span>` : "";
+}
+$("save").onclick = async () => {
+  $("save").disabled = true;
+  try {
+    const r = await fetch("/api/bulk-filter/prefs", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(curPrefs()) }).then((x) => x.json());
+    if (!r.ok) throw new Error();
+    saved = r.prefs;
+    $("paste").value = saved.asins.join("\n"); // gọn lại: mỗi dòng 1 mã, bỏ trùng
+  } catch { $("saveSt").innerHTML = `<span style="color:var(--bad)">Chưa lưu được — bấm Lưu ASIN lại</span>`; }
+  finally { $("save").disabled = false; refresh(); }
+};
 
 async function loadCatalog() {
-  try {
-    const r = await fetch("/api/catalog").then((x) => x.json());
-    catalog = r.products || [];
-  } catch { catalog = []; }
+  const [cat, pf] = await Promise.all([
+    fetch("/api/catalog").then((x) => x.json()).catch(() => ({})),
+    fetch("/api/bulk-filter/prefs").then((x) => x.json()).catch(() => ({}))
+  ]);
+  catalog = cat.products || [];
+  saved = pf.prefs || null;
+  if (saved) { $("paste").value = saved.asins.join("\n"); $("useCat").checked = saved.useCatalog; }
   const by = new Map();
   for (const p of catalog) by.set(p.acc || "", (by.get(p.acc || "") || 0) + 1);
-  let saved = [];
-  try { saved = JSON.parse(localStorage.getItem(LS) || "[]"); } catch {}
+  let tick = [];
+  try { tick = JSON.parse(localStorage.getItem(LS) || "[]"); } catch {}
+  if (saved) tick = saved.accs; // bản đã Lưu ASIN thắng lựa chọn tạm của trình duyệt
   if (!catalog.length) {
     $("accs").innerHTML = `<span class="sub">Danh mục Tài sản đang trống — <a href="/catalog.html">nạp danh mục</a> hoặc dán ASIN bên dưới.</span>`;
   } else {
     $("accs").innerHTML = [...by.entries()].sort((a, b) => (a[0] || "~").localeCompare(b[0] || "~")).map(([acc, n]) =>
-      `<label class="acc"><input type="checkbox" value="${esc(acc)}" ${saved.includes(acc) ? "checked" : ""}> ${acc ? esc(acc) : "<i>Chưa ghi Acc</i>"} <small>${n}</small></label>`
+      `<label class="acc"><input type="checkbox" value="${esc(acc)}" ${tick.includes(acc) ? "checked" : ""}> ${acc ? esc(acc) : "<i>Chưa ghi Acc</i>"} <small>${n}</small></label>`
     ).join("") + `<span class="sub" style="align-self:center;margin:0">Không tick Acc nào = giữ cả ${fmt(catalog.length)} ASIN trong danh mục</span>`;
   }
   document.querySelectorAll("#accs input").forEach((x) => (x.onchange = refresh));
