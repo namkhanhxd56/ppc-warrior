@@ -24,7 +24,7 @@ import { als, runAsUser, userDataDir } from "./src/db/user-context.js";
 import { keepUserCtx } from "./src/upload-ctx.js"; // multer làm rơi phân vùng user với file lớn — xem file
 
 dotenv.config();
-export const APP_VERSION = "0.50.3"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
+export const APP_VERSION = "0.51.0"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
 
 // RUN_MODE:
 // - "local" (mặc định): bấm Kiểm tra là scrape NGAY trên máy này (dùng 1 người, chạy local)
@@ -1684,7 +1684,12 @@ app.get("/api/adjust/datasets", (req, res) => res.json(adjustIndex()));
 app.post("/api/adjust/portfolios", (req, res) => {
   const ds = loadDataset(req.body?.id);
   if (!ds) return res.status(404).json({ ok: false, message: "Chưa có dataset" });
-  res.json({ ok: true, ...listPortfolios(ds.records) });
+  const out = listPortfolios(ds.records);
+  // Budget hiện tại từ sheet Portfolios — dataset import trước 23/11/2026 không có (hasBudgets=false)
+  const pfMap = new Map((ds.portfolios || []).map((p) => [p.pfid, p]));
+  const idOf = (p) => p.pfid || (String(p.pfname || "").match(/(\d{10,})\s*$/) || [])[1] || ""; // dataset cũ: ID ở cuối tên
+  for (const p of out.portfolios) { const b = pfMap.get(idOf(p)); if (b) p.budget = b; }
+  res.json({ ok: true, ...out, hasBudgets: Array.isArray(ds.portfolios) && ds.portfolios.length > 0 });
 });
 
 // Đặt tên (label) cho dataset đã lưu — lưu trữ file kết quả theo dải ngày + tên tự đặt
@@ -1721,9 +1726,18 @@ app.post("/api/adjust/query", (req, res) => {
 // mặc định mới). Giữ nguyên mọi dòng khác. Dùng sau khi đã tải file bulk về.
 app.post("/api/adjust/apply-edits", (req, res) => {
   try {
-    const { id, edits } = req.body || {};
+    const { id, edits, pfBudgets } = req.body || {};
     const ds = loadDataset(id);
     if (!ds) return res.status(404).json({ ok: false, message: "Chưa có dataset" });
+    // Budget portfolio đã xuất → thành budget hiện tại của dataset (bảng "Portfolio đang lọc" hiện số mới)
+    for (const b of Array.isArray(pfBudgets) ? pfBudgets : []) {
+      const p = (ds.portfolios || []).find((x) => x.pfid === String(b?.pfid || ""));
+      if (!p) continue;
+      const n = Number(b.amount) || 0;
+      p.amount = n > 0 ? Math.round(n * 100) / 100 : null;
+      if (n > 0 && /^\d{8}$/.test(String(b.start || ""))) p.start = String(b.start);
+      if (!(n > 0)) p.policy = "No Cap"; else if (!p.policy || p.policy === "No Cap") p.policy = "Date Range";
+    }
     const STR = new Set(["st", "name", "agname"]);
     const FIELDS = new Set(["bud", "bid", "st", "pct", "agbid", "name", "agname"]);
     let applied = 0;
@@ -1827,8 +1841,9 @@ app.post("/api/adjust/export", (req, res) => {
 
 /** Dựng workbook XUẤT GỘP (Update + negative + campaign mới) — dùng cho xuất mới VÀ tải lại từ nhật ký,
     để file tải lại giống hệt cách dựng lúc xuất. Không ghi audit (nơi gọi tự quyết). */
-function buildAdjustWorkbook(ds, edits, negatives, creates) {
+function buildAdjustWorkbook(ds, edits, negatives, creates, pfBudgets) {
   assertBidCap(ds.byKey, edits);
+  const pfRows = buildPortfolioBudgetRows(ds, pfBudgets);
   const sheets = buildUpdateSheets(ds, edits, negatives);
   const updateRows = sheets.flatMap((x) => x.rows);
   let createRows = [], campaigns = 0, missing = [];
@@ -1843,7 +1858,7 @@ function buildAdjustWorkbook(ds, edits, negatives, creates) {
     createRows = m.rows; missing = m.missing;
   }
   const rows = [...updateRows, ...createRows];
-  if (!rows.length) throw new Error("Không có thay đổi nào để xuất");
+  if (!rows.length && !pfRows.length) throw new Error("Không có thay đổi nào để xuất");
   // SP: Update + Create chung 1 sheet; SB/SD: mỗi loại 1 sheet riêng (chỉ Update)
   const wb = XLSX.utils.book_new();
   const bySheet = {};
@@ -1853,8 +1868,41 @@ function buildAdjustWorkbook(ds, edits, negatives, creates) {
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(xr, { header: x.header }), x.sheet);
     bySheet[x.ad] = xr.length;
   }
+  if (pfRows.length) {
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(pfRows, { header: PORT_HEADER }), "Portfolios");
+    bySheet.Portfolio = pfRows.length;
+  }
   const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx", compression: true });
-  return { buf, info: { rows: rows.length, updateRows: updateRows.length, createRows: createRows.length, campaigns, missing, bySheet } };
+  return { buf, info: { rows: rows.length + pfRows.length, updateRows: updateRows.length, createRows: createRows.length,
+    pfRows: pfRows.length, campaigns, missing, bySheet } };
+}
+
+/* Sửa BUDGET PORTFOLIO từ bảng "Portfolio đang lọc" (Campaigns & Targets) → dòng Update sheet "Portfolios".
+   pfBudgets: [{ pfid, amount (số mới; null/0 = No Cap), start? (YYYYMMDD mới, trống = giữ ngày cũ) }].
+   Giữ policy / ngày kết thúc như file bulk tải về; portfolio đang No Cap mà đặt số tiền → Date Range từ start
+   (hoặc hôm nay). Amazon bắt Date Range phải có Start Date. */
+function buildPortfolioBudgetRows(ds, pfBudgets) {
+  if (!Array.isArray(pfBudgets) || !pfBudgets.length) return [];
+  const pfMap = new Map((ds.portfolios || []).map((p) => [p.pfid, p]));
+  const today = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+  return pfBudgets.map((b) => {
+    const pfid = String(b.pfid || "").trim();
+    const cur = pfMap.get(pfid);
+    if (!cur) throw new Error(`Portfolio ${pfid || "(trống)"} không có trong sheet Portfolios của dataset — import lại file bulk`);
+    const n = b.amount === null || b.amount === "" || b.amount === undefined ? 0 : Number(b.amount);
+    if (!isFinite(n) || n < 0 || n > 1e6) throw new Error(`Budget không hợp lệ cho portfolio "${cur.name}": ${b.amount}`);
+    const start = /^\d{8}$/.test(String(b.start || "")) ? String(b.start) : "";
+    const cap = n > 0;
+    const policy = !cap ? "No Cap" : cur.policy && cur.policy !== "No Cap" ? cur.policy : "Date Range";
+    const startOut = !cap ? undefined : start || cur.start || (policy === "Date Range" ? today : undefined);
+    if (cap && cur.end && startOut && cur.end < startOut) throw new Error(`Portfolio "${cur.name}": Start Date ${startOut} sau End Date ${cur.end}`);
+    return {
+      Product: "Portfolios", Entity: "Portfolio", Operation: "Update",
+      "Portfolio ID": pfid, "Portfolio Name": cur.name,
+      "Budget Amount": cap ? Math.round(n * 100) / 100 : undefined, "Budget Currency Code": cur.cur || "USD",
+      "Budget Policy": policy, "Budget Start Date": startOut, "Budget End Date": cap && cur.end ? cur.end : undefined
+    };
+  });
 }
 
 // XUẤT GỘP — 1 file duy nhất cho toàn bộ module "Thay đổi":
@@ -1862,14 +1910,14 @@ function buildAdjustWorkbook(ds, edits, negatives, creates) {
 // Amazon đọc theo cột Operation nên Update và Create nằm chung 1 sheet được.
 app.post("/api/adjust/export-all", (req, res) => {
   try {
-    const { id, edits, negatives, creates } = req.body || {};
+    const { id, edits, negatives, creates, pfBudgets } = req.body || {};
     const ds = loadDataset(id);
     if (!ds) throw new Error("Dataset không tồn tại");
-    const { buf, info } = buildAdjustWorkbook(ds, edits, negatives, creates);
+    const { buf, info } = buildAdjustWorkbook(ds, edits, negatives, creates, pfBudgets);
     fs.mkdirSync(ADJUST_DIR_FN(), { recursive: true });
     const audit = { at: new Date().toISOString(), dataset: id, source: "manual",
       edits: (edits || []).length, negatives: (negatives || []).length, creates: (creates || []).length,
-      detail: { edits, negatives, creates } };
+      pfBudgets: (pfBudgets || []).length, detail: { edits, negatives, creates, pfBudgets } };
     fs.appendFileSync(`${ADJUST_DIR_FN()}/audit.jsonl`, JSON.stringify(audit) + "\n");
     if (info.campaigns) store.saveExportSnapshot({ source: "adjust-all", campaigns: info.campaigns, rows: info.createRows }, buf);
     res.setHeader("Content-Disposition",
@@ -1924,8 +1972,8 @@ app.post("/api/adjust/audit/redownload", (req, res) => {
     if (!entry.detail) throw new Error("Lần xuất này không lưu chi tiết — không dựng lại được file");
     const ds = loadDataset(dataset);
     if (!ds) throw new Error(`Dataset "${dataset}" không còn trên server — không dựng lại được file`);
-    const { edits = [], negatives = [], creates = [] } = entry.detail;
-    const { buf, info } = buildAdjustWorkbook(ds, edits, negatives, creates);
+    const { edits = [], negatives = [], creates = [], pfBudgets = [] } = entry.detail;
+    const { buf, info } = buildAdjustWorkbook(ds, edits, negatives, creates, pfBudgets);
     const stamp = String(at).slice(0, 16).replace("T", "-").replace(":", "");
     res.setHeader("Content-Disposition",
       `attachment; filename="bulk-${entry.source === "rules" ? "update" : "adjust"}-${dataset}-${stamp}.xlsx"`);

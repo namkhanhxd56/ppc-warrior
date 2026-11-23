@@ -78,6 +78,23 @@
   .ent-pill:hover { border-color:var(--b); }
   .ent-pill.on { background:var(--b); border-color:var(--b); color:#fff; }
   .chip-clear { font-size:12px; color:var(--b); cursor:pointer; font-weight:600; }
+  /* Bảng "Portfolio đang lọc" — hiện khi có chip Portfolio name */
+  .pf-card { border:1px solid #d8e2ff; background:#f7f9ff; border-radius:10px; padding:10px 12px; margin:8px 0; }
+  .pf-card h3 { font-size:13px; margin:0 0 6px; display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  .pf-card table { background:#fff; }
+  .pf-card td.nm { max-width:340px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; text-align:left; }
+  .pf-card input.pfb { width:72px; text-align:right; }
+  .pf-card input.pfb.edited { border-color:#e5a400; background:#fff8e1; font-weight:700; }
+  .pf-card .step { padding:2px 6px; font-size:11px; border:1px solid #ccd3e0; background:#fff; border-radius:5px; cursor:pointer; }
+  .pf-card .step:hover { border-color:var(--b); }
+  .ib-out { color:#b12727; font-weight:600; } .ib-in { color:#157a3d; }
+  .pf-ctl { display:flex; gap:6px 14px; align-items:center; flex-wrap:wrap; margin-bottom:6px; font-size:12px; white-space:nowrap; }
+  .pf-ctl label { display:inline-flex !important; gap:4px; align-items:center; margin:0 0 0 auto !important; font-weight:400 !important; }
+  .pf-sel { display:flex; flex-wrap:wrap; gap:4px; margin-bottom:6px; max-height:90px; overflow:auto; }
+  .pf-sel .tag { background:#eef3ff; border:1px solid #b9cbff; border-radius:12px; padding:1px 4px 1px 8px; font-size:11.5px; display:inline-flex; gap:3px; align-items:center; max-width:100%; }
+  .pf-sel .tag span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:240px; }
+  .pf-sel .tag b { cursor:pointer; color:#667; padding:0 4px; border-radius:8px; }
+  .pf-sel .tag b:hover { background:#fde8e8; color:#c0392b; }
   #fPop { position:absolute; left:0; top:112%; z-index:40; background:#fff; border:1px solid #ccd3e0; border-radius:10px; padding:8px 10px; box-shadow:0 8px 24px rgba(0,0,0,.18); min-width:290px; max-height:440px; overflow:auto; font-size:12.5px; }
   .fm-grp { font-size:11px; font-weight:700; color:#556; text-transform:uppercase; margin:10px 0 2px; letter-spacing:.3px; }
   .fm-grp:first-child { margin-top:2px; }
@@ -169,6 +186,7 @@
       <span id="selInfo" style="font-size:12px;font-weight:600"></span>
     </div>
 
+    <div id="pfCard" class="pf-card" style="display:none"></div>
     <div class="bulkbar" id="actionBar"></div>
     <div id="tableArea" class="scroll"></div>
     <div class="pgn" id="pgnBar">
@@ -319,7 +337,7 @@ function makeResizable(tableId) {
   });
 }
 
-const UI_VERSION = '0.50.3';
+const UI_VERSION = '0.51.0';
 /* ===== THANH TIẾN ĐỘ QUÉT RANKING (dùng chung mọi trang) =====
    Lượt quét sống ở HÀNG ĐỢI trên server, không phải ở tab nào. Trước đây chuyển sang trang
    này là mất dấu — tệ hơn, bản cũ còn làm CHẾT luôn lượt quét vì vòng lặp điều phối nằm ở
@@ -361,6 +379,9 @@ let page = 1;
 let edits = [];      // {k, field, old, value, label}
 let negatives = [];  // {cid, agid, term, mt, name}
 let creates = [];     // campaign mới chờ xuất: {asin, keyword, bid, note, pf, pfLabel, mode, src}
+let pfBudgets = [];   // budget portfolio chờ xuất: {pfid, name, old, amount (null = No Cap), start}
+let pfStart = '';     // Start Date mới (YYYY-MM-DD) áp cho mọi portfolio đổi budget — trống = giữ ngày cũ
+let pfHasBudgets = false;
 let lastRows = [];
 let sel = new Set(); // key (targets) hoặc index term đang tick
 let bulkUndo = []; // stack snapshot edits trước mỗi lần bulk (để Undo)
@@ -395,10 +416,87 @@ async function loadPortfolios() {
   const r = await (await fetch('/api/adjust/portfolios', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: dsId }) })).json();
   if (!r.ok) return;
   pfRaw = r.portfolios || [];
+  pfHasBudgets = !!r.hasBudgets;
   pfList = pfRaw.map((p) => ({ value: p.pfid || p.pfname, label: `${p.pfname || '(không tên)'}${p.pfid ? ' · ' + p.pfid : ''} (${p.count})` }));
   if (r.none) pfList.push({ value: '__none__', label: `— Không có portfolio (${r.none}) —` });
   renderChips(); // nhãn chip Portfolio cần tên portfolio
+  renderPfCard();
 }
+/* ===== BẢNG "PORTFOLIO ĐANG LỌC" (23/11/2026) =====
+   Có chip Portfolio name → hiện budget hiện tại (sheet Portfolios của file bulk) + số liệu campaign trong
+   window, sửa "Budget mới" ngay tại bảng → vào danh sách Thay đổi, xuất chung file bulk (sheet Portfolios). */
+const pfChipVals = () => (chips.find(c => c.lvl === 'camp' && c.f === 'pf')?.in || []).filter(v => v !== '__none__');
+function renderPfCard() {
+  const box = $('pfCard');
+  if (!box) return;
+  const vals = pfChipVals();
+  if (tab !== 'targets' || !dsId || !vals.length) { box.style.display = 'none'; return; }
+  const list = vals.map(v => pfRaw.find(p => (p.pfid || p.pfname) === v)).filter(Boolean);
+  const pending = new Map(pfBudgets.map(b => [b.pfid, b]));
+  const pfidOf = (p) => p.budget?.pfid || p.pfid || '';
+  let tot = { cur: 0, neu: 0, sp: 0, sa: 0, camp: 0, en: 0, bud: 0 };
+  const rows = list.map(p => {
+    const b = p.budget, id = pfidOf(p), pend = pending.get(id);
+    const curAmt = b ? b.amount : null;
+    tot.cur += curAmt || 0; tot.neu += (pend ? pend.amount : curAmt) || 0;
+    tot.sp += p.sp || 0; tot.sa += p.sa || 0; tot.camp += p.count; tot.en += p.enabled || 0; tot.bud += p.bud || 0;
+    const acos = p.sa > 0 ? p.sp / p.sa : null;
+    const editor = !b ? `<span class="hint" title="Sheet Portfolios của dataset không có portfolio này">—</span>`
+      : `<span style="display:inline-flex;gap:3px;align-items:center">
+          <button class="step" onclick="stepPfBudget('${esc(id)}',-10)" title="Giảm 10%">−10%</button>
+          <input type="text" inputmode="decimal" class="pfb ${pend ? 'edited' : ''}" data-pf="${esc(id)}" value="${pend ? (pend.amount ?? '') : (curAmt ?? '')}" placeholder="No Cap"
+            onchange="setPfBudget('${esc(id)}', this.value)" onkeydown="if(event.key==='Enter')this.blur()" title="Để trống = No Cap">
+          <button class="step" onclick="stepPfBudget('${esc(id)}',10)" title="Tăng 10%">+10%</button></span>`;
+    return `<tr>
+      <td class="nm" title="${esc(p.pfname)}">${esc(p.pfname || '(không tên)')}<div class="hint">${esc(id || '—')}</div></td>
+      <td>${b ? `${esc(b.state || '')}<div class="${b.inBudget === 'Out of Budget' ? 'ib-out' : 'ib-in'}" style="font-size:11px">${esc(b.inBudget || '')}</div>` : '—'}</td>
+      <td>${b ? `${esc(b.policy || '—')}<div class="hint">${b.start ? fmtYmd(b.start) : ''}${b.end ? ' → ' + fmtYmd(b.end) : ''}</div>` : '—'}</td>
+      <td><b>${b ? esc(pfBudLabel(curAmt)) : '—'}</b></td>
+      <td>${editor}</td>
+      <td>${p.enabled || 0}/${p.count}</td>
+      <td>${money(p.bud)}</td>
+      <td>${money(p.sp)}</td><td>${money(p.sa)}</td><td>${pct(acos)}</td></tr>`;
+  }).join('');
+  const nPend = list.filter(p => pending.has(pfidOf(p))).length;
+  box.innerHTML = `<h3>💼 Portfolio đang lọc (${list.length})
+      ${nPend ? `<span class="badge" style="background:#fff3d6;color:#8a5a00">${nPend} budget chờ xuất</span>` : ''}
+      <span class="hint" style="font-weight:400">sửa ô <b>Budget mới</b> → vào 📋 Thay đổi, xuất chung file bulk (sheet Portfolios)</span>
+      <span style="margin-left:auto;display:inline-flex;gap:6px;align-items:center;font-weight:400;font-size:12px">
+        Start Date khi xuất <input type="date" id="pfStart" value="${esc(pfStart)}" onchange="setPfStart(this.value)" style="padding:3px 6px" title="Trống = giữ Start Date hiện tại của từng portfolio">
+        ${pfStart ? `<span class="chip-clear" onclick="setPfStart('')">giữ ngày cũ</span>` : '<span class="hint">trống = giữ ngày cũ</span>'}
+      </span></h3>
+    ${pfHasBudgets ? '' : `<div class="hint" style="color:#9a6400;margin-bottom:6px">⚠️ Dataset này import trước khi tool đọc sheet Portfolios — chưa có budget hiện tại. Import lại file bulk (có sheet Portfolios) để xem và sửa budget.</div>`}
+    <div class="scroll" style="max-height:300px"><table><thead><tr>
+      <th class="l">Portfolio</th><th>Trạng thái</th><th>Policy · Ngày</th><th>Budget hiện tại</th><th>Budget mới</th>
+      <th title="Campaign đang chạy / tổng">Campaign</th><th title="Tổng Daily Budget các campaign đang chạy">Budget camp/ngày</th>
+      <th>Spend</th><th>Sales</th><th>ACoS</th></tr></thead>
+    <tbody>${rows}</tbody>
+    ${list.length > 1 ? `<tfoot><tr style="font-weight:700;background:#f0f3f9"><td class="l">Tổng</td><td></td><td></td><td>${money(tot.cur)}</td>
+      <td>${tot.neu !== tot.cur ? money(tot.neu) : ''}</td><td>${tot.en}/${tot.camp}</td><td>${money(tot.bud)}</td>
+      <td>${money(tot.sp)}</td><td>${money(tot.sa)}</td><td>${pct(tot.sa > 0 ? tot.sp / tot.sa : null)}</td></tr></tfoot>` : ''}
+    </table></div>`;
+  box.style.display = '';
+}
+window.setPfBudget = (pfid, raw) => {
+  const p = pfRaw.find(x => (x.budget?.pfid || x.pfid) === pfid);
+  if (!p || !p.budget) return;
+  const t = String(raw ?? '').trim().replace(',', '.').replace(/^\$/, '');
+  const amount = t === '' ? null : parseFloat(t);
+  if (t !== '' && (!isFinite(amount) || amount < 0)) { toast('❌ Budget phải là số ≥ 0 (để trống = No Cap)'); renderPfCard(); return; }
+  const val = amount === 0 ? null : amount === null ? null : Math.round(amount * 100) / 100;
+  pfBudgets = pfBudgets.filter(b => b.pfid !== pfid);
+  if (val !== (p.budget.amount ?? null)) pfBudgets.push({ pfid, name: p.budget.name || p.pfname, old: p.budget.amount ?? null, amount: val });
+  renderChanges(); renderPfCard();
+};
+window.stepPfBudget = (pfid, pctStep) => {
+  const p = pfRaw.find(x => (x.budget?.pfid || x.pfid) === pfid);
+  if (!p || !p.budget) return;
+  const cur = pfBudgets.find(b => b.pfid === pfid)?.amount ?? p.budget.amount;
+  if (!cur) { toast('Portfolio đang No Cap — gõ số tiền vào ô Budget mới'); return; }
+  setPfBudget(pfid, Math.max(0.01, Math.round(cur * (1 + pctStep / 100) * 100) / 100));
+};
+window.setPfStart = (v) => { pfStart = v || ''; saveLedger(); renderPfCard(); if (tab === 'changes') renderChangesTab(); };
+
 // File bulk Create cần Portfolio ID. Dataset cũ không lưu cột "Portfolio ID" → lấy dãy số dài
 // trong TÊN portfolio (quy ước đặt tên "... - 113687439046910"). Không tìm được thì để trống, gõ tay.
 const pfIdOf = (p) => {
@@ -496,6 +594,7 @@ async function refresh() {
   $('actionBar').style.display = plainMode ? 'none' : '';
   $('pgnBar').style.display = plainMode ? 'none' : '';
   $('tableArea').style.maxHeight = plainMode ? 'none' : '';
+  renderPfCard();
   if (tab === 'rules') return renderRulesTab();
   if (tab === 'changes') return renderChangesTab();
   if (!dsId) { $('tableArea').innerHTML = '<span class="hint">Import hoặc chọn dataset trước.</span>'; return; }
@@ -876,15 +975,17 @@ window.confirmPromote = async () => {
 };
 
 /* ===== Panel thay đổi + export ===== */
-function saveLedger() { if (dsId) localStorage.setItem('ppcw_adj_' + dsId, JSON.stringify({ edits, negatives, creates })); }
+function saveLedger() { if (dsId) localStorage.setItem('ppcw_adj_' + dsId, JSON.stringify({ edits, negatives, creates, pfBudgets, pfStart })); }
 function restoreLedger() {
-  try { const p = JSON.parse(localStorage.getItem('ppcw_adj_' + dsId)); edits = p.edits || []; negatives = p.negatives || []; creates = p.creates || []; }
-  catch { edits = []; negatives = []; creates = []; }
+  try { const p = JSON.parse(localStorage.getItem('ppcw_adj_' + dsId)); edits = p.edits || []; negatives = p.negatives || []; creates = p.creates || []; pfBudgets = p.pfBudgets || []; pfStart = p.pfStart || ''; }
+  catch { edits = []; negatives = []; creates = []; pfBudgets = []; pfStart = ''; }
 }
+const nChanges = () => edits.length + negatives.length + creates.length + pfBudgets.length;
+const pfBudLabel = (v) => v === null || v === undefined ? 'No Cap' : money(v);
 window.toggleChg = () => { chgHidden = !chgHidden; renderChanges(); };
 function renderChanges(opts = {}) {
   saveLedger();
-  const n = edits.length + negatives.length + creates.length;
+  const n = nChanges();
   $('tabChanges').textContent = `📋 Thay đổi${n ? ' (' + n + ')' : ''}`;
   if (tab === 'changes' && !opts.keepTab) renderChangesTab();
   if (!n) { $('chgPanel').style.display = 'none'; return; }
@@ -909,7 +1010,9 @@ function renderChanges(opts = {}) {
     edits.map((e, i) => `<div class="it"><span class="undo" onclick="undoEdit(${i})">✕</span>
       <span>${FIELD_LB[e.field] || e.field}: <b>${esc(e.old)}</b> → <b style="color:#7ef0a8">${esc(e.value)}</b> · ${esc(e.label)}${e.warn ? ` <span style="color:#ffb3b3" title="${esc(e.warn)}">⚠️</span>` : ''}</span></div>`).join('') +
     negatives.map((g, i) => `<div class="it"><span class="undo" onclick="undoNeg(${i})">✕</span>
-      <span><span class="badge" style="background:#334;color:#9fd8b0">Create</span> 🚫 ${g.mt === 'negativePhrase' ? 'Phrase' : 'Exact'}: <b>${esc(g.term)}</b> · ${esc((g.name || '').slice(0, 38))}</span></div>`).join('');
+      <span><span class="badge" style="background:#334;color:#9fd8b0">Create</span> 🚫 ${g.mt === 'negativePhrase' ? 'Phrase' : 'Exact'}: <b>${esc(g.term)}</b> · ${esc((g.name || '').slice(0, 38))}</span></div>`).join('') +
+    pfBudgets.map((b, i) => `<div class="it"><span class="undo" onclick="undoPfBudget(${i})">✕</span>
+      <span>💼 Budget portfolio: <b>${esc(pfBudLabel(b.old))}</b> → <b style="color:#7ef0a8">${esc(pfBudLabel(b.amount))}</b> · ${esc((b.name || b.pfid).slice(0, 38))}</span></div>`).join('');
   $('chgPanel').scrollTop = top;
 }
 /* ===== MODULE "THAY ĐỔI" — ngang cấp Campaigns & Targets / Search Terms =====
@@ -942,11 +1045,12 @@ function renderChangesTab() {
   area.innerHTML = `
     <div class="statgrid">
       <div class="stat"><b>${edits.length}</b><span>Sửa (Update)</span></div>
+      <div class="stat"><b>${pfBudgets.length}</b><span>Budget portfolio (Update)</span></div>
       <div class="stat"><b>${negatives.length}</b><span>Negative (Create)</span></div>
       <div class="stat"><b>${creates.length}</b><span>Campaign mới (Create)</span></div>
     </div>
     <div class="bulkbar">
-      <button class="btn-ok" style="padding:9px 18px" onclick="exportAll()" ${edits.length || negatives.length || creates.length ? '' : 'disabled'}>📦 Xuất file bulk (tất cả thay đổi)</button>
+      <button class="btn-ok" style="padding:9px 18px" onclick="exportAll()" ${nChanges() ? '' : 'disabled'}>📦 Xuất file bulk (tất cả thay đổi)</button>
       <span class="hint">1 file duy nhất: dòng Update (sửa) + dòng Create (negative + campaign mới) — Amazon đọc theo cột Operation</span>
       <span style="margin-left:auto"></span>
       <button class="btn-sm" style="background:#fde8e8;color:#c0392b" onclick="clearChanges()">🗑 Xoá toàn bộ danh sách</button>
@@ -966,6 +1070,18 @@ function renderChangesTab() {
       </tr></thead><tbody>${editRows}</tbody></table></div>` : '<span class="hint">Chưa có — sửa ở tab 🎯 Campaigns & Targets.</span>'}
     </div>
     <div class="chg-sec">
+      <h3>💼 Budget portfolio <span class="badge">${pfBudgets.length}</span>
+        <span class="hint" style="font-weight:400">xuất vào sheet <b>Portfolios</b> (Operation Update) cùng file · Start Date: ${pfStart ? '<b>' + esc(pfStart) + '</b> cho mọi dòng' : 'giữ ngày cũ của từng portfolio'}</span></h3>
+      ${pfBudgets.length ? `<div class="scroll" style="max-height:260px"><table><thead><tr>
+        <th style="width:28px"></th><th class="l">Portfolio</th><th>ID</th><th>Cũ → Mới</th>
+      </tr></thead><tbody>${pfBudgets.map((b, i) => `<tr>
+        <td><span class="undo" style="color:#c0392b;cursor:pointer;font-weight:700" onclick="undoPfBudget(${i})">✕</span></td>
+        <td class="l" style="max-width:420px;overflow:hidden;text-overflow:ellipsis" title="${esc(b.name)}">${esc(b.name)}</td>
+        <td class="hint">${esc(b.pfid)}</td>
+        <td><span class="diff-old">${esc(pfBudLabel(b.old))}</span> → <span class="diff-new">${esc(pfBudLabel(b.amount))}</span></td></tr>`).join('')}</tbody></table></div>`
+        : '<span class="hint">Chưa có — ở tab 🎯 Campaigns & Targets, thêm filter <b>Portfolio name</b> rồi sửa ô Budget mới trong bảng portfolio.</span>'}
+    </div>
+    <div class="chg-sec">
       <h3>🚫 Negative keyword (cấp ad group) <span class="badge">${negatives.length}</span></h3>
       ${negatives.length ? `<div class="scroll" style="max-height:300px"><table><thead><tr>
         <th style="width:28px"></th><th>Loại</th><th class="l">Term</th><th class="l">Ad group nguồn</th>
@@ -979,8 +1095,8 @@ window.editCreate = (i, field, v) => {
 };
 window.removeCreate = (i) => { creates.splice(i, 1); renderChanges(); };
 window.clearChanges = async () => {
-  if (!await confirmBox('Xoá toàn bộ danh sách đang chờ (sửa + negative + campaign mới)? Không thể hoàn tác.', '🗑 Xoá danh sách', 'Xoá hết')) return;
-  edits = []; negatives = []; creates = []; bulkUndo = [];
+  if (!await confirmBox('Xoá toàn bộ danh sách đang chờ (sửa + budget portfolio + negative + campaign mới)? Không thể hoàn tác.', '🗑 Xoá danh sách', 'Xoá hết')) return;
+  edits = []; negatives = []; creates = []; pfBudgets = []; bulkUndo = []; renderPfCard();
   renderChanges(); refresh();
   toast('🗑 Đã xoá toàn bộ danh sách thay đổi');
 };
@@ -989,6 +1105,7 @@ window.undoEdit = (i) => {
   syncEditedCells(); // khôi phục giá trị hiển thị + bỏ viền "đã sửa" + hiện lại dòng nếu đang ẩn dòng đã chỉnh
 };
 window.undoNeg = (i) => { negatives.splice(i, 1); renderChanges(); };
+window.undoPfBudget = (i) => { pfBudgets.splice(i, 1); renderChanges(); renderPfCard(); };
 
 // XUẤT GỘP: 1 file bulk cho TẤT CẢ thay đổi đang chờ — sửa (Update) + negative + campaign mới (Create).
 // Mọi nút xuất trong Adjust (module Thay đổi, bảng đen, thanh dưới bảng) đều gọi hàm này.
@@ -996,12 +1113,12 @@ async function doExport() {
   const setMsg = (cls, txt) => {
     for (const id of ['exportMsg', 'chgExportMsg', 'chgTabMsg']) { const el = $(id); if (el) { el.className = 'msg ' + cls; el.textContent = txt; } }
   };
-  if (!edits.length && !negatives.length && !creates.length) { setMsg('err', '❌ Chưa có thay đổi nào'); return; }
+  if (!nChanges()) { setMsg('err', '❌ Chưa có thay đổi nào'); return; }
   const warns = edits.filter(e => e.warn).length;
   if (warns && !await confirmBox(`Có <b>${warns}</b> giá trị ngoài ngưỡng an toàn (⚠️). Vẫn xuất file?`, '⚠️ Kiểm tra lại', 'Vẫn xuất')) return;
   setMsg('', '⏳ Đang tạo file...');
   const res = await fetch('/api/adjust/export-all', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ id: dsId, edits, negatives, creates }) });
+    body: JSON.stringify({ id: dsId, edits, negatives, creates, pfBudgets: pfBudgets.map(b => ({ ...b, start: pfStart.replace(/-/g, '') })) }) });
   if (!res.ok) {
     const e = await res.json().catch(() => ({}));
     setMsg('err', '❌ ' + (e.message || res.status));
@@ -1022,6 +1139,7 @@ async function doExport() {
     text: `<b>${info.rows}</b> dòng trong 1 file — upload vào Amazon Ads (Bulk operations):<br>
       • <b>${info.updateRows}</b> dòng Update (${nEdits} sửa) + Create negative (${negatives.length})<br>
       • <b>${info.createRows}</b> dòng Create campaign mới (${info.campaigns || 0} campaign / ${creates.length} keyword)
+      ${info.pfRows ? `<br>• <b>${info.pfRows}</b> dòng Update budget portfolio (sheet Portfolios)` : ''}
       ${info.missing && info.missing.length ? `<br>• ⚠️ Cột không có trong header dataset, đã bỏ: ${esc(info.missing.join(', '))}` : ''}
       <br><br><b>Áp dụng thay đổi</b> = lấy các giá trị đã sửa làm MẶC ĐỊNH mới (hết tô "đã sửa"); sửa thêm sau tính là sửa mới.`,
     okLabel: '✅ Áp dụng thay đổi', okClass: 'btn-ok',
@@ -1030,12 +1148,13 @@ async function doExport() {
   if (choice === true) {
     // Áp dụng vào dataset làm mặc định mới, rồi dọn danh sách chờ
     let r = {};
-    try { r = await (await fetch('/api/adjust/apply-edits', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: dsId, edits }) })).json(); } catch {}
+    try { r = await (await fetch('/api/adjust/apply-edits', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: dsId, edits, pfBudgets: pfBudgets.map(b => ({ ...b, start: pfStart.replace(/-/g, '') })) }) })).json(); } catch {}
     if (!r.ok) { alertBox('⚠️ Không áp dụng được: ' + esc(r.message || 'lỗi server') + '<br><span class="hint">Danh sách thay đổi vẫn được giữ.</span>', '❌ Áp dụng thất bại'); return; }
-    edits = []; negatives = []; creates = []; bulkUndo = []; renderChanges(); await refresh();
-    toast(`✅ Đã áp dụng ${r.applied} thay đổi làm mặc định mới`);
+    const nPf = pfBudgets.length;
+    edits = []; negatives = []; creates = []; pfBudgets = []; bulkUndo = []; renderChanges(); await loadPortfolios(); await refresh();
+    toast(`✅ Đã áp dụng ${r.applied} thay đổi${nPf ? ` + ${nPf} budget portfolio` : ''} làm mặc định mới`);
   } else if (choice === 'extra') {
-    edits = []; negatives = []; creates = []; bulkUndo = []; renderChanges(); refresh(); toast('🗑 Đã xoá danh sách thay đổi');
+    edits = []; negatives = []; creates = []; pfBudgets = []; bulkUndo = []; renderChanges(); renderPfCard(); refresh(); toast('🗑 Đã xoá danh sách thay đổi');
   }
 }
 window.doExport = doExport;
@@ -1266,10 +1385,16 @@ const applyChipsChange = () => { saveChips(); renderChips(); closeFPop(); page =
 window.removeChip = (i) => { chips.splice(i, 1); applyChipsChange(); };
 window.clearChips = () => { chips = []; entSel = []; saveEnt(); renderEntPills(); $('fQ').value = ''; if ($('fSku')) $('fSku').value = ''; applyChipsChange(); };
 const closeFPop = () => { $('fPop').style.display = 'none'; };
+// Popup neo theo nút "+ Thêm filter" (giữa thanh lọc) → khung rộng (Portfolio) tràn mép phải: dịch sang trái cho vừa
+function fitFPop() {
+  const el = $('fPop'); el.style.left = '0px';
+  const r = el.getBoundingClientRect(), over = r.right - (document.documentElement.clientWidth - 8);
+  if (over > 0) el.style.left = -Math.min(over, r.left - 8) + 'px';
+}
 function openFilterMenu() {
   $('fPop').innerHTML = FILTER_GROUPS.map(g => `<div class="fm-grp">${g.title} <span>— ${g.hint}</span></div>` +
     g.items.map(it => `<div class="fm-it ${chips.some(c => c.lvl === g.lvl && c.f === it.f) ? 'on' : ''}" onclick="openChipEditor('${g.lvl}','${it.f}')">${esc(it.label)}</div>`).join('')).join('');
-  $('fPop').style.display = 'block';
+  $('fPop').style.display = 'block'; fitFPop();
 }
 $('btnAddFilter').onclick = (e) => { e.stopPropagation(); $('fPop').style.display === 'block' ? closeFPop() : openFilterMenu(); };
 // composedPath chốt đường đi lúc bấm — mục menu bị thay innerHTML ngay trong onclick thì
@@ -1307,8 +1432,15 @@ window.openChipEditor = (lvl, f, idx) => {
       + (d.opts === ST_OPTS ? `<span class="chip-clear" onclick="document.querySelectorAll('.ceIn').forEach(x => x.checked = x.value !== 'archived')">All but archived</span>` : '');
   } else if (d.kind === 'pf') {
     const on = new Set(cur?.in || []);
-    body = `<input type="text" id="cePfQ" placeholder="Tìm portfolio (tên hoặc ID)" style="width:100%;margin-bottom:6px" oninput="filterPfList(this.value)">
-      <div id="cePfList" style="max-height:230px;overflow:auto">${pfList.map(p => `<label data-lb="${esc(p.label.toLowerCase())}"><input type="checkbox" class="ceIn" value="${esc(p.value)}" ${on.has(p.value) ? 'checked' : ''}> ${esc(p.label)}</label>`).join('') || '<span class="hint">Dataset không có portfolio</span>'}</div>`;
+    body = `<div style="width:min(520px,82vw)">
+      <div class="pf-ctl"><b id="cePfCnt"></b>
+        <span class="chip-clear" onclick="pfSelAll(false)" title="Bỏ tick mọi portfolio">✕ Bỏ chọn tất cả</span>
+        <span class="chip-clear" onclick="pfSelAll(true)" title="Tick mọi portfolio đang hiện trong danh sách (theo ô tìm)">☑ Chọn tất cả đang hiện</span>
+        <label><input type="checkbox" id="cePfOnly" onchange="filterPfList()"> Chỉ hiện đang chọn</label>
+      </div>
+      <div id="cePfSel" class="pf-sel"></div>
+      <input type="text" id="cePfQ" placeholder="Tìm portfolio (tên hoặc ID)" style="width:100%;margin-bottom:6px" oninput="filterPfList()">
+      <div id="cePfList" style="max-height:230px;overflow:auto" onchange="renderPfSel()">${pfList.map(p => `<label data-lb="${esc(p.label.toLowerCase())}"><input type="checkbox" class="ceIn" value="${esc(p.value)}" ${on.has(p.value) ? 'checked' : ''}> ${esc(p.label)}</label>`).join('') || '<span class="hint">Dataset không có portfolio</span>'}</div></div>`;
   } else {
     const v = cur?.v || 'hide';
     body = `<label><input type="radio" name="ceEd" value="hide" ${v === 'hide' ? 'checked' : ''}> Ẩn dòng đã sửa</label>
@@ -1323,12 +1455,41 @@ window.openChipEditor = (lvl, f, idx) => {
       <span style="flex:1"></span>
       <button class="btn-primary" style="padding:5px 14px" onclick="saveChip('${lvl}','${f}',${idx === undefined ? 'undefined' : idx})">Áp dụng</button></div>`;
   $('fPop').style.display = 'block';
+  if (d.kind === 'pf') renderPfSel();
+  fitFPop();
   const first = $('fPop').querySelector('#ceV, #cePfQ, #ceTV'); if (first) first.focus();
   // Gõ số vào ô thứ 2 mà chưa chọn phép so sánh → tự chọn "<" (trường hợp hay dùng nhất: cận trên)
   const v2 = $('fPop').querySelector('#ceV2'); if (v2) v2.addEventListener('input', () => { if (v2.value.trim() && !$('ceOp2').value) $('ceOp2').value = 'lt'; });
   $('fPop').querySelectorAll('#ceV, #ceV2, #ceTV').forEach(el => el.addEventListener('keydown', (e) => { if (e.key === 'Enter') saveChip(lvl, f, idx); }));
 };
-window.filterPfList = (q) => { q = q.toLowerCase(); document.querySelectorAll('#cePfList label').forEach(l => { l.style.display = !q || l.dataset.lb.includes(q) ? '' : 'none'; }); };
+window.filterPfList = () => {
+  const q = String($('cePfQ')?.value || '').toLowerCase(), only = !!$('cePfOnly')?.checked;
+  document.querySelectorAll('#cePfList label').forEach(l => {
+    const ok = (!q || l.dataset.lb.includes(q)) && (!only || l.querySelector('input').checked);
+    l.style.display = ok ? '' : 'none';
+  });
+};
+// Hàng tag "đang chọn" phía trên danh sách — bấm ✕ trên tag để bỏ chọn portfolio đó
+window.renderPfSel = () => {
+  const box = $('cePfSel'); if (!box) return;
+  const on = [...document.querySelectorAll('#cePfList .ceIn:checked')];
+  $('cePfCnt').textContent = on.length ? `Đang chọn ${on.length}/${pfList.length}` : `Chưa chọn (${pfList.length} portfolio)`;
+  box.innerHTML = on.map(x => {
+    const lb = pfList.find(p => p.value === x.value)?.label || x.value;
+    return `<span class="tag" title="${esc(lb)}"><span>${esc(lb)}</span><b onclick="pfUnsel(this)" data-v="${esc(x.value)}" title="Bỏ chọn">✕</b></span>`;
+  }).join('');
+  box.style.display = on.length ? '' : 'none';
+  if ($('cePfOnly')?.checked) filterPfList();
+};
+window.pfUnsel = (el) => {
+  const x = [...document.querySelectorAll('#cePfList .ceIn')].find(i => i.value === el.dataset.v);
+  if (x) x.checked = false;
+  renderPfSel();
+};
+window.pfSelAll = (on) => {
+  document.querySelectorAll('#cePfList label').forEach(l => { if (!on || l.style.display !== 'none') l.querySelector('input').checked = on; });
+  renderPfSel();
+};
 window.saveChip = (lvl, f, idx) => {
   const d = grpOf(lvl).items.find(i => i.f === f);
   const err = (m) => { $('ceErr').textContent = m; };
@@ -1354,7 +1515,11 @@ window.saveChip = (lvl, f, idx) => {
       for (const [l, ls] of lo) for (const [h, hs] of hi) if (l > h || (l === h && (ls || hs))) return err('Hai điều kiện không có giá trị nào thoả — kiểm tra lại');
     }
   } else if (d.kind === 'edited') c.v = document.querySelector('input[name="ceEd"]:checked')?.value || 'hide';
-  else { c.in = [...document.querySelectorAll('.ceIn:checked')].map(x => x.value); if (!c.in.length) return err('Chọn ít nhất 1 mục'); }
+  else {
+    c.in = [...document.querySelectorAll('.ceIn:checked')].map(x => x.value);
+    // Bỏ chọn tất cả portfolio rồi Áp dụng = tắt filter Portfolio (thay vì báo lỗi)
+    if (!c.in.length) return d.kind === 'pf' && idx !== undefined ? removeChip(idx) : err('Chọn ít nhất 1 mục');
+  }
   if (idx !== undefined && chips[idx]) chips[idx] = c; else chips.push(c);
   applyChipsChange();
 };

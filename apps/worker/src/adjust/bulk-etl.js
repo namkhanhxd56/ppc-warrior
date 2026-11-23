@@ -208,6 +208,30 @@ export function etlBulk(buffer, filename) {
     }
   }
 
+  /* ===== Portfolios (budget hiện tại) — cho bảng "Portfolio đang lọc" + sửa budget (23/11/2026) =====
+     Dataset import trước ngày này không có trường portfolios → UI báo import lại file bulk. */
+  const portfolios = [];
+  const pfSheet = wb.Sheets["Portfolios"];
+  if (pfSheet) {
+    fixDenseRef(pfSheet);
+    const pr = XLSX.utils.sheet_to_json(pfSheet, { header: 1, defval: "", raw: false });
+    const h3 = (pr[0] || []).map((x) => String(x).trim());
+    const c3 = (n) => h3.indexOf(n);
+    const k = {
+      id: c3("Portfolio ID"), name: c3("Portfolio Name"), amount: c3("Budget Amount"), cur: c3("Budget Currency Code"),
+      policy: c3("Budget Policy"), start: c3("Budget Start Date"), end: c3("Budget End Date"),
+      state: c3("State (Informational only)"), inb: c3("In Budget (Informational only)")
+    };
+    const g = (r, i) => (i < 0 ? "" : String(r[i] ?? "").trim());
+    for (let i = 1; i < pr.length; i++) {
+      const r = pr[i], pfid = g(r, k.id);
+      if (!pfid) continue;
+      const a = parseFloat(g(r, k.amount));
+      portfolios.push({ pfid, name: g(r, k.name), amount: isFinite(a) ? a : null, cur: g(r, k.cur) || "USD",
+        policy: g(r, k.policy), start: g(r, k.start), end: g(r, k.end), state: g(r, k.state), inBudget: g(r, k.inb) });
+    }
+  }
+
   // Window từ tên file: bulk-{account}-{start}-{end}-{ts}.xlsx (quy tắc ETL đã chốt: date = [start, end))
   const m = String(filename).match(/(\d{8})-(\d{8})/);
   const stats = {};
@@ -224,7 +248,7 @@ export function etlBulk(buffer, filename) {
       orders: records.filter((r) => r.e === "Campaign").reduce((n, r) => n + r.or, 0)
     },
     header: headers.SP || [], headers, sheetNames,
-    records, terms
+    records, terms, portfolios
   };
 }
 
@@ -463,9 +487,13 @@ export function listPortfolios(records) {
     if (r.e !== "Campaign") continue;
     if (!r.pfid && !r.pfname) { none++; continue; }
     const key = r.pfid || r.pfname;
-    if (!map.has(key)) map.set(key, { pfid: r.pfid, pfname: r.pfname, count: 0 });
-    map.get(key).count++;
+    if (!map.has(key)) map.set(key, { pfid: r.pfid, pfname: r.pfname, count: 0, enabled: 0, bud: 0, sp: 0, sa: 0, or: 0 });
+    const m = map.get(key);
+    m.count++;
+    m.sp += r.sp || 0; m.sa += r.sa || 0; m.or += r.or || 0;
+    if (r.st === "enabled") { m.enabled++; m.bud += r.bud || 0; } // tổng budget/ngày các campaign đang chạy
   }
+  for (const m of map.values()) { m.sp = r2(m.sp); m.sa = r2(m.sa); m.bud = r2(m.bud); }
   return { portfolios: [...map.values()].sort((a, b) => b.count - a.count), none };
 }
 
