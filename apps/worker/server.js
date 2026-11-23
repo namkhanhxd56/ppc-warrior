@@ -23,7 +23,7 @@ import * as auth from "./src/auth.js";
 import { als, runAsUser, userDataDir } from "./src/db/user-context.js";
 
 dotenv.config();
-export const APP_VERSION = "0.50.1"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
+export const APP_VERSION = "0.50.2"; // tăng mỗi lần sửa API — UI đối chiếu để cảnh báo quên restart
 
 // RUN_MODE:
 // - "local" (mặc định): bấm Kiểm tra là scrape NGAY trên máy này (dùng 1 người, chạy local)
@@ -1592,8 +1592,10 @@ const uploadBig = multer({ dest: "./data/uploads", limits: { fileSize: 300 * 102
 /* ===== LỌC BULK THEO ASIN MÌNH QUẢN LÝ (src/bulk-filter.js) =====
    Tải file bulk Amazon lên → bỏ mọi campaign/portfolio/search term không thuộc ASIN của mình.
    ASIN "của mình" = Danh mục Tài sản của tài khoản đang đăng nhập (lọc thêm theo Acc nếu chọn)
-   và/hoặc danh sách dán tay. File kết quả lưu tạm trong phân vùng user, giữ 5 lần gần nhất. */
-const BF_DIR = () => `${userDataDir()}/bulk-filter`;
+   và/hoặc danh sách dán tay.
+   Trả file NGAY trong response (báo cáo nằm ở header X-Filter-Report). Bản đầu lưu tạm file trên
+   server rồi cho tải qua link riêng → server khởi động lại (deploy / hết RAM) là link báo "hết hạn".
+   filterBulk chạy đồng bộ → nhiều người lọc cùng lúc thì xử lý lần lượt, RAM không cộng dồn. */
 app.post("/api/bulk-filter", (req, res, next) => uploadBig.single("file")(req, res, next), (req, res) => {
   const tmp = req.file?.path;
   try {
@@ -1608,29 +1610,17 @@ app.post("/api/bulk-filter", (req, res, next) => uploadBig.single("file")(req, r
     const portfolioIds = cat.map((p) => p.portfolioId).filter(Boolean);
     const { buffer, report } = filterBulk(fs.readFileSync(tmp), { asins, skuToAsin, portfolioIds });
 
-    fs.mkdirSync(BF_DIR(), { recursive: true });
-    const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
     const base = String(req.file.originalname || "bulk.xlsx").replace(/\.xlsx$/i, "").replace(/[^\w.-]+/g, "_").slice(0, 80);
     const name = `${base}-ASIN-cua-toi.xlsx`;
-    fs.writeFileSync(`${BF_DIR()}/${id}.xlsx`, buffer);
-    fs.writeFileSync(`${BF_DIR()}/${id}.json`, JSON.stringify({ name, at: new Date().toISOString(), report }));
-    // dọn: chỉ giữ 5 lần gần nhất
-    const olds = fs.readdirSync(BF_DIR()).filter((f) => f.endsWith(".json")).sort().reverse().slice(5);
-    for (const f of olds) for (const ext of [".json", ".xlsx"]) fs.rmSync(`${BF_DIR()}/${f.replace(/\.json$/, ext)}`, { force: true });
-    res.json({ ok: true, id, name, size: buffer.length, report });
+    // Header có giới hạn dung lượng → danh sách ASIN thiếu chỉ gửi tối đa 300 mã (kèm tổng số)
+    const rep = { ...report, mineMissingCount: report.mineMissing.length, mineMissing: report.mineMissing.slice(0, 300) };
+    res.setHeader("Content-Disposition", `attachment; filename="${name}"`);
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("X-Filter-Report", encodeURIComponent(JSON.stringify({ name, report: rep })));
+    res.send(buffer);
   } catch (e) {
     res.status(400).json({ ok: false, message: e.message });
   } finally { if (tmp) fs.rmSync(tmp, { force: true }); }
-});
-app.get("/api/bulk-filter/:id", (req, res) => {
-  const id = String(req.params.id).replace(/[^a-z0-9]/g, "");
-  const f = `${BF_DIR()}/${id}.xlsx`;
-  if (!id || !fs.existsSync(f)) return res.status(404).json({ ok: false, message: "File đã hết hạn — lọc lại" });
-  let name = "bulk-ASIN-cua-toi.xlsx";
-  try { name = JSON.parse(fs.readFileSync(`${BF_DIR()}/${id}.json`, "utf8")).name || name; } catch {}
-  res.setHeader("Content-Disposition", `attachment; filename="${name}"`);
-  res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-  res.send(fs.readFileSync(f));
 });
 
 function adjustIndex() {

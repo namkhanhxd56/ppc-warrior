@@ -158,10 +158,11 @@ $("drop").addEventListener("drop", (e) => pick(e.dataTransfer.files[0]));
 $("useCat").onchange = refresh;
 $("paste").oninput = refresh;
 
+let lastUrl = null;
 const KIND = { campaign: "Campaign", portfolio: "Portfolio", searchterm: "Search term" };
 $("run").onclick = async () => {
   $("run").disabled = true;
-  $("msg").className = "msg"; $("msg").innerHTML = `<span class="spin"></span>Đang tải lên và lọc… file lớn mất khoảng 10–30 giây`;
+  $("msg").className = "msg"; $("msg").innerHTML = `<span class="spin"></span>Đang tải lên và lọc… file 20MB mất khoảng 10–20 giây`;
   $("result").hidden = true;
   const fd = new FormData();
   fd.append("useCatalog", $("useCat").checked ? "1" : "0");
@@ -169,12 +170,22 @@ $("run").onclick = async () => {
   fd.append("asins", pastedAsins().join(","));
   fd.append("file", file);
   try {
-    const r = await fetch("/api/bulk-filter", { method: "POST", body: fd }).then((x) => x.json());
-    if (!r.ok) throw new Error(r.message || "Lọc không thành công");
+    let x;
+    try { x = await fetch("/api/bulk-filter", { method: "POST", body: fd }); }
+    catch { throw new Error("Mất kết nối tới server khi đang lọc. Đợi khoảng 1 phút rồi bấm Lọc file lại"); }
+    if (!x.ok) {
+      // Lỗi do tool trả JSON có message; trang lỗi HTML (502/503) = server sập/đang khởi động lại
+      let m = "";
+      try { m = (await x.clone().json()).message || ""; } catch {}
+      throw new Error(m || `Server không phản hồi (mã ${x.status}), có thể đang khởi động lại. Đợi khoảng 1 phút rồi bấm Lọc file lại`);
+    }
+    const info = JSON.parse(decodeURIComponent(x.headers.get("X-Filter-Report") || "%7B%7D"));
+    const blob = await x.blob();
+    if (!info.report) throw new Error("Server trả kết quả không đầy đủ. Bấm Lọc file lại");
     $("msg").className = "msg ok"; $("msg").textContent = "Đã lọc xong.";
-    render(r);
+    render({ ...info, blob });
   } catch (e) {
-    $("msg").className = "msg err"; $("msg").textContent = `${e.message}. Kiểm tra lại file rồi bấm Lọc file lần nữa.`;
+    $("msg").className = "msg err"; $("msg").textContent = e.message;
   } finally { refresh(); }
 };
 
@@ -186,10 +197,14 @@ function render(r) {
   let html = `<table><thead><tr><th class="l">Sheet</th><th>Dòng gốc</th><th>Còn lại</th><th>Đã bỏ</th></tr></thead><tbody>${rows}</tbody></table>
     <p class="sub" style="margin:6px 0 0">Giữ <b>${fmt(c.kept)}</b>/${fmt(c.total)} campaign — ${fmt(c.by.ad)} nhận theo Product Ad, ${fmt(c.by.name)} theo tên campaign, ${fmt(c.by.pf)} theo portfolio.
     Đã bỏ campaign của ${fmt(R.othersRemoved)} ASIN khác. ASIN của bạn có campaign trong file: ${fmt(R.mineFound)}/${fmt(R.mine)}.</p>`;
-  if (R.mineMissing.length) html += `<div class="warn">⚠️ ${fmt(R.mineMissing.length)} ASIN của bạn không có campaign nào trong file này (chưa chạy ads, hoặc thuộc acc khác):
-    <div class="mono" style="margin-top:4px">${R.mineMissing.map(esc).join(", ")}</div></div>`;
-  html += `<div class="row" style="margin-top:14px"><a class="btn-ok" href="/api/bulk-filter/${encodeURIComponent(r.id)}">⬇️ Tải file đã lọc</a>
-    <span class="sub" style="margin:0">${esc(r.name)} · ${(r.size / 1048576).toFixed(1)} MB</span></div>`;
+  const missN = R.mineMissingCount ?? R.mineMissing.length;
+  if (missN) html += `<div class="warn">⚠️ ${fmt(missN)} ASIN của bạn không có campaign nào trong file này (chưa chạy ads, hoặc thuộc acc khác):
+    <div class="mono" style="margin-top:4px">${R.mineMissing.map(esc).join(", ")}${missN > R.mineMissing.length ? ", …" : ""}</div></div>`;
+  // File nằm sẵn trong trình duyệt (blob) — tải lúc nào cũng được, không còn "hết hạn" khi server khởi động lại
+  if (lastUrl) URL.revokeObjectURL(lastUrl);
+  lastUrl = URL.createObjectURL(r.blob);
+  html += `<div class="row" style="margin-top:14px"><a class="btn-ok" href="${lastUrl}" download="${esc(r.name)}">⬇️ Tải file đã lọc</a>
+    <span class="sub" style="margin:0">${esc(r.name)} · ${(r.blob.size / 1048576).toFixed(1)} MB</span></div>`;
   $("resBody").innerHTML = html;
   $("result").hidden = false;
   $("result").scrollIntoView({ behavior: "smooth", block: "start" });
